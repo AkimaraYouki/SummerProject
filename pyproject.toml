@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open_duck_mini_isaaclab"
+version = "0.1.0"
+description = "Isaac Lab training pipeline for the Open Duck Mini V2 biped (port of Open_Duck_Playground's MJX joystick task)."
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "numpy",
+    "gymnasium",
+    # isaaclab / isaacsim are NOT listed here: they are expected to be
+    # provided by a separately installed IsaacLab checkout on the training
+    # machine (see README.md). Declaring them here would make this package
+    # unable to `pip install` on machines without Isaac Sim (e.g. this Mac,
+    # for authoring/reviewing code and running the CPU-only unit tests).
+]
+
+[project.optional-dependencies]
+# only needed to run scripts/generate_reference_motion.sh
+reference-motion = ["placo", "scipy"]
+# only needed to run scripts/mujoco_infer.py
+sim2real-check = ["mujoco", "onnxruntime"]
+
+[tool.setuptools.packages.find]
+where = ["source"]

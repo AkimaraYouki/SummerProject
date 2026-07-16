@@ -1,0 +1,113 @@
+"""Torch port of Open_Duck_Playground's playground/common/rewards.py
+(the subset actually active in joystick.py's reward dict) plus
+playground/open_duck_mini_v2/custom_rewards.py::reward_imitation.
+
+All functions are batched: every tensor argument is [N, ...] and every
+function returns an [N] tensor. Every formula/constant below is copied
+verbatim from the JAX source — see docs/decisions.md for the one place
+(reward_imitation's leg-joint index alignment) that needed real derivation
+rather than direct transcription.
+"""
+
+from __future__ import annotations
+
+import torch
+
+from open_duck_mini_isaaclab.joint_order import ACT_LEG_JOINT_IDX, REF_LEG_JOINT_IDX
+
+
+def reward_tracking_lin_vel(commands: torch.Tensor, local_lin_vel: torch.Tensor, tracking_sigma: float) -> torch.Tensor:
+    """commands: [N,>=2], local_lin_vel: [N,>=2] (base-frame x,y linear velocity)."""
+    y_tol = 0.1
+    error_x = (commands[:, 0] - local_lin_vel[:, 0]) ** 2
+    error_y = torch.clamp(torch.abs(local_lin_vel[:, 1] - commands[:, 1]) - y_tol, min=0.0)
+    lin_vel_error = error_x + error_y**2
+    return torch.exp(-lin_vel_error / tracking_sigma)
+
+
+def reward_tracking_ang_vel(commands: torch.Tensor, ang_vel: torch.Tensor, tracking_sigma: float) -> torch.Tensor:
+    """commands: [N,>=3], ang_vel: [N,>=3] (base-frame gyro, z = yaw rate)."""
+    ang_vel_error = (commands[:, 2] - ang_vel[:, 2]) ** 2
+    return torch.exp(-ang_vel_error / tracking_sigma)
+
+
+def cost_torques(torques: torch.Tensor) -> torch.Tensor:
+    return torch.sum(torques**2, dim=-1)
+
+
+def cost_action_rate(act: torch.Tensor, last_act: torch.Tensor) -> torch.Tensor:
+    return torch.sum((act - last_act) ** 2, dim=-1)
+
+
+def reward_alive(num_envs: int, device: torch.device) -> torch.Tensor:
+    return torch.ones(num_envs, device=device)
+
+
+def cost_stand_still(
+    commands: torch.Tensor,
+    qpos: torch.Tensor,
+    qvel: torch.Tensor,
+    default_pose: torch.Tensor,
+) -> torch.Tensor:
+    """ignore_head=False path only (the one joystick.py actually calls)."""
+    cmd_norm = torch.linalg.norm(commands[:, :3], dim=-1)
+    pose_cost = torch.sum(torch.abs(qpos - default_pose), dim=-1)
+    vel_cost = torch.sum(torch.abs(qvel), dim=-1)
+    return (pose_cost + vel_cost) * (cmd_norm < 0.01).float()
+
+
+def reward_imitation(
+    base_lin_vel_w: torch.Tensor,  # [N,3] — see docs/decisions.md frame note below
+    base_ang_vel_w: torch.Tensor,  # [N,3]
+    joints_qpos: torch.Tensor,  # [N,14] actuator order (joint_order.ACTUATOR_JOINT_NAMES)
+    joints_qvel: torch.Tensor,  # [N,14]
+    contacts: torch.Tensor,  # [N,2] bool/float, left then right
+    reference_frame: torch.Tensor,  # [N,40], see poly_reference_motion.py docstring
+    commands: torch.Tensor,  # [N,7]
+) -> torch.Tensor:
+    """Direct port of custom_rewards.py::reward_imitation.
+
+    Frame note: the reference frame's linear/angular velocity slices were
+    recorded in the WORLD frame by the reference-motion generator
+    (gait_generator.py's `world_linear_vel`/`world_angular_vel`). We compare
+    against Isaac Lab's `root_lin_vel_w`/`root_ang_vel_w` (also world frame)
+    for that reason. Playground's own MJX version instead reads MuJoCo's
+    raw floating-base qvel, whose angular component is expressed in the
+    body's local frame per MuJoCo's freejoint convention — a likely
+    frame mismatch already present in the original code, not something
+    reproduced here. If reward curves look off during the Stage 3 Ubuntu
+    smoke test, this is the first place to check.
+    """
+    w_lin_vel_xy = 1.0
+    w_lin_vel_z = 1.0
+    w_ang_vel_xy = 0.5
+    w_ang_vel_z = 0.5
+    w_joint_pos = 15.0
+    w_joint_vel = 1.0e-3
+    w_contact = 1.0
+
+    cmd_norm = torch.linalg.norm(commands[:, :3], dim=-1)
+
+    ref_joint_pos = reference_frame[:, 0:16][:, REF_LEG_JOINT_IDX]  # [N,10]
+    ref_joint_vel = reference_frame[:, 16:32][:, REF_LEG_JOINT_IDX]  # [N,10]
+    ref_foot_contacts = reference_frame[:, 32:34]  # [N,2]
+    ref_lin_vel = reference_frame[:, 34:37]  # [N,3]
+    ref_ang_vel = reference_frame[:, 37:40]  # [N,3]
+
+    joint_pos = joints_qpos[:, ACT_LEG_JOINT_IDX]  # [N,10]
+    joint_vel = joints_qvel[:, ACT_LEG_JOINT_IDX]  # [N,10]
+
+    lin_vel_xy_rew = torch.exp(-8.0 * torch.sum((base_lin_vel_w[:, :2] - ref_lin_vel[:, :2]) ** 2, dim=-1)) * w_lin_vel_xy
+    lin_vel_z_rew = torch.exp(-8.0 * (base_lin_vel_w[:, 2] - ref_lin_vel[:, 2]) ** 2) * w_lin_vel_z
+    ang_vel_xy_rew = torch.exp(-2.0 * torch.sum((base_ang_vel_w[:, :2] - ref_ang_vel[:, :2]) ** 2, dim=-1)) * w_ang_vel_xy
+    ang_vel_z_rew = torch.exp(-2.0 * (base_ang_vel_w[:, 2] - ref_ang_vel[:, 2]) ** 2) * w_ang_vel_z
+
+    joint_pos_rew = -torch.sum((joint_pos - ref_joint_pos) ** 2, dim=-1) * w_joint_pos
+    joint_vel_rew = -torch.sum((joint_vel - ref_joint_vel) ** 2, dim=-1) * w_joint_vel
+
+    ref_contacts_bool = (ref_foot_contacts > 0.5).float()
+    contact_rew = torch.sum((contacts == ref_contacts_bool).float(), dim=-1) * w_contact
+
+    reward = lin_vel_xy_rew + lin_vel_z_rew + ang_vel_xy_rew + ang_vel_z_rew + joint_pos_rew + joint_vel_rew + contact_rew
+    reward = reward * (cmd_norm > 0.01).float()
+    return torch.nan_to_num(reward)
