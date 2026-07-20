@@ -252,4 +252,16 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     imitation_scale = 1.0
 
     # ── reference motion (imitation) ────────────────────────────────────
+    # Stage 1 (current): pure RL, no reference motion — use_imitation=False.
+    # PolyReferenceMotion is not loaded (reference_motion_pkl need not exist
+    # yet) and the "imitation" reward term is omitted entirely, not just
+    # zero-weighted. Stage 2: generate reference_motion_pkl via
+    # scripts/generate_reference_motion.sh and flip this to True.
+    use_imitation: bool = False
     reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/polynomial_coefficients.pkl"
+    # Gait-phase clock period (env steps), used for the imitation_phase
+    # observation channel when use_imitation=False (no PolyReferenceMotion
+    # loaded to supply nb_steps_in_period). Purely a periodic clock signal
+    # in that case — has no effect on reward, only lets the policy sense
+    # gait phase if it finds that useful on its own.
+    gait_period_steps: int = 50

@@ -14,6 +14,15 @@ final 101-dim `state` observation it returns (the hstack that builds
 `state` omits it) — it's dead code in the source. This port does not
 reproduce that dead computation.
 
+Staged training note: `cfg.use_imitation` gates the reference-motion
+subsystem (see joystick_env_cfg.py). When False (Stage 1, current default),
+`PolyReferenceMotion` is never instantiated — `cfg.reference_motion_pkl`
+need not exist — and the "imitation" reward term is omitted from `_get_rewards`
+entirely rather than zero-weighted. The 101-dim observation layout is
+unchanged either way: the imitation_phase (cos, sin) channel still runs off
+a periodic gait-phase counter, just driven by `cfg.gait_period_steps` instead
+of the reference motion's own period.
+
 Step ordering note: DirectRLEnv's base `step()` calls `_get_dones()`, then
 `_get_rewards()`, then (for terminated envs) `_reset_idx()`, then interval
 events, then `_get_observations()` last. This env's `_get_rewards` relies on
@@ -114,10 +123,19 @@ class JoystickEnv(DirectRLEnv):
             else:
                 self._joint_pos_noise_scale[idx] = cfg.noise_scale_head_pos
 
-        pkl_path = cfg.reference_motion_pkl
-        if not os.path.isabs(pkl_path):
-            pkl_path = os.path.join(_REPO_ROOT, pkl_path)
-        self._prm = PolyReferenceMotion(pkl_path, device=dev)
+        # Stage 1 (use_imitation=False): skip loading PolyReferenceMotion
+        # entirely — reference_motion_pkl need not exist yet. The gait-phase
+        # observation channel still needs *a* period to divide by, so it
+        # falls back to cfg.gait_period_steps instead of prm.nb_steps_in_period.
+        if cfg.use_imitation:
+            pkl_path = cfg.reference_motion_pkl
+            if not os.path.isabs(pkl_path):
+                pkl_path = os.path.join(_REPO_ROOT, pkl_path)
+            self._prm = PolyReferenceMotion(pkl_path, device=dev)
+            self._gait_period_steps = self._prm.nb_steps_in_period
+        else:
+            self._prm = None
+            self._gait_period_steps = cfg.gait_period_steps
         self._current_reference_motion = torch.zeros(n, 40, device=dev)
 
     def _setup_scene(self):
@@ -171,11 +189,13 @@ class JoystickEnv(DirectRLEnv):
         max_delta = self.cfg.max_motor_velocity * self.step_dt
         self._motor_targets = torch.clamp(target, prev - max_delta, prev + max_delta)
 
-        # advance imitation phase
-        self._imitation_i = (self._imitation_i + 1) % self._prm.nb_steps_in_period
-        self._current_reference_motion = self._prm.get_reference_motion(
-            self._command[:, 0], self._command[:, 1], self._command[:, 2], self._imitation_i
-        )
+        # advance gait phase (drives the imitation_phase observation always;
+        # drives the reference-motion lookup only when use_imitation=True)
+        self._imitation_i = (self._imitation_i + 1) % self._gait_period_steps
+        if self.cfg.use_imitation:
+            self._current_reference_motion = self._prm.get_reference_motion(
+                self._command[:, 0], self._command[:, 1], self._command[:, 2], self._imitation_i
+            )
 
         # command resampling every `command_resample_steps` env steps
         resample_mask = (self.episode_length_buf % self.cfg.command_resample_steps == 0) & (self.episode_length_buf > 0)
@@ -204,7 +224,7 @@ class JoystickEnv(DirectRLEnv):
 
         contact = self._get_foot_contact()
 
-        phase = 2.0 * torch.pi * self._imitation_i.float() / self._prm.nb_steps_in_period
+        phase = 2.0 * torch.pi * self._imitation_i.float() / self._gait_period_steps
         imitation_phase = torch.stack([torch.cos(phase), torch.sin(phase)], dim=-1)
 
         state = torch.cat(
@@ -254,18 +274,24 @@ class JoystickEnv(DirectRLEnv):
             "torques": cost_torques(self._robot.data.applied_torque[:, self._joint_ids]) * cfg.torques_scale,
             "action_rate": cost_action_rate(self._actions, self._last_act) * cfg.action_rate_scale,
             "alive": reward_alive(self.num_envs, self.device) * cfg.alive_scale,
-            "imitation": reward_imitation(
-                self._robot.data.root_lin_vel_w,
-                self._robot.data.root_ang_vel_w,
-                joint_pos,
-                joint_vel,
-                contact,
-                self._current_reference_motion,
-                self._command,
-            )
-            * cfg.imitation_scale,
             "stand_still": cost_stand_still(self._command, joint_pos, joint_vel, default_joint_pos) * cfg.stand_still_scale,
         }
+        # Stage 1 (use_imitation=False): omitted entirely, not just
+        # zero-weighted — reward_imitation would divide-by-nothing-useful
+        # against an all-zero self._current_reference_motion otherwise.
+        if cfg.use_imitation:
+            terms["imitation"] = (
+                reward_imitation(
+                    self._robot.data.root_lin_vel_w,
+                    self._robot.data.root_ang_vel_w,
+                    joint_pos,
+                    joint_vel,
+                    contact,
+                    self._current_reference_motion,
+                    self._command,
+                )
+                * cfg.imitation_scale
+            )
 
         reward = torch.sum(torch.stack(list(terms.values())), dim=0) * dt
         return torch.clamp(reward, 0.0, 10000.0)
@@ -322,6 +348,7 @@ class JoystickEnv(DirectRLEnv):
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
         self._motor_targets[env_ids] = joint_pos[:, self._joint_ids]
-        self._current_reference_motion[env_ids] = self._prm.get_reference_motion(
-            self._command[env_ids, 0], self._command[env_ids, 1], self._command[env_ids, 2], self._imitation_i[env_ids]
-        )
+        if self.cfg.use_imitation:
+            self._current_reference_motion[env_ids] = self._prm.get_reference_motion(
+                self._command[env_ids, 0], self._command[env_ids, 1], self._command[env_ids, 2], self._imitation_i[env_ids]
+            )
