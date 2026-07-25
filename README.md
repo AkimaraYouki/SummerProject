@@ -21,7 +21,8 @@ pip install -e .
    ```bash
    ./scripts/convert_urdf.sh
    ```
-   `assets/robot/open_duck_mini_v2/robot.urdf`를 읽어 `assets/usd/open_duck_mini_v2.usd`를 생성합니다.
+   `robot/robot.urdf`(OnShape에서 `onshape-to-robot`으로 뽑은 것 — `docs/onshape_import.md` 참고)를
+   읽어 `robot/usd/open_duck_mini_v2.usd`를 생성합니다. 입력·출력 전부 `robot/` 안에 모여있습니다.
 
 2. **참조 동작(모방학습용) 생성** (Mac에서 시도 가능, 안 되면 우분투에서)
    ```bash

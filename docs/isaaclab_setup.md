@@ -62,7 +62,9 @@ ModuleNotFoundError: No module named 'pkg_resources'
 ## 검증된 결과 (2026-07-25)
 
 설치 후 `ISAACLAB_PATH=~/IsaacLab ./scripts/convert_urdf.sh --headless`로 `robot/robot.urdf`를
-`assets/usd/open_duck_mini_v2.usd`로 성공적으로 변환함.
+`robot/usd/open_duck_mini_v2.usd`로 성공적으로 변환함. (출력 경로는 원래 최상위 `assets/usd/`였다가,
+모든 임포트 결과물을 한곳에 모으기 위해 `robot/usd/`로 옮김 — `robot/`가 이제 URDF·메시·USD 전부의
+캐노니컬 위치.)
 
 **한 가지 주의(해결됨, 2026-07-25 같은 날 후속조치)**: 첫 변환 로그엔
 ```

@@ -2,8 +2,9 @@
 # Ubuntu-only: requires an Isaac Sim / Isaac Lab install.
 #
 # Converts robot/robot.urdf (generated via onshape-to-robot — see
-# docs/onshape_import.md) into assets/usd/open_duck_mini_v2.usd using
-# IsaacLab's UrdfConverter.
+# docs/onshape_import.md) into robot/usd/open_duck_mini_v2.usd using
+# IsaacLab's UrdfConverter. Output lives under robot/ alongside the URDF and
+# meshes so everything from a given OnShape import stays in one place.
 #
 # --joint-damping is the Dynamixel XM430's measured viscous friction
 # (friction_viscous, "m4" model) from the BAM actuator characterization at
@@ -29,7 +30,7 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 URDF_PATH="$REPO_ROOT/robot/robot.urdf"
-OUTPUT_USD="$REPO_ROOT/assets/usd/open_duck_mini_v2.usd"
+OUTPUT_USD="$REPO_ROOT/robot/usd/open_duck_mini_v2.usd"
 
 mkdir -p "$(dirname "$OUTPUT_USD")"
 

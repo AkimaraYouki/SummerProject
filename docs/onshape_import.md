@@ -12,12 +12,14 @@ Isaac Sim의 OnShape 임포터는 `docs/webrtc_streaming.md`에 기록된 대로
 robot/
 ├── config.json   # onshape-to-robot 설정 (어셈블리 URL 등)
 ├── robot.urdf    # 생성된 URDF
-└── assets/       # 메시(STL) 파일들
+├── assets/       # 메시(STL) 파일들
+└── usd/          # convert_urdf.sh가 생성하는 USD (open_duck_mini_v2.usd) — .gitignore 대상
 ```
 
-`scripts/convert_urdf.sh`가 이 위치(`robot/robot.urdf`)를 그대로 읽어서 USD로 변환한다.
-과거 원본 Open Duck Mini 클론에서 가져온 `assets/robot/open_duck_mini_v2/`는 이제 레거시
-참고용이고, 새 임포트는 전부 `robot/`으로 간다.
+`scripts/convert_urdf.sh`가 이 위치(`robot/robot.urdf`)를 그대로 읽어서 `robot/usd/`에 USD로
+변환한다 — **입력(URDF/메시)과 출력(USD) 전부 `robot/` 안에 모여있다.** 과거 원본 Open Duck
+Mini 클론에서 가져온 `assets/robot/open_duck_mini_v2/`, 그리고 한때 있었던 최상위 `assets/usd/`는
+이제 안 쓴다.
 
 ## 사전 준비 (랩 PC, 한 번만)
 

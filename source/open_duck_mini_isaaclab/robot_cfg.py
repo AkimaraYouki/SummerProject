@@ -55,7 +55,7 @@ from .joint_order import (
 # Resolved relative to this repo's root, so the config works regardless of
 # where the repo is checked out on the training machine.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-OPEN_DUCK_MINI_USD_PATH = os.path.join(_REPO_ROOT, "assets", "usd", "open_duck_mini_v2.usd")
+OPEN_DUCK_MINI_USD_PATH = os.path.join(_REPO_ROOT, "robot", "usd", "open_duck_mini_v2.usd")
 
 # Leg joints (10): position-servo XM430, this exact set drives locomotion.
 _LEG_JOINT_NAMES = [n for n in ACTUATOR_JOINT_NAMES if "hip" in n or "knee" in n or "ankle" in n]
