@@ -47,6 +47,16 @@ Mini 클론에서 가져온 `assets/robot/open_duck_mini_v2/`, 그리고 한때 
    onshape-to-robot .
    ```
 3. `robot.urdf`와 `assets/*.stl`이 갱신된다. 관절 이름은 아래로 확인:
+
+   **참고 (2026-07-26)**: `reference_motion_generator/open_duck_reference_motion_generator/robots/open_duck_mini_v2/{open_duck_mini_v2.urdf,assets}`는 이 `robot/robot.urdf`·`robot/assets`를 가리키게 돼있다 —
+   **맥에서는 심볼릭 링크**라 재임포트해도 자동으로 최신 상태 유지됨.
+   **랩 PC(exFAT 파일시스템)는 심볼릭 링크가 안 돼서** 실제 파일을 복사해둔 상태 — 랩 PC에서 재임포트했다면 아래 명령으로 수동 재복사할 것, 안 하면 Stage 2(imitation) 참조 동작이 옛날 형상 기준으로 생성됨:
+   ```bash
+   LABDIR="/media/do/Extreme SSD/parksuho/open_duck_mini_isaaclab"
+   cp "$LABDIR/robot/robot.urdf" "$LABDIR/reference_motion_generator/open_duck_reference_motion_generator/robots/open_duck_mini_v2/open_duck_mini_v2.urdf"
+   rm -rf "$LABDIR/reference_motion_generator/open_duck_reference_motion_generator/robots/open_duck_mini_v2/assets"
+   cp -r "$LABDIR/robot/assets" "$LABDIR/reference_motion_generator/open_duck_reference_motion_generator/robots/open_duck_mini_v2/assets"
+   ```
    ```bash
    grep -oP '(?<=<joint name=")[^"]+' robot.urdf
    ```
