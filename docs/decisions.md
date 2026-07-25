@@ -74,6 +74,11 @@ damping   = friction_viscous + kt**2 / R
 실기로 확인됐으니, 남은 차이는 kt/R(BAM 피팅) 쪽에 있을 가능성이 높음. 실기 스텝응답
 검증 전까지는 미해결로 남겨둠.
 
+**TODO (사용자, 2026-07-26 결정)**: XH540 값(5.0)을 빌려쓰지 않고 지금 값(37.65) 그대로
+유지하기로 함 — 다른 액추에이터(기어비 150:1 vs XM430의 353.5:1) 값을 갖다 붙이는 것도
+검증된 게 아니라서 실익이 없다고 판단. **사용자가 내일(2026-07-27 예상) XM430 실물을
+BAM으로 직접 재측정할 예정** — kt/R 재피팅해서 stiffness/damping 값을 갱신할 것.
+
 ## 관절 순서 (14개 구동 관절)
 
 `left_hip_yaw, left_hip_roll, left_hip_pitch, left_knee, left_ankle, neck_pitch, head_pitch, head_yaw, head_roll, right_hip_yaw, right_hip_roll, right_hip_pitch, right_knee, right_ankle`
