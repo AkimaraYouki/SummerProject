@@ -4490,4 +4490,56 @@
     <axis xyz="0 0 1"/>
     <limit effort="10" velocity="10" lower="-0.523599" upper="0.523599"/>
   </joint>
+    <link name="trunk">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="1e-9"/>
+            <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+        </inertial>
+    </link>
+    <joint name="trunk_frame" type="fixed">
+        <origin xyz="-0.024 0 0.08819" rpy="0 0 0"/>
+        <parent link="trunk_assembly"/>
+        <child link="trunk"/>
+        <axis xyz="0 0 0"/>
+    </joint>
+    <link name="left_foot">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="1e-9"/>
+            <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+        </inertial>
+    </link>
+    <joint name="left_foot_frame" type="fixed">
+        <origin xyz="0.0005 -0.036225 0.01955" rpy="-1.570796326794896558 0 0"/>
+        <parent link="foot_assembly"/>
+        <child link="left_foot"/>
+        <axis xyz="0 0 0"/>
+    </joint>
+    <link name="right_foot">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="1e-9"/>
+            <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+        </inertial>
+    </link>
+    <joint name="right_foot_frame" type="fixed">
+        <origin xyz="0.0005 -0.036225 0.01955" rpy="-1.570796326794896558 0 0"/>
+        <parent link="foot_assembly_2"/>
+        <child link="right_foot"/>
+        <axis xyz="0 0 0"/>
+    </joint>
+    <link name="head">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="1e-9"/>
+            <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+        </inertial>
+    </link>
+    <joint name="head_frame" type="fixed">
+        <origin xyz="0.04245 0 0.03595" rpy="0 1.570796326794896558 0"/>
+        <parent link="head_pitch_assembly"/>
+        <child link="head"/>
+        <axis xyz="0 0 0"/>
+    </joint>
 </robot>

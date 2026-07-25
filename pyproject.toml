@@ -20,7 +20,15 @@ dependencies = [
 
 [project.optional-dependencies]
 # only needed to run scripts/generate_reference_motion.sh
-reference-motion = ["placo", "scipy"]
+# placo MUST be pinned to 0.6.3 — reference_motion_generator/pyproject.toml
+# pins the same version and its vendored code (placo_walk_engine.py) calls
+# HumanoidParameters.replan_timesteps, an attribute that no longer exists on
+# newer placo (confirmed broken on 0.9.23, 2026-07-26). Also note: 0.6.3 has
+# no macOS wheel on PyPI (Linux-only prebuilt), so this extra is effectively
+# Ubuntu-only despite generate_reference_motion.sh's "Mac-runnable" comment —
+# building 0.6.3 from source on Mac was not attempted (real risk, not worth
+# it when the lab PC just works).
+reference-motion = ["placo==0.6.3", "scipy"]
 # only needed to run scripts/mujoco_infer.py
 sim2real-check = ["mujoco", "onnxruntime"]
 

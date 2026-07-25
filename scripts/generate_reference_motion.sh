@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Mac-runnable if `placo` is installed (pip install -e '.[reference-motion]');
-# otherwise run this once on Ubuntu. Pure CPU kinematics, no Isaac Sim needed.
+# Ubuntu-only in practice (confirmed 2026-07-26): the required `placo==0.6.3`
+# pin (see pyproject.toml's reference-motion extra) has no macOS wheel on
+# PyPI, only manylinux. Pure CPU kinematics though — no Isaac Sim/GPU needed,
+# so this can run on the lab PC's CPU alongside a GPU training job with no
+# contention. Also needs a URDF with Placo's expected frame names
+# (trunk/left_foot/right_foot/head) — run scripts/patch_urdf_for_placo.py
+# first if robot/robot.urdf changed since the last patch.
 #
 # Sweeps (dx, dy, dtheta) gait presets for open_duck_mini_v2 via Placo, then
 # fits degree-15 polynomials per dimension, producing
