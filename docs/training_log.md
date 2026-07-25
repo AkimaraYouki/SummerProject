@@ -36,7 +36,17 @@ Stage 1(순수 RL, `use_imitation=False`) 학습에서 실제로 시도한 모�
 | Isaac-OpenDuckMini-Joystick-Alive5-v0 | 5.0 | 512 | 55.86 | 606.22 | 0.093m | -0.11 | **FAIL** |
 | Isaac-OpenDuckMini-Joystick-Alive10-v0 | 10.0 | 512 | 70.87 | 413.42 | 0.105m | -0.06 | **FAIL** |
 
-**결론 (2026-07-26)**: `eval_policy_stability.sh`로 3개 전부 검증 — **셋 다 여전히 무너진 채로 버팀** (steady-state 높이가 종료 임계값 0.09m 바로 위에 붙어있고, upright도 -1(직립)이 아니라 -0.06~-0.11로 거의 옆으로 누움). alive_scale을 20→2/5/10으로 낮춘 것만으로는 reward-hacking 콜랩스가 안 풀림. Disney 논문에서 확인한 대로, alive_scale 조정 같은 국소적 보상 튜닝보다 **imitation reward(Stage 2) 자체를 켜는 게 근본 해법**이라는 가설이 강화됨 — 마침 같은 밤에 Stage 2 파이프라인(궤적 생성기)도 별도로 고쳐서 실제 pkl을 만들어뒀음(위 "안테나 개념 전체 제거"/"4번째 버그" 섹션 참고). 다음 시도는 alive_scale=2(가장 보수적) + `use_imitation=True`로 진행.
+**결론 (2026-07-26)**: `eval_policy_stability.sh`로 3개 전부 검증 — **셋 다 여전히 무너진 채로 버팀** (steady-state 높이가 종료 임계값 0.09m 바로 위에 붙어있고, upright도 -1(직립)이 아니라 -0.06~-0.11로 거의 옆으로 누움). alive_scale을 20→2/5/10으로 낮춘 것만으로는 reward-hacking 콜랩스가 안 풀림. Disney 논문에서 확인한 대로, alive_scale 조정 같은 국소적 보상 튜닝보다 **imitation reward(Stage 2) 자체를 켜는 게 근본 해법**이라는 가설이 강화됨 — 마침 같은 밤에 Stage 2 파이프라인(궤적 생성기)도 별도로 고쳐서 실제 pkl을 만들어뒀음(위 "안테나 개념 전체 제거"/"4번째 버그" 섹션 참고).
+
+팀원(원우)의 별도 파이프라인(`~/Desktop/miniduck`)도 참고차 확인함 — `root_tilt_exceeded`(30도 종료, 우리 90도보다 훨씬 엄격), `leg_antiphase`/`foot_alternating_contact`(양다리 정지 시 보상 0으로 만들어 "가만히 버티기" 자체를 구조적으로 차단) 같은 흥미로운 설계가 있었으나, 직진 보행 전용 휴리스틱이라 회전/횡이동 명령에서 정책을 왜곡시킬 위험이 크다고 판단해 채택하지 않고 imitation으로 진행하기로 결정.
+
+## Stage 2 최초 실전 투입 (2026-07-26, 커밋 a382fa8/cbfcf79/46d7b7b 등)
+
+`use_imitation=True`, `alive_scale`은 20.0으로 원복(imitation이 다시 상쇄장치 역할을 하므로). 전환 과정에서 **버그 2개 추가 발견**:
+- `joystick_env.py`의 `_REPO_ROOT` 계산이 `os.path.dirname()` 4번(소스 트리 depth상 5번 필요)이라 `source/`에서 멈춰있었음 — `reference_motion_pkl`이 이미 `"source/..."`로 시작하는 상대경로라 합쳤을 때 `source/source/...`로 중복되며 `FileNotFoundError`. dirname 5번으로 수정.
+- `_current_reference_motion` 텐서가 옛날 `40`차원으로 하드코딩돼있어서(안테나 제거로 36차원 된 것 반영 안 됨) `RuntimeError: shape mismatch [16,36] vs [16,40]`. `REF_FRAME_DIM` import해서 사용하도록 수정.
+
+**스모크 테스트(3 iter, 16 envs) 통과** — Stage 2가 실제 학습 루프에서 처음으로 에러 없이 완주함. 이후 본 학습 시작: `--num_envs 2048 --run_name imitation_v1`, ETA 약 1시간 45분.
 
 ---
 
