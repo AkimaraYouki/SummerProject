@@ -1,0 +1,13 @@
+{
+    "configuration": "default",
+    "documentId": "74b3f52a36a998f803570eb7",
+    "documentMicroversion": "c5852f2aaf4da6a9f316cd5b",
+    "elementId": "2aabfd6ef3f72f4bad929ed6",
+    "fullConfiguration": "default",
+    "id": "Iw2zl4Djv5u5XwaPI",
+    "isStandardContent": false,
+    "name": "MODULE_BOARD_ME <2>",
+    "partId": "JFL",
+    "suppressed": false,
+    "type": "Part"
+}

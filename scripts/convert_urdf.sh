@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Ubuntu-only: requires an Isaac Sim / Isaac Lab install.
 #
-# Converts assets/robot/open_duck_mini_v2/robot.urdf into
-# assets/usd/open_duck_mini_v2.usd using IsaacLab's UrdfConverter, with
-# joint drive settings matching the STS3215 actuator gains documented in
-# docs/decisions.md (must stay in sync with source/open_duck_mini_isaaclab/robot_cfg.py).
+# Converts robot/robot.urdf (generated via onshape-to-robot — see
+# docs/onshape_import.md) into assets/usd/open_duck_mini_v2.usd using
+# IsaacLab's UrdfConverter, with joint drive settings matching the actuator
+# gains documented in docs/decisions.md (must stay in sync with
+# source/open_duck_mini_isaaclab/robot_cfg.py).
 #
 # Usage:
 #   ISAACLAB_PATH=/path/to/IsaacLab ./scripts/convert_urdf.sh
@@ -17,7 +18,7 @@ if [ -z "${ISAACLAB_PATH:-}" ]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-URDF_PATH="$REPO_ROOT/assets/robot/open_duck_mini_v2/robot.urdf"
+URDF_PATH="$REPO_ROOT/robot/robot.urdf"
 OUTPUT_USD="$REPO_ROOT/assets/usd/open_duck_mini_v2.usd"
 
 mkdir -p "$(dirname "$OUTPUT_USD")"

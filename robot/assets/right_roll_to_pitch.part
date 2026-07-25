@@ -1,0 +1,13 @@
+{
+    "configuration": "default",
+    "documentId": "74b3f52a36a998f803570eb7",
+    "documentMicroversion": "c5852f2aaf4da6a9f316cd5b",
+    "elementId": "be54cee0760268cf313e1dae",
+    "fullConfiguration": "default",
+    "id": "MC7VDTvrZG2aCE4bg",
+    "isStandardContent": false,
+    "name": "right_roll_to_pitch <1>",
+    "partId": "RDND",
+    "suppressed": false,
+    "type": "Part"
+}
