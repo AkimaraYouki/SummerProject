@@ -15,9 +15,16 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Make sure this repo's extension package is importable (pip install -e .
-# should already have been run once; this is a safety net for fresh shells).
-python3 -c "import open_duck_mini_isaaclab" 2>/dev/null || (cd "$REPO_ROOT" && pip install -e .)
+# Make sure this repo's extension package is importable IN THE SAME PYTHON
+# THAT WILL ACTUALLY RUN TRAINING BELOW. Must go through isaaclab.sh -p for
+# both the check and the install — a plain `python3`/`pip` here silently
+# checks/installs into a *different* interpreter (system Python, or whatever
+# conda env is active) than the IsaacLab-bundled one `isaaclab.sh -p` uses to
+# launch train.py, so the check could pass while training still fails with
+# ModuleNotFoundError. (Confirmed on the lab PC 2026-07-25: package was
+# missing from both system python3 AND the bundled interpreter.)
+"$ISAACLAB_PATH/isaaclab.sh" -p -c "import open_duck_mini_isaaclab" 2>/dev/null \
+    || (cd "$REPO_ROOT" && "$ISAACLAB_PATH/isaaclab.sh" -p -m pip install -e .)
 
 "$ISAACLAB_PATH/isaaclab.sh" -p "$ISAACLAB_PATH/scripts/reinforcement_learning/rsl_rl/train.py" \
     --task Isaac-OpenDuckMini-Joystick-v0 \
