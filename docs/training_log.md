@@ -30,13 +30,13 @@ Stage 1(순수 RL, `use_imitation=False`) 학습에서 실제로 시도한 모�
 
 ## Run 3~5 — 진행 중
 
-| task | alive_scale | num_envs | 상태 |
-|---|---|---|---|
-| Isaac-OpenDuckMini-Joystick-v0 | 2.0 | TBD | 진행 예정 |
-| Isaac-OpenDuckMini-Joystick-Alive5-v0 | 5.0 | TBD | 진행 예정 |
-| Isaac-OpenDuckMini-Joystick-Alive10-v0 | 10.0 | TBD | 진행 예정 |
+| task | alive_scale | num_envs | 최종 reward | 최종 ep_len | steady 높이 | worst upright | 판정 |
+|---|---|---|---|---|---|---|---|
+| Isaac-OpenDuckMini-Joystick-v0 | 2.0 | 512 | 31.21 | 634.97 | 0.093~0.10m | -0.11 | **FAIL** |
+| Isaac-OpenDuckMini-Joystick-Alive5-v0 | 5.0 | 512 | 55.86 | 606.22 | 0.093m | -0.11 | **FAIL** |
+| Isaac-OpenDuckMini-Joystick-Alive10-v0 | 10.0 | 512 | 70.87 | 413.42 | 0.105m | -0.06 | **FAIL** |
 
-결과 나오는 대로 이 표와 위 형식으로 갱신할 것. `scripts/eval_policy_stability.sh`의 "STANDING RESULT"/"WALKING RESULT" 두 줄로 최종 판정.
+**결론 (2026-07-26)**: `eval_policy_stability.sh`로 3개 전부 검증 — **셋 다 여전히 무너진 채로 버팀** (steady-state 높이가 종료 임계값 0.09m 바로 위에 붙어있고, upright도 -1(직립)이 아니라 -0.06~-0.11로 거의 옆으로 누움). alive_scale을 20→2/5/10으로 낮춘 것만으로는 reward-hacking 콜랩스가 안 풀림. Disney 논문에서 확인한 대로, alive_scale 조정 같은 국소적 보상 튜닝보다 **imitation reward(Stage 2) 자체를 켜는 게 근본 해법**이라는 가설이 강화됨 — 마침 같은 밤에 Stage 2 파이프라인(궤적 생성기)도 별도로 고쳐서 실제 pkl을 만들어뒀음(위 "안테나 개념 전체 제거"/"4번째 버그" 섹션 참고). 다음 시도는 alive_scale=2(가장 보수적) + `use_imitation=True`로 진행.
 
 ---
 
