@@ -84,7 +84,24 @@ LEFT_FOOT_COLLISION_GEOM = "foot_bottom_tpu"
 RIGHT_FOOT_COLLISION_GEOM = "foot_bottom_tpu_2"
 
 # "home" keyframe joint positions (rad), in ACTUATOR_JOINT_NAMES order.
-# Source: playground xmls/scene_flat_terrain.xml <keyframe name="home">.
+# Source: playground xmls/scene_flat_terrain.xml <keyframe name="home">,
+# EXCEPT right_hip_pitch and right_knee — see note below.
+#
+# This URDF's <joint><limit> ranges (checked 2026-07-25 against
+# robot/robot.urdf) don't use the same left/right sign convention
+# Playground's original URDF did:
+#   right_hip_pitch: [-1.745, 0]  — SAME sign as left_hip_pitch's [-1.745, 0]
+#                                    (Playground's was mirrored: left negative,
+#                                    right positive)
+#   right_knee:      [-3.142, 0]  — OPPOSITE sign from left_knee's [0, 3.142]
+#                                    (Playground's was NOT mirrored: both
+#                                    positive)
+# Playground's original values (right_hip_pitch=0.635, right_knee=1.379) are
+# out of range for this URDF (ValueError: default positions out of limits,
+# hit during the 2026-07-25 smoke test) — negated below to land the same
+# physical pose under this URDF's axis convention. NOT visually verified in
+# Isaac Sim yet — if the robot's home stance looks asymmetric, check these
+# two first.
 HOME_JOINT_POS = {
     "left_hip_yaw": 0.002,
     "left_hip_roll": 0.053,
@@ -97,8 +114,8 @@ HOME_JOINT_POS = {
     "head_roll": 0.0,
     "right_hip_yaw": -0.003,
     "right_hip_roll": -0.065,
-    "right_hip_pitch": 0.635,
-    "right_knee": 1.379,
+    "right_hip_pitch": -0.635,
+    "right_knee": -1.379,
     "right_ankle": -0.796,
 }
 HOME_BASE_HEIGHT = 0.15  # m
