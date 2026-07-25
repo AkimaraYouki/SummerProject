@@ -40,9 +40,13 @@ real Position P Gain register setting into physical PD gains:
   conversion (hardcoded in bam/bam/dynamixel/actuator.py's XM430Actuator,
   matches the ROBOTIS datasheet formula Kp_actual=Kp_TBL/128); kp_register=
   800.0 is the servo's factory-default Position P Gain (also XM430Actuator's
-  constructor default) — assumed to be what was actually on the servo during
-  the m4.json data collection. vin=12.0 is the confirmed operating voltage;
-  max_pwm=1.0 is BAM's default (no duty-cycle cap configured for this unit).
+  constructor default) — CONFIRMED 2026-07-26 by reading the actual control
+  table off the real hardware (Dynamixel Wizard: Position P Gain=800/0x0320,
+  Velocity P/I Gain=100/1920 matching datasheet defaults too, Voltage=12.20V
+  matching the assumed 12.0V), not just assumed to match what was on the
+  servo during the m4.json data collection. vin=12.0 is the confirmed
+  operating voltage; max_pwm=1.0 is BAM's default (no duty-cycle cap
+  configured for this unit).
 
   Cross-check: independently, IsaacLab GitHub Discussion #2627 (XM430-W350
   PD tuning for the Robotis OP3, unresolved thread, no official derivation)

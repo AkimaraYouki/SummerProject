@@ -57,13 +57,22 @@ damping   = friction_viscous + kt**2 / R
 - `error_gain=1/128`: XM430 Position P Gain 레지스터 변환 공식(로보티즈 데이터시트와 동일),
   `bam/bam/dynamixel/actuator.py`의 `XM430Actuator`에 하드코딩됨
 - `kp_register=800.0`: 공장 기본 Position P Gain(`XM430Actuator` 생성자 기본값과 동일) —
-  m4.json 데이터 수집 당시 서보에 실제로 설정돼 있었다고 가정
+  **2026-07-26 실기 확인**: Dynamixel Wizard로 실제 하드웨어 컨트롤 테이블을 직접 읽어
+  `Position P Gain=800(0x0320)` 그대로 확인됨(`Velocity P/I Gain=100/1920`도 데이터시트
+  기본값과 일치, `Voltage=12.20V`도 가정한 12.0V와 거의 일치) — 더 이상 가정이 아니라
+  실측 확인된 값.
 - `vin=12.0`: 확정 동작전압, `max_pwm=1.0`: BAM 기본값(듀티 상한 미설정)
 
 교차검증: IsaacLab GitHub Discussion #2627(Robotis OP3용 XM430-W350 PD 튜닝, 미해결
 스레드)에서 커뮤니티가 시도한 값은 stiffness=45.0/damping=1.5 — BAM 유도값과 같은
 자릿수라 서로 뒷받침되지만, 그 스레드 값은 검증된 게 아니고 다른 로봇 사례이므로 참고만.
 우리 값은 실제 우리 개체를 실측한 BAM 피팅에서 나온 것이라 더 신뢰도가 높음.
+
+추가 교차검증(2026-07-26): Disney Research의 BD-X 로봇 논문(`docs/`에서 다룬 BD-X
+비교 아티클 참고)에 실린 Dynamixel XH540-V150(다른 모델, 우리 XM430-W350과는 다름)의
+실측 kP=5.0은 우리 유도값(37.65)보다 약 7.5배 작다 — kp_register=800 자체는 이제
+실기로 확인됐으니, 남은 차이는 kt/R(BAM 피팅) 쪽에 있을 가능성이 높음. 실기 스텝응답
+검증 전까지는 미해결로 남겨둠.
 
 ## 관절 순서 (14개 구동 관절)
 
