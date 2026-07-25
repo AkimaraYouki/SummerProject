@@ -249,6 +249,23 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     push_interval_range_s = (5.0, 10.0)
     push_magnitude_range = (0.1, 1.0)
 
+    # ── termination ──────────────────────────────────────────────────────
+    # Fraction of HOME_BASE_HEIGHT below which an episode terminates as
+    # "fallen", in addition to the flipped-over (projected_gravity_b.z > 0)
+    # check. Added 2026-07-26: the flip-only check alone (ported faithfully
+    # from Playground's `upvector_z < 0`) only catches >90 deg tips — it
+    # never fires for a robot that has simply collapsed/splayed out without
+    # inverting. Playground relies on its imitation reward to make that
+    # posture unattractive; Stage 1 here runs with use_imitation=False, so
+    # nothing else penalizes it, and a 3000-iter training run converged on
+    # exactly this degenerate "collapse but stay upright-ish" policy (high
+    # alive_scale reward, high episode length, robot visibly in a heap) —
+    # confirmed both by check_joint_stability.sh (base height pinned near
+    # the ground, never triggering `terminated`) and by watching the trained
+    # policy over WebRTC. This threshold gives Stage 1 its own "has fallen"
+    # signal independent of imitation.
+    min_base_height_ratio = 0.6
+
     # ── reward scales ────────────────────────────────────────────────────
     tracking_lin_vel_scale = 2.5
     tracking_ang_vel_scale = 6.0
