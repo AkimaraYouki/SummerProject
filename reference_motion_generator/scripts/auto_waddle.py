@@ -152,7 +152,7 @@ def main(args):
 
         # Call gait_generator (no bdx-specific arguments, references removed)
         cmd = [
-            "python",
+            "python3",
             f"{SCRIPT_PATH}/../open_duck_reference_motion_generator/gait_generator.py",
             "--duck",
             args.duck,
