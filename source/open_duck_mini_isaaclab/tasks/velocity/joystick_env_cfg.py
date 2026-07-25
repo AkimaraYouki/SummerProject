@@ -273,32 +273,32 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     torques_scale = -1.0e-3
     action_rate_scale = -0.5
     stand_still_scale = -0.2
-    # alive_scale (2026-07-26): Playground's original value is 20.0 — copied
-    # verbatim here initially, but that number assumes `imitation` is active
-    # to counterbalance it. reward_imitation's internal joint-pos-error term
-    # (w_joint_pos=15.0, see rewards.py) can swing sharply negative whenever
-    # the pose doesn't match the reference gait, which is what keeps
-    # alive=20 from being worth farming on its own in the original design.
-    # Stage 1 (use_imitation=False) has no such counterweight: even after
-    # the min_base_height_ratio termination fix above, a 2048-env/3000-iter
-    # run still converged on a contorted-but-technically-above-the-height-
-    # floor pose instead of walking (confirmed both by eval_policy_stability
-    # and by watching over WebRTC) — 20.0 alone (70% of the ~570 theoretical
-    # per-episode ceiling, see the reward-composition discussion in this
-    # session) was still enough to make "survive somehow" out-compete
-    # "actually track the command." Cut 10x to de-emphasize pure survival
-    # relative to tracking_lin_vel_scale/tracking_ang_vel_scale (2.5/6.0)
-    # until Stage 2 (imitation) is wired up as the real long-term fix.
-    alive_scale = 2.0
+    # alive_scale (2026-07-26): Playground's/Disney's original value is 20.0.
+    # A whole night's worth of experiments (see docs/training_log.md) showed
+    # this only works when `imitation` is active to counterbalance it —
+    # reward_imitation's internal joint-pos-error term (w_joint_pos=15.0, see
+    # rewards.py) swings sharply negative whenever the pose doesn't match the
+    # reference gait, which is what keeps alive=20 from being worth farming
+    # on its own. Tried a Stage-1-only fix instead (cutting alive_scale to
+    # 2/5/10, no imitation) — all three still collapsed under
+    # eval_policy_stability verification. A structural reward redesign
+    # (teammate's leg-antiphase/alternating-contact terms) was considered and
+    # rejected: those are straight-line-walking-specific heuristics that
+    # would likely distort turning/lateral-command behavior since they treat
+    # "both legs still" as reward-neutral regardless of whether the command
+    # calls for standing still. Reverting to 20.0 now that use_imitation=True
+    # below actually provides the counterweight it was always designed with.
+    alive_scale = 20.0
     imitation_scale = 1.0
 
     # ── reference motion (imitation) ────────────────────────────────────
-    # Stage 1 (current): pure RL, no reference motion — use_imitation=False.
-    # PolyReferenceMotion is not loaded (reference_motion_pkl need not exist
-    # yet) and the "imitation" reward term is omitted entirely, not just
-    # zero-weighted. Stage 2: generate reference_motion_pkl via
-    # scripts/generate_reference_motion.sh and flip this to True.
-    use_imitation: bool = False
+    # Stage 2 (2026-07-26): polynomial_coefficients.pkl now exists for real
+    # (240 swept gaits, see docs/training_log.md) after fixing the Placo
+    # pipeline (antenna joints, placo version pin, auto_waddle.py's python->
+    # python3 bug). Flipping this on for the first time — Stage 1
+    # (use_imitation=False, pure RL) reward-hacked into a collapsed-but-
+    # technically-alive pose across every alive_scale tried.
+    use_imitation: bool = True
     reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/polynomial_coefficients.pkl"
     # Gait-phase clock period (env steps), used for the imitation_phase
     # observation channel when use_imitation=False (no PolyReferenceMotion
