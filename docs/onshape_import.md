@@ -84,12 +84,20 @@ will be considered.` 경고의 정체이고, 어느 쪽을 "첫 번째"로 잡�
 `Part 1`은 모든 클린 재임포트에서 안정적으로 포함되며 질량도 정상(no-mass 경고 0건)임을
 확인했다. **결론: 보드 지오메트리·질량 다 정상적으로 들어가 있고, 더 이상 조치 불필요.**
 
-(참고: 이 과정에서 한 번 `onshape-to-robot`이 OnShape 서버로의 TCP 연결(SYN-SENT)에서
-멈춘 적이 있었다 — 네트워크 문제로 확인, 프로세스 kill 후 재시도하니 정상 진행됨. 이후
-재현 안 됨, 일시적 현상으로 판단.)
+**최종 검증 (2026-07-25, 최신 재임포트 전체 로그 기준)**: 남은 경고는 단 2건, 전부 무해함:
+```
+WARNING: Parts with same name "part_1", incrementing STL name to "part_1__2"
+WARNING: Parts with same name "part_1", incrementing STL name to "part_1__3"
+```
+같은 파츠가 여러 인스턴스로 재사용될 때 자동으로 이름을 구분해주는 정상 동작 — 무시해도 됨.
+**"no mass" 경고, "multiple base link" 경고, ERROR 전부 0건.** 링크 15개/관절 14개/전체
+질량 1.9809kg. **이 리포트를 기준으로 `robot/robot.urdf`는 USD 변환 다음 단계로 넘어가도
+안전한 상태.**
 
-**"Parts with same name ..., incrementing STL name to ..."** — 같은 파츠가 여러 인스턴스로
-재사용될 때 자동으로 `_2` 접미사를 붙여 처리하는 정상 동작. 무시해도 됨.
+(참고: 이 과정에서 `onshape-to-robot`이 OnShape 서버로의 TCP 연결(SYN-SENT)에서 두 차례
+멈췄다 — 캐시를 완전히 지운 직후의 콜드 스타트에서만 발생, 캐시를 유지한 채로 재실행하면
+발생 안 함. 짧은 시간에 반복적으로 캐시를 지우고 전체 재임포트한 것과 관련 있을 가능성.
+멈추면 프로세스를 kill하고 캐시를 지우지 않은 상태로 재시도할 것.)
 
 ## 참고 — 첫 임포트에서 확인된 사실
 
