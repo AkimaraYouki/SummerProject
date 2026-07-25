@@ -1,6 +1,6 @@
 """Static verification that REF_LEG_JOINT_IDX / ACT_LEG_JOINT_IDX (used by
 rewards.py::reward_imitation to compare live joint state against the
-16-joint reference frame) actually select the same 10 physical leg joints
+14-joint reference frame) actually select the same 10 physical leg joints
 in the same order. See docs/decisions.md for why this needed a dedicated
 check rather than trusting the slices by inspection — the original
 Playground source itself carries a `# TODO double check if the slices are
@@ -37,10 +37,12 @@ def test_index_lists_have_length_10():
     assert len(REF_LEG_JOINT_IDX) == 10
 
 
-def test_excluded_indices_are_head_and_antennas_only():
-    excluded_ref = set(range(16)) - set(REF_LEG_JOINT_IDX)
+def test_excluded_indices_are_head_only():
+    # No antenna joints exist in this rebuild (see joint_order.py's note) —
+    # REF_JOINT_NAMES is 14-wide now, same as ACTUATOR_JOINT_NAMES.
+    excluded_ref = set(range(14)) - set(REF_LEG_JOINT_IDX)
     excluded_names = {REF_JOINT_NAMES[i] for i in excluded_ref}
-    assert excluded_names == {"neck_pitch", "head_pitch", "head_yaw", "head_roll", "left_antenna", "right_antenna"}
+    assert excluded_names == {"neck_pitch", "head_pitch", "head_yaw", "head_roll"}
 
     excluded_act = set(range(14)) - set(ACT_LEG_JOINT_IDX)
     excluded_act_names = {ACTUATOR_JOINT_NAMES[i] for i in excluded_act}
@@ -50,5 +52,5 @@ def test_excluded_indices_are_head_and_antennas_only():
 if __name__ == "__main__":
     test_both_index_lists_select_the_same_10_leg_joints_in_the_same_order()
     test_index_lists_have_length_10()
-    test_excluded_indices_are_head_and_antennas_only()
+    test_excluded_indices_are_head_only()
     print("All reward leg-index alignment tests passed.")

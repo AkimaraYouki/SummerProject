@@ -34,8 +34,10 @@ ACTUATOR_JOINT_NAMES = [
 ]
 NUM_ACTUATED_JOINTS = len(ACTUATOR_JOINT_NAMES)  # 14
 
-# Present in the URDF/MJCF but not actuated (no <actuator> entry).
-NON_ACTUATED_JOINT_NAMES = ["left_antenna", "right_antenna"]
+# Playground's original hardware had 2 non-actuated antenna joints; this
+# rebuild's OnShape export has none at all (confirmed 2026-07-26: zero
+# "antenna" occurrences anywhere in robot/robot.urdf — no antenna hardware
+# was modeled). No NON_ACTUATED_JOINT_NAMES constant needed as a result.
 
 # Index into ACTUATOR_JOINT_NAMES (14-dim) of the 10 leg joints, i.e. every
 # actuated joint EXCEPT the 4 head joints (indices 5-8: neck_pitch,
@@ -43,24 +45,29 @@ NON_ACTUATED_JOINT_NAMES = ["left_antenna", "right_antenna"]
 ACT_LEG_JOINT_IDX = [0, 1, 2, 3, 4, 9, 10, 11, 12, 13]
 
 # The reference-motion pkl (playground/common/poly_reference_motion.py's
-# header comment) encodes a 16-joint layout that additionally includes the
-# two (non-actuated) antenna joints, in this order:
+# header comment) originally encoded a 16-joint layout including 2 antenna
+# joints this rebuild doesn't have; reference_motion_generator's placo
+# configs were fixed to stop requesting them (2026-07-26, see
+# docs/training_log.md), so the recorded/fitted reference frame is now
+# 14-joint — same order as ACTUATOR_JOINT_NAMES:
 #   0 left_hip_yaw, 1 left_hip_roll, 2 left_hip_pitch, 3 left_knee, 4 left_ankle,
 #   5 neck_pitch, 6 head_pitch, 7 head_yaw, 8 head_roll,
-#   9 left_antenna, 10 right_antenna,
-#   11 right_hip_yaw, 12 right_hip_roll, 13 right_hip_pitch, 14 right_knee, 15 right_ankle
+#   9 right_hip_yaw, 10 right_hip_roll, 11 right_hip_pitch, 12 right_knee, 13 right_ankle
 REF_JOINT_NAMES = [
     "left_hip_yaw", "left_hip_roll", "left_hip_pitch", "left_knee", "left_ankle",
     "neck_pitch", "head_pitch", "head_yaw", "head_roll",
-    "left_antenna", "right_antenna",
     "right_hip_yaw", "right_hip_roll", "right_hip_pitch", "right_knee", "right_ankle",
 ]
-NUM_REF_JOINTS = len(REF_JOINT_NAMES)  # 16
+NUM_REF_JOINTS = len(REF_JOINT_NAMES)  # 14 — now numerically identical to ACTUATOR_JOINT_NAMES,
+# kept as a separate constant anyway since it documents a distinct concept
+# (reference-pkl layout vs. actuator/action-vector layout) that happened to
+# converge only because antennas were the sole difference.
 
-# Index into REF_JOINT_NAMES (16-dim) of the same 10 leg joints, same order
-# as ACT_LEG_JOINT_IDX above (left leg first, then right leg). Indices 5-10
-# (head x4 + antennas x2) are excluded.
-REF_LEG_JOINT_IDX = [0, 1, 2, 3, 4, 11, 12, 13, 14, 15]
+# Index into REF_JOINT_NAMES (14-dim) of the same 10 leg joints, same order
+# as ACT_LEG_JOINT_IDX above (left leg first, then right leg). Now
+# numerically identical to ACT_LEG_JOINT_IDX for the same reason as
+# NUM_REF_JOINTS above. Indices 5-8 (head x4) are excluded.
+REF_LEG_JOINT_IDX = [0, 1, 2, 3, 4, 9, 10, 11, 12, 13]
 
 # Sanity: both index lists must select the same 10 physical joints in the
 # same order when applied to their respective name lists.

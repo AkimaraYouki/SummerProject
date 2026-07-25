@@ -87,9 +87,11 @@ Playground `xmls/open_duck_mini_v2.xml`의 `<actuator>` 블록 순서를 그대�
 
 ## reward_imitation의 관절 서브셋 인덱스
 
-원본 Playground 코드 자체에 `# TODO double check if the slices are correct`라는 주석이 남아있을 정도로 불안정한 부분. 참조 프레임(16관절, 안테나 2개 포함)과 실제 액추에이터 배열(14관절, 안테나 없음)의 길이가 다른데도 우연히 "왼다리 먼저, 오른다리 마지막" 구조가 맞아떨어져서 동작한다.
+원본 Playground 코드 자체에 `# TODO double check if the slices are correct`라는 주석이 남아있을 정도로 불안정한 부분이었다. 원래는 참조 프레임(16관절, 안테나 2개 포함)과 실제 액추에이터 배열(14관절, 안테나 없음)의 길이가 달랐는데, **2026-07-26 안테나 참조를 파이프라인 전체에서 제거**하면서(이 로봇엔 안테나 자체가 없음 — `robot/robot.urdf`에 "antenna" 문자열이 0번 등장) 참조 프레임도 14관절로 줄어 **두 배열이 이제 완전히 동일**해졌다.
 
-- `REF_LEG_JOINT_IDX = [0,1,2,3,4, 11,12,13,14,15]` — 16차원 참조 프레임에서 다리 10개만 추출 (5~10번은 머리+안테나, 제외).
-- `ACT_LEG_JOINT_IDX = [0,1,2,3,4, 9,10,11,12,13]` — 14차원 실제 액추에이터 배열에서 다리 10개만 추출 (5~8번은 머리, 제외. 안테나는 애초에 액추에이터가 아니라서 배열에 없음).
+- `REF_LEG_JOINT_IDX = [0,1,2,3,4, 9,10,11,12,13]` — 14차원 참조 프레임에서 다리 10개만 추출 (5~8번은 머리, 제외).
+- `ACT_LEG_JOINT_IDX = [0,1,2,3,4, 9,10,11,12,13]` — 14차원 실제 액추에이터 배열에서 다리 10개만 추출 (5~8번은 머리, 제외).
 
-두 리스트는 반드시 "왼쪽 hip_yaw~ankle 5개 + 오른쪽 hip_yaw~ankle 5개, 같은 순서"를 가리켜야 한다. `tests/test_reward_leg_index_alignment.py`가 이걸 정적으로 검증한다.
+두 리스트가 이제 값 자체가 같지만(우연이 아니라 REF_JOINT_NAMES==ACTUATOR_JOINT_NAMES가 됐기 때문), 개념적으로는 여전히 별개("참조 pkl 레이아웃" vs "액추에이터/액션벡터 레이아웃")라 상수 자체는 분리 유지. `tests/test_reward_leg_index_alignment.py`가 이걸 정적으로 검증한다.
+
+**연쇄 변경**: `poly_reference_motion.py`의 `REF_FRAME_DIM`도 40→36(14+14+2+3+3)으로, `rewards.py::reward_imitation`의 하드코딩된 슬라이스 인덱스(`[0:16]`→`[0:14]` 등)도 같이 바뀜. `reference_motion_generator`의 `placo_defaults.json`/`medium.json`/`fast.json`도 이미 안테나 참조 제거됨(Placo 크래시 수정과 같은 작업, `docs/training_log.md` 참고) — 이 변경들은 서로 맞물려있어서 하나만 바꾸면 인덱스가 어긋난다.

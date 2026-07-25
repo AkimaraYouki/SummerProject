@@ -62,7 +62,7 @@ def reward_imitation(
     joints_qpos: torch.Tensor,  # [N,14] actuator order (joint_order.ACTUATOR_JOINT_NAMES)
     joints_qvel: torch.Tensor,  # [N,14]
     contacts: torch.Tensor,  # [N,2] bool/float, left then right
-    reference_frame: torch.Tensor,  # [N,40], see poly_reference_motion.py docstring
+    reference_frame: torch.Tensor,  # [N,36], see poly_reference_motion.py docstring
     commands: torch.Tensor,  # [N,7]
 ) -> torch.Tensor:
     """Direct port of custom_rewards.py::reward_imitation.
@@ -88,11 +88,11 @@ def reward_imitation(
 
     cmd_norm = torch.linalg.norm(commands[:, :3], dim=-1)
 
-    ref_joint_pos = reference_frame[:, 0:16][:, REF_LEG_JOINT_IDX]  # [N,10]
-    ref_joint_vel = reference_frame[:, 16:32][:, REF_LEG_JOINT_IDX]  # [N,10]
-    ref_foot_contacts = reference_frame[:, 32:34]  # [N,2]
-    ref_lin_vel = reference_frame[:, 34:37]  # [N,3]
-    ref_ang_vel = reference_frame[:, 37:40]  # [N,3]
+    ref_joint_pos = reference_frame[:, 0:14][:, REF_LEG_JOINT_IDX]  # [N,10]
+    ref_joint_vel = reference_frame[:, 14:28][:, REF_LEG_JOINT_IDX]  # [N,10]
+    ref_foot_contacts = reference_frame[:, 28:30]  # [N,2]
+    ref_lin_vel = reference_frame[:, 30:33]  # [N,3]
+    ref_ang_vel = reference_frame[:, 33:36]  # [N,3]
 
     joint_pos = joints_qpos[:, ACT_LEG_JOINT_IDX]  # [N,10]
     joint_vel = joints_qvel[:, ACT_LEG_JOINT_IDX]  # [N,10]

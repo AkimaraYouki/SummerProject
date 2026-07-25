@@ -6,12 +6,15 @@ fully unit-testable on a CPU-only machine (see
 tests/test_poly_reference_motion_cpu.py), unlike almost everything else in
 this package.
 
-Reference-frame layout (40-dim), from the original module's docstring:
-  0:16   joint pos  (16 joints incl. antennas, order = joint_order.REF_JOINT_NAMES)
-  16:32  joint vel  (same 16-joint order)
-  32:34  foot contacts (left, right)
-  34:37  base linear velocity (world frame)
-  37:40  base angular velocity (world frame)
+Reference-frame layout (36-dim). The original module's docstring described a
+40-dim layout (16 joints incl. 2 antennas) — this rebuild's robot has no
+antenna hardware at all (confirmed 2026-07-26, see joint_order.py), so the
+reference-motion generator no longer records them and this is 14 joints:
+  0:14   joint pos  (14 joints, order = joint_order.REF_JOINT_NAMES)
+  14:28  joint vel  (same 14-joint order)
+  28:30  foot contacts (left, right)
+  30:33  base linear velocity (world frame)
+  33:36  base angular velocity (world frame)
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ import pickle
 
 import torch
 
-REF_FRAME_DIM = 40
+REF_FRAME_DIM = 36
 
 
 class PolyReferenceMotion:
@@ -82,7 +85,7 @@ class PolyReferenceMotion:
         self.dtheta_range = (self.dthetas[0], self.dthetas[-1])
 
         nb_dx, nb_dy, nb_dtheta = len(self.dxs), len(self.dys), len(self.dthetas)
-        # parsed[dx][dy][dtheta] is a list of D=40 per-dimension coefficient
+        # parsed[dx][dy][dtheta] is a list of D=36 per-dimension coefficient
         # lists, each of length K=degree+1 — grab the first one's length.
         _sample_coeffs = next(iter(next(iter(next(iter(parsed.values())).values())).values()))
         degree_plus_1 = len(_sample_coeffs[0])
@@ -109,7 +112,7 @@ class PolyReferenceMotion:
             i: [N] per-env step counter (any int dtype); internally
                modulo'd by nb_steps_in_period, matching the JAX version.
         Returns:
-            [N, 40] reference frame for each env's current command + phase.
+            [N, 36] reference frame for each env's current command + phase.
         """
         dx = dx.clamp(self.dx_range[0], self.dx_range[1])
         dy = dy.clamp(self.dy_range[0], self.dy_range[1])
@@ -119,7 +122,7 @@ class PolyReferenceMotion:
         iy = torch.argmin(torch.abs(self.dys_t.view(1, -1) - dy.view(-1, 1)), dim=1)
         ith = torch.argmin(torch.abs(self.dthetas_t.view(1, -1) - dtheta.view(-1, 1)), dim=1)
 
-        env_coeffs = self.coeffs[ix, iy, ith]  # [N, 40, K]
+        env_coeffs = self.coeffs[ix, iy, ith]  # [N, 36, K]
 
         t = (i.float() % self.nb_steps_in_period) / self.nb_steps_in_period
         t = t.clamp(0.0, 1.0)  # [N]
