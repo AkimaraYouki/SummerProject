@@ -51,3 +51,17 @@ alive_scale 스윕과 별개로, "지금 것 안 되면 Stage 2로" 계획에 �
 **검증**: 랩PC에서 `gait_generator.py` 단독 실행 → exit 0, 500프레임 녹화, 실제 출력 json 저장 확인. 크래시는 완전히 해결됨.
 
 **남은 이슈 (크래시와 별개, 후속 작업)**: 첫 성공 녹화의 실측 평균속도(`avg_x_lin_vel=0.3866 m/s`, dx=0.02 명령 기준)가 `auto_waddle.py`의 "medium" 속도필터 범위(0.05~0.15)를 크게 벗어남 — `walk_com_height` 등 Placo 걸음 파라미터가 여전히 원본 대형 로봇 기준으로 남아있어서로 추정. 이대로 216개 전체 스윕을 돌리면 대부분/전부 필터에 걸려 삭제될 가능성 높음 — 우리 로봇 스케일에 맞게 `placo_defaults.json`의 게이트 파라미터 재조정 필요.
+
+---
+
+## 안테나 개념 전체 제거 (2026-07-26, 커밋 `c16aa59`/`4aee8fb`)
+
+`joint_order.py`(`REF_JOINT_NAMES`/`REF_LEG_JOINT_IDX` 16→14), `poly_reference_motion.py`(`REF_FRAME_DIM` 40→36), `rewards.py::reward_imitation`(슬라이스 인덱스 전부)까지 안테나 없는 로봇 기준으로 정리. `tests/test_reward_leg_index_alignment.py` 갱신 후 맥/랩PC 양쪽에서 통과 확인.
+
+## 4번째 버그 발견/수정 — `auto_waddle.py`가 존재하지 않는 `python` 명령 호출 (커밋 `1fc4daa`)
+
+단일 녹화 검증(joint ROM/발접촉교대/root height 그래프로 확인 — 정상 주기 보행 확인됨) 후 실제 240개 전체 스윕을 돌렸는데 "0.09초"만에 "완료"됨 — 로그 파일 240개가 전부 0바이트. 원인: `cmd = ["python", ...]`인데 이 우분투엔 `python` 실행파일이 없음(`python3`만 있음, `which python` → not found). 서브프로세스 240개가 전부 즉시 실패했는데 예외가 조용히 삼켜져서 "성공"처럼 보였음. `python3`로 수정.
+
+**최종 검증**: 수정 후 재실행 → 240/240 녹화 성공, `fit_poly.py`로 피팅 → **최초로 실제 데이터가 든 `polynomial_coefficients.pkl`(2.8MB, 240 항목) 생성**(커밋 `f4cdcbb`/`c831005`). `PolyReferenceMotion` 클래스로 직접 로드해서 `get_reference_motion()` 호출까지 확인 — Stage 2 파이프라인이 처음부터 끝까지 실제로 동작함을 확인.
+
+**아직 남은 버그 (차단 요소 아님)**: `auto_waddle.py`의 속도필터가 `preset_name == "medium"`을 비교하는데 실제 값은 `"0_medium"`처럼 인덱스가 붙어있어서 **필터가 한 번도 매치되지 않음** — 240개가 전부(필터링 없이) pkl에 들어감. 일부는 속도가 매우 낮은 조합도 섞여 있음. Stage 2 학습 품질에 영향을 줄 수 있으나, "파이프라인이 작동하는가"라는 오늘 밤의 목표는 달성됨 — 다음 세션에서 필터 로직과 게이트 파라미터를 같이 손보면 됨.
