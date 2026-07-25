@@ -28,7 +28,6 @@
    데이터시트 이상적 스펙보다 정확:
    ```
    armature = 0.01432   # BAM "armature" 직접
-   damping  = 0.847      # BAM "friction_viscous" (URDF viscous damping과 가장 가까운 개념)
    friction = 0.0761     # BAM "friction_base" (Stribeck 모델의 base항만 — Isaac Lab의
                           # 단일 스칼라 friction엔 stribeck/load 항이 대응할 자리가 없음)
    ```
@@ -38,11 +37,33 @@
    velocity_limit_sim = 4.82   # rad/s, no-load speed @ 12.0V(46rpm)
    ```
 
-**아직 미확정:**
+**stiffness/damping (2026-07-26 확정)** — 처음엔 "BAM은 위치제어 게인을 측정하지 않으니
+결정 불가"라고 잘못 결론 냈었다(실제로는 BAM 자체 소스코드 `bam/bam/actuator.py`의
+`VoltageControlledActuator.to_mujoco()`에 정확히 이 변환 공식이 이미 있었음 — JSON 출력
+필드만 보고 판단해서 놓친 것, 이후로는 도구의 실제 소스코드를 먼저 확인할 것). BAM이 실측한
+kt/R/friction_viscous와 서보의 실제 Position P Gain 레지스터값을 결합해서 물리적 PD 게인으로
+변환하는 공식:
 ```
-stiffness (kp) = 13.37   # STS3215 placeholder 그대로 — 컨트롤 게인이라 BAM/데이터시트
-                          # 어느 쪽도 측정 대상이 아님, 별도로 정해야 함
+stiffness = error_gain * kp_register * vin * max_pwm * kt / R
+          = (1/128)    * 800.0       * 12.0 * 1.0     * 1.0057156607538362 / 2.0032635699956667
+          = 37.6528958476996  ->  37.65
+
+damping   = friction_viscous + kt**2 / R
+          = 0.8470782260272692 + 1.0057156607538362**2 / 2.0032635699956667
+          = 1.3519863197174637  ->  1.352
+          # friction_viscous 단독(이전 damping=0.847)은 back-EMF 항(kt**2/R)이 빠진 것 —
+          # damping도 같이 틀렸던 것이었음
 ```
+- `error_gain=1/128`: XM430 Position P Gain 레지스터 변환 공식(로보티즈 데이터시트와 동일),
+  `bam/bam/dynamixel/actuator.py`의 `XM430Actuator`에 하드코딩됨
+- `kp_register=800.0`: 공장 기본 Position P Gain(`XM430Actuator` 생성자 기본값과 동일) —
+  m4.json 데이터 수집 당시 서보에 실제로 설정돼 있었다고 가정
+- `vin=12.0`: 확정 동작전압, `max_pwm=1.0`: BAM 기본값(듀티 상한 미설정)
+
+교차검증: IsaacLab GitHub Discussion #2627(Robotis OP3용 XM430-W350 PD 튜닝, 미해결
+스레드)에서 커뮤니티가 시도한 값은 stiffness=45.0/damping=1.5 — BAM 유도값과 같은
+자릿수라 서로 뒷받침되지만, 그 스레드 값은 검증된 게 아니고 다른 로봇 사례이므로 참고만.
+우리 값은 실제 우리 개체를 실측한 BAM 피팅에서 나온 것이라 더 신뢰도가 높음.
 
 ## 관절 순서 (14개 구동 관절)
 

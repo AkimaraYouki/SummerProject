@@ -6,19 +6,21 @@
 # IsaacLab's UrdfConverter. Output lives under robot/ alongside the URDF and
 # meshes so everything from a given OnShape import stays in one place.
 #
-# --joint-damping is the Dynamixel XM430's measured viscous friction
-# (friction_viscous, "m4" model) from the BAM actuator characterization at
-# ~/Desktop/robot make/bam_xm430_params/m4.json (0.8470782260272692, rounded
-# below). armature/friction/effort_limit_sim/velocity_limit_sim are ALSO set
-# (BAM + XM430-W350 datasheet @ confirmed 12.0V) but live in
-# source/open_duck_mini_isaaclab/robot_cfg.py, not as CLI flags here — this
-# converter only exposes stiffness/damping.
-#
-# --joint-stiffness is still the old STS3215 placeholder (13.37) — BAM's
-# friction model doesn't produce a position-control stiffness/Kp value (that's
-# a control-loop tuning choice, not a measurable actuator property), so this
-# still needs to be set deliberately, not sourced from BAM. Must stay in sync
-# with source/open_duck_mini_isaaclab/robot_cfg.py — see docs/decisions.md.
+# --joint-stiffness / --joint-damping are both derived from the "m4"-model
+# BAM actuator characterization at
+# ~/Desktop/robot make/bam_xm430_params/m4.json, via BAM's own
+# VoltageControlledActuator.to_mujoco() conversion (bam/bam/actuator.py) —
+# NOT a raw BAM field, a formula that turns BAM's fitted kt/R/friction_viscous
+# plus the servo's real Position P Gain register setting into physical PD
+# gains:
+#   stiffness = (1/128) * 800.0(Position P Gain) * 12.0V * kt/R  = 37.65
+#   damping   = friction_viscous + kt**2/R                       = 1.352
+# (rounded; see source/open_duck_mini_isaaclab/robot_cfg.py's module
+# docstring for the full unrounded derivation and each term's source).
+# armature/friction/effort_limit_sim/velocity_limit_sim are ALSO set (BAM +
+# XM430-W350 datasheet @ confirmed 12.0V) but live in robot_cfg.py, not as
+# CLI flags here — this converter only exposes stiffness/damping. Must stay
+# in sync with robot_cfg.py — see docs/decisions.md.
 #
 # Usage:
 #   ISAACLAB_PATH=/path/to/IsaacLab ./scripts/convert_urdf.sh
@@ -40,8 +42,8 @@ mkdir -p "$(dirname "$OUTPUT_USD")"
     "$URDF_PATH" \
     "$OUTPUT_USD" \
     --merge-joints \
-    --joint-stiffness 13.37 \
-    --joint-damping 0.847 \
+    --joint-stiffness 37.65 \
+    --joint-damping 1.352 \
     --joint-target-type position \
     "$@"
 # extra args (e.g. --headless if running without a display) are forwarded via "$@"

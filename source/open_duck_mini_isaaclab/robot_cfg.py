@@ -3,14 +3,9 @@
 This robot's actual actuator is a Dynamixel XM430 (confirmed choice for the
 rebuild — see docs/onshape_import.md), not the original project's STS3215.
 Actuator gains below are sourced from the "m4"-model BAM characterization at
-~/Desktop/robot make/bam_xm430_params/m4.json wherever BAM measures the
-matching physical quantity directly:
+~/Desktop/robot make/bam_xm430_params/m4.json:
 
   armature = 0.014317492733137276  (BAM "armature", direct)
-  damping  = 0.8470782260272692    (BAM "friction_viscous" — closest concept
-                                     to URDF/Isaac Lab's viscous joint damping;
-                                     must stay in sync with
-                                     scripts/convert_urdf.sh's --joint-damping)
   friction = 0.07610030458666567   (BAM "friction_base" — the Coulomb/base
                                      term only. BAM's m4 model is a full
                                      Stribeck friction curve — friction_base,
@@ -22,6 +17,41 @@ matching physical quantity directly:
                                      load-dependent terms have no home in this
                                      actuator model.)
 
+stiffness and damping (2026-07-26, superseding an earlier STS3215-leftover
+13.37/BAM-friction-viscous-only 0.847 pair) are derived from BAM's own
+position-actuator conversion, `VoltageControlledActuator.to_mujoco()` in
+bam/bam/actuator.py — NOT a dead end as first assessed; that method exists
+specifically to turn BAM's fitted electrical/friction model plus the servo's
+real Position P Gain register setting into physical PD gains:
+
+  stiffness = error_gain * kp_register * vin * max_pwm * kt / R
+            = (1/128)    * 800.0       * 12.0 * 1.0     * 1.0057156607538362 / 2.0032635699956667
+            = 37.6528958476996   ->  37.65
+
+  damping   = friction_viscous + kt**2 / R
+            = 0.8470782260272692 + 1.0057156607538362**2 / 2.0032635699956667
+            = 1.3519863197174637 -> 1.352
+            (friction_viscous alone, used previously, omits the back-EMF
+             term kt**2/R that to_mujoco() includes — that was also wrong,
+             not just stiffness)
+
+  where kt, R, friction_viscous are BAM's fit for our actual characterized
+  unit (m4.json); error_gain=1/128 is the XM430 Position P Gain register
+  conversion (hardcoded in bam/bam/dynamixel/actuator.py's XM430Actuator,
+  matches the ROBOTIS datasheet formula Kp_actual=Kp_TBL/128); kp_register=
+  800.0 is the servo's factory-default Position P Gain (also XM430Actuator's
+  constructor default) — assumed to be what was actually on the servo during
+  the m4.json data collection. vin=12.0 is the confirmed operating voltage;
+  max_pwm=1.0 is BAM's default (no duty-cycle cap configured for this unit).
+
+  Cross-check: independently, IsaacLab GitHub Discussion #2627 (XM430-W350
+  PD tuning for the Robotis OP3, unresolved thread, no official derivation)
+  reports stiffness=45.0/damping=1.5 as values someone tried — same order of
+  magnitude as the BAM-derived numbers above, though that thread's values
+  aren't independently validated either. The BAM-derived numbers here are
+  preferred since they come from measurements of our own physical unit, not
+  a different robot's community trial-and-error.
+
 Sourced from the ROBOTIS XM430-W350 datasheet instead of BAM (m4.json has no
 torque/speed limit fields), at the confirmed operating voltage of 12.0V —
 https://docs.robotis.com/docs/dxl/model_reference/x_series/xm_series/xm430-w350 :
@@ -30,9 +60,6 @@ https://docs.robotis.com/docs/dxl/model_reference/x_series/xm_series/xm430-w350 
   velocity_limit_sim = 4.82  (rad/s) — no-load speed @ 12.0V, 46 rpm -> rad/s
 
 NOT sourced from either BAM or the datasheet:
-  stiffness — a position-control gain (Kp), not a measurable actuator
-              property; still the old STS3215 placeholder (13.37) pending a
-              deliberate choice.
   q_offset  — BAM's fitted joint zero-offset for the one physical unit on the
               test rig, not a per-robot design value; intentionally not
               applied anywhere.
@@ -77,8 +104,8 @@ assert len(_LEG_JOINT_NAMES) == 10 and len(_HEAD_JOINT_NAMES) == 4
 
 XM430_LEG_CFG = ImplicitActuatorCfg(
     joint_names_expr=_LEG_JOINT_NAMES,
-    stiffness=13.37,
-    damping=0.847,
+    stiffness=37.65,
+    damping=1.352,
     armature=0.01432,
     friction=0.0761,
     effort_limit_sim=4.1,
@@ -87,8 +114,8 @@ XM430_LEG_CFG = ImplicitActuatorCfg(
 
 XM430_HEAD_CFG = ImplicitActuatorCfg(
     joint_names_expr=_HEAD_JOINT_NAMES,
-    stiffness=13.37,
-    damping=0.847,
+    stiffness=37.65,
+    damping=1.352,
     armature=0.01432,
     friction=0.0761,
     effort_limit_sim=4.1,
