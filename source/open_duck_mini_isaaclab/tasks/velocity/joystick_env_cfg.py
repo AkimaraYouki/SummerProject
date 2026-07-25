@@ -273,7 +273,23 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     torques_scale = -1.0e-3
     action_rate_scale = -0.5
     stand_still_scale = -0.2
-    alive_scale = 20.0
+    # alive_scale (2026-07-26): Playground's original value is 20.0 — copied
+    # verbatim here initially, but that number assumes `imitation` is active
+    # to counterbalance it. reward_imitation's internal joint-pos-error term
+    # (w_joint_pos=15.0, see rewards.py) can swing sharply negative whenever
+    # the pose doesn't match the reference gait, which is what keeps
+    # alive=20 from being worth farming on its own in the original design.
+    # Stage 1 (use_imitation=False) has no such counterweight: even after
+    # the min_base_height_ratio termination fix above, a 2048-env/3000-iter
+    # run still converged on a contorted-but-technically-above-the-height-
+    # floor pose instead of walking (confirmed both by eval_policy_stability
+    # and by watching over WebRTC) — 20.0 alone (70% of the ~570 theoretical
+    # per-episode ceiling, see the reward-composition discussion in this
+    # session) was still enough to make "survive somehow" out-compete
+    # "actually track the command." Cut 10x to de-emphasize pure survival
+    # relative to tracking_lin_vel_scale/tracking_ang_vel_scale (2.5/6.0)
+    # until Stage 2 (imitation) is wired up as the real long-term fix.
+    alive_scale = 2.0
     imitation_scale = 1.0
 
     # ── reference motion (imitation) ────────────────────────────────────
@@ -290,3 +306,23 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # in that case — has no effect on reward, only lets the policy sense
     # gait phase if it finds that useful on its own.
     gait_period_steps: int = 50
+
+
+# ── alive_scale sweep variants (2026-07-26) ─────────────────────────────
+# See the base class's alive_scale comment: 20.0 (Playground's original,
+# imitation-counterbalanced value) reward-hacked into a not-quite-fallen
+# contortion instead of walking once ported to Stage 1 (no imitation). The
+# base class above now defaults to 2.0 (a 10x cut); these two add more
+# points along the same axis so the sweep can compare 2 / 5 / 10 (20 already
+# has a completed data point from the pre-sweep run at
+# logs/rsl_rl/open_duck_mini_v2_joystick/2026-07-26_03-50-34) rather than
+# guessing a single value. Registered as separate gym tasks in __init__.py
+# so all three can train concurrently on one GPU.
+@configclass
+class JoystickEnvCfg_Alive5(JoystickEnvCfg):
+    alive_scale = 5.0
+
+
+@configclass
+class JoystickEnvCfg_Alive10(JoystickEnvCfg):
+    alive_scale = 10.0

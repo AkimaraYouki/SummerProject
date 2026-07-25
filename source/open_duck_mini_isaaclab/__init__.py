@@ -24,5 +24,19 @@ try:
             "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg",
         },
     )
+
+    # alive_scale sweep variants — see joystick_env_cfg.py's comment above
+    # JoystickEnvCfg_Alive5/_Alive10 for why. The base task above now runs
+    # with alive_scale=2.0.
+    for _variant_suffix, _variant_cfg_cls in [("Alive5", "JoystickEnvCfg_Alive5"), ("Alive10", "JoystickEnvCfg_Alive10")]:
+        gym.register(
+            id=f"Isaac-OpenDuckMini-Joystick-{_variant_suffix}-v0",
+            entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+            disable_env_checker=True,
+            kwargs={
+                "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:{_variant_cfg_cls}",
+                "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg",
+            },
+        )
 except ImportError:
     pass
