@@ -55,16 +55,23 @@ robot/
    ISAACLAB_PATH=~/IsaacLab ./scripts/convert_urdf.sh --headless
    ```
 
-## 알려진 경고 (2026-07-25 첫 임포트 기준, 치명적이지 않음)
+## 알려진 경고 (2026-07-25 첫 임포트, 522줄 전체 로그 확인 — 매 실행마다 재현됨, ERROR는 0건)
 
-- **"part ... has no mass, maybe you should assign a material to it?"** — OnShape에서
-  이름 없는(`Part 1`, `Part 2` ...) 일부 파츠에 재질이 할당 안 돼서 질량 0으로 잡힘.
-  이름 붙은 주요 부품(발, 다리 프레임 등)엔 안 뜬 걸로 봐서 작은 고정 부품(나사 등)일
-  가능성이 높지만, USD 변환 후 Isaac Sim에서 전체 질량이 말이 되는지 한 번은 확인할 것.
-- **"Multiple base links detected... Only the first base link will be considered."**
-  — 첫 실행에서 1회 뜨고 재실행 시엔 안 떴음(캐시 영향으로 추정). 관절 14개가 전부
-  예상한 이름으로 나온 걸로 봐서 치명적 손실은 아닌 듯하나, 확신은 못 함 — 링크 개수가
-  기대와 다르면 이게 원인일 수 있음.
+중복 제거하면 고유 경고는 21종:
+
+- **"part ... has no mass, maybe you should assign a material to it?"** (20개 파츠) — 이름
+  없는 범용 파츠(`Part 1`~`Part 16`, 아마 나사류)와 전자보드(`Main_Board_Simplified`,
+  `MODULE_BOARD_ME`)에 OnShape에서 재질이 할당 안 돼서 질량 0으로 잡힘. 이름 붙은 주요
+  구조 부품(발, 다리 프레임, 브래킷 등)엔 이 경고가 안 뜨는 걸로 봐서 소형 하드웨어/전자
+  부품에만 국한된 문제로 보임 — USD 변환 후 Isaac Sim에서 전체 질량이 말이 되는지 확인할 것.
+- **"Parts with same name ..., incrementing STL name to ..."** (2건) — 같은 파츠가 여러
+  인스턴스로 재사용될 때 자동으로 `_2` 접미사를 붙여 처리. 정상 동작, 무시해도 됨.
+- **"Multiple base links detected, which is not supported by URDF. Only the first base
+  link will be considered."** — **매 실행마다 재현됨** (이전 기록에 "재현 안 됨"이라고
+  적었던 건 grep이 ANSI 색상 코드 때문에 놓친 오탐이었음, 정정함). OnShape 어셈블리 안에
+  메이트로 메인 트리에 연결 안 된 "떠있는" 파츠가 있어서 URDF가 지원 못 하는 두 번째
+  루트가 생기고, 그중 하나만 채택된다는 뜻. 관절 14개는 매번 정상적으로 다 나오지만,
+  **USD 변환 후 Isaac Sim에서 뭔가 시각적으로 빠진 게 없는지 반드시 눈으로 확인할 것.**
 
 ## 참고 — 첫 임포트에서 확인된 사실
 
