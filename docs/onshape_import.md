@@ -61,9 +61,12 @@ robot/
 
 - **"part ... has no mass, maybe you should assign a material to it?"** (20개 파츠) — 이름
   없는 범용 파츠(`Part 1`~`Part 16`, 아마 나사류)와 전자보드(`Main_Board_Simplified`,
-  `MODULE_BOARD_ME`)에 OnShape에서 재질이 할당 안 돼서 질량 0으로 잡힘. 이름 붙은 주요
-  구조 부품(발, 다리 프레임, 브래킷 등)엔 이 경고가 안 뜨는 걸로 봐서 소형 하드웨어/전자
-  부품에만 국한된 문제로 보임 — USD 변환 후 Isaac Sim에서 전체 질량이 말이 되는지 확인할 것.
+  `MODULE_BOARD_ME`)에 OnShape에서 재질이 할당 안 돼서 그 파츠 개별로는 질량 0.
+  **실제 `robot.urdf`를 파싱해서 확인한 결과, 15개 링크 중 질량 0인 링크는 0개** —
+  재질 없는 파츠들이 재질 있는 다른 파츠와 같은 URDF 링크로 묶이면서 링크 단위 합산
+  질량은 0이 되지 않았음(전체 로봇 질량 합계 1.98kg). 물리적으로 당장 문제는 아님.
+  다만 이 파츠들 자체의 무게(나사 등, 미미할 것으로 추정)는 합산 질량에서 빠져있으니,
+  무게중심 정밀도가 중요해지면 그때 재질을 지정해줄 것.
 - **"Parts with same name ..., incrementing STL name to ..."** (2건) — 같은 파츠가 여러
   인스턴스로 재사용될 때 자동으로 `_2` 접미사를 붙여 처리. 정상 동작, 무시해도 됨.
 - **"Multiple base links detected, which is not supported by URDF. Only the first base
