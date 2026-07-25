@@ -75,3 +75,35 @@ The path xm430_어셈 is not a valid usd path, modifying to xm430_______
 재변환하니 이 경고가 완전히 사라짐(`grep "not a valid usd path"` 결과 0건). 확인된
 교훈: **OnShape 서브어셈블리·파츠 이름은 반드시 영문으로 지을 것** — 한글 이름은 USD
 변환 시 자동으로 밑줄 치환되어 원래 이름을 알아보기 어려워진다.
+
+## 첫 스모크 테스트 성공 (2026-07-25)
+
+USD 변환 후 `scripts/train.sh --num_envs 4 --max_iterations 2 --headless`로 실제 학습
+파이프라인 전체를 검증했다. 이 과정에서 실행해보지 않고는 못 잡았을 버그를 5개 더
+발견하고 고쳤다 — 전부 실제 실행 로그의 에러 메시지를 보고 원인을 추적한 것:
+
+1. **body 이름 불일치** (`joint_order.py`) — `BASE_BODY_NAME="base"`가 실제 URDF엔
+   없는 링크였음. IMU가 그 이름을 하드코딩 참조하고 있어서 안 고쳤으면 env 초기화에서
+   바로 죽었을 것. `ROOT_BODY_NAME`("trunk_assembly")을 쓰도록 수정.
+2. **태스크 미등록** (`gymnasium.error.NameNotFound`) — IsaacLab의 `train.py`/`play.py`는
+   외부 태스크 패키지를 전혀 모른다. `scripts/_isaaclab_launch.py` 셔틀을 만들어서
+   `open_duck_mini_isaaclab`을 먼저 임포트(gym.register 부작용)한 뒤 실제 스크립트에
+   위임하도록 `train.sh`/`play.sh`를 고침.
+3. **rsl_rl API 불일치** (`ImportError: cannot import name 'RslRlMLPModelCfg'`) —
+   이전 세션이 "최신 API"라고 가정했던 것과 실제 설치된 `isaaclab_rl==0.2.0`이 달랐음.
+   설치된 `rl_cfg.py`를 직접 읽어서 실제 API(`RslRlPpoActorCriticCfg`)에 맞게
+   `agents/rsl_rl_ppo_cfg.py` 재작성.
+4. **torch/CUDA 버전 불일치** (`RuntimeError: driver too old`) — `isaaclab_rl` 설치 중
+   torch가 2.13.0+cu130으로 자동 업그레이드됐는데 드라이버는 CUDA 12.8까지만 지원.
+   cu128과 호환되는 최신 버전(2.11.0+cu128)으로 재설치, torchvision도 같이 맞춤
+   (ABI 불일치로 `RuntimeError: operator torchvision::nms does not exist` 추가 발생 →
+   torchvision 재설치로 해결).
+5. **HOME_JOINT_POS 관절 한계 초과** — `right_hip_pitch`/`right_knee`가 이 URDF의
+   실제 `<limit>` 범위를 벗어나 있었음(좌우 관절 축 부호 관례가 원본 Playground와
+   다름). 두 값 부호 반전으로 해결 — Isaac Sim에서 자세가 실제로 대칭적인지는
+   아직 육안 확인 안 함.
+
+**결과**: 에러 0건, `model_0.pt`/`model_1.pt` 체크포인트 저장 확인
+(`logs/rsl_rl/open_duck_mini_v2_joystick/2026-07-25_17-41-30/`). 파이프라인 전체
+(OnShape 임포트 → URDF → USD → Isaac Lab env → RSL-RL 학습)가 처음으로 끝까지
+돌아간 것을 확인했다.
