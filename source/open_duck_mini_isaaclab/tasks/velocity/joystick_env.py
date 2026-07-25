@@ -51,7 +51,7 @@ from open_duck_mini_isaaclab.joint_order import (
     LEFT_FOOT_BODY_NAME,
     RIGHT_FOOT_BODY_NAME,
 )
-from open_duck_mini_isaaclab.reference_motion.poly_reference_motion import PolyReferenceMotion
+from open_duck_mini_isaaclab.reference_motion.poly_reference_motion import REF_FRAME_DIM, PolyReferenceMotion
 
 from .joystick_env_cfg import JoystickEnvCfg
 from .observations import DelayBuffer, apply_uniform_noise
@@ -143,7 +143,7 @@ class JoystickEnv(DirectRLEnv):
         else:
             self._prm = None
             self._gait_period_steps = cfg.gait_period_steps
-        self._current_reference_motion = torch.zeros(n, 40, device=dev)
+        self._current_reference_motion = torch.zeros(n, REF_FRAME_DIM, device=dev)
 
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.robot)
