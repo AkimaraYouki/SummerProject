@@ -154,7 +154,10 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     state_space = 0  # see module docstring — no asymmetric critic in v1
 
     dof_vel_scale = 0.05
-    max_motor_velocity = 5.24  # rad/s, clamps the per-step motor-target delta
+    # rad/s, clamps the per-step motor-target delta. XM430-W350 no-load speed
+    # @ 12.0V (confirmed operating voltage) = 46 rpm; must stay in sync with
+    # robot_cfg.py's velocity_limit_sim (same datasheet source).
+    max_motor_velocity = 4.82
 
     # ── simulation ───────────────────────────────────────────────────────
     sim: SimulationCfg = SimulationCfg(
