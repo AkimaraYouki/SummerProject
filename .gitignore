@@ -17,3 +17,4 @@ env_isaaclab/
 # reference-motion generator artifacts (regenerate via scripts/generate_reference_motion.sh)
 reference_motion_generator/recordings/
 reference_motion_generator/**/placo_presets/tmp/
+.idea/
