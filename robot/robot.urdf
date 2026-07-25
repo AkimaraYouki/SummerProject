@@ -2786,8 +2786,8 @@
       </geometry>
     </collision>
   </link>
-  <!-- Link xm430_어셈 -->
-  <link name="xm430_어셈">
+  <!-- Link xm430_assem -->
+  <link name="xm430_assem">
     <inertial>
       <origin xyz="0.0159001 -0.000132108 -0.0152106" rpy="0 0 0"/>
       <mass value="0.232708"/>
@@ -3098,11 +3098,11 @@
       </geometry>
     </collision>
   </link>
-  <!-- Joint from neck_yaw_assembly to xm430_어셈 -->
+  <!-- Joint from neck_yaw_assembly to xm430_assem -->
   <joint name="head_roll" type="revolute">
     <origin xyz="0.04095 -0 -0.0203" rpy="0 -1.5708 0"/>
     <parent link="neck_yaw_assembly"/>
-    <child link="xm430_어셈"/>
+    <child link="xm430_assem"/>
     <axis xyz="0 0 1"/>
     <limit effort="10" velocity="10" lower="-0.523599" upper="0.523599"/>
   </joint>
@@ -3120,7 +3120,7 @@
     <parent link="neck_pitch_assembly"/>
     <child link="head_pitch_assembly"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-1.5708" upper="0"/>
+    <limit effort="10" velocity="10" lower="-1.5708" upper="-0"/>
   </joint>
   <!-- Joint from trunk_assembly to neck_pitch_assembly -->
   <joint name="neck_pitch" type="revolute">
@@ -4355,7 +4355,7 @@
     </collision>
     <!-- Part foot_bottom_tpu_2 -->
     <visual>
-      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 -0 -0"/>
+      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 0 -0"/>
       <geometry>
         <mesh filename="package://assets/foot_bottom_tpu.stl"/>
       </geometry>
@@ -4364,14 +4364,14 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 -0 -0"/>
+      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 0 -0"/>
       <geometry>
         <mesh filename="package://assets/foot_bottom_tpu.stl"/>
       </geometry>
     </collision>
     <!-- Part foot_bottom_pla_2 -->
     <visual>
-      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 -0 -0"/>
+      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 0 -0"/>
       <geometry>
         <mesh filename="package://assets/foot_bottom_pla.stl"/>
       </geometry>
@@ -4380,7 +4380,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 -0 -0"/>
+      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 0 -0"/>
       <geometry>
         <mesh filename="package://assets/foot_bottom_pla.stl"/>
       </geometry>
@@ -4412,7 +4412,7 @@
   </joint>
   <!-- Joint from knee_and_ankle_assembly_3 to knee_and_ankle_assembly_4 -->
   <joint name="right_knee" type="revolute">
-    <origin xyz="0 0.07865 0.038" rpy="3.14159 0 -1.5708"/>
+    <origin xyz="0 0.07865 0.038" rpy="3.14159 -0 -1.5708"/>
     <parent link="knee_and_ankle_assembly_3"/>
     <child link="knee_and_ankle_assembly_4"/>
     <axis xyz="0 0 1"/>

@@ -64,11 +64,12 @@ ModuleNotFoundError: No module named 'pkg_resources'
 설치 후 `ISAACLAB_PATH=~/IsaacLab ./scripts/convert_urdf.sh --headless`로 `robot/robot.urdf`를
 `assets/usd/open_duck_mini_v2.usd`로 성공적으로 변환함.
 
-**한 가지 주의**: 변환 로그에
+**한 가지 주의(해결됨, 2026-07-25 같은 날 후속조치)**: 첫 변환 로그엔
 ```
 The path xm430_어셈 is not a valid usd path, modifying to xm430_______
 ```
-경고가 떴다 — USD는 경로 이름에 비-ASCII 문자(한글)를 허용 안 해서 자동으로 밑줄로
-치환됨. `joint_order.py`가 이 이름을 직접 참조하지 않아서 지금은 안 깨지지만,
-**앞으로 OnShape에서 서브어셈블리·파츠 이름은 영문으로 짓는 걸 권장** — 다른 한글
-이름도 같은 문제가 생길 수 있음.
+경고가 있었다 — USD는 경로 이름에 비-ASCII 문자(한글)를 허용 안 해서 자동으로 밑줄로
+치환됐던 것. OnShape에서 `xm430_어셈` → `xm430_assem`으로 영문 리네임한 뒤 재임포트 +
+재변환하니 이 경고가 완전히 사라짐(`grep "not a valid usd path"` 결과 0건). 확인된
+교훈: **OnShape 서브어셈블리·파츠 이름은 반드시 영문으로 지을 것** — 한글 이름은 USD
+변환 시 자동으로 밑줄 치환되어 원래 이름을 알아보기 어려워진다.
