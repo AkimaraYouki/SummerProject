@@ -12,6 +12,23 @@ pose. This script checks the thing that actually matters (does base height
 stay near HOME_BASE_HEIGHT and stay upright) instead of trusting the
 training log's summary stats.
 
+Standing-upright alone is ALSO not sufficient proof of a working policy —
+a policy can just as easily reward-hack by standing perfectly still (or
+twitching in place) instead of tracking the commanded velocity, which
+would still pass a height/upright-only check. So this also checks, over
+the same rollout (commands come from the env's own resampling, same as
+training):
+  - lin-vel tracking error (achieved root_lin_vel_b.xy vs the commanded
+    lin_vel_x/y), restricted to steps where the command isn't ~zero
+  - leg joint range of motion (peak-to-peak per leg joint) — near-zero
+    range across the board means the legs aren't moving, i.e. standing
+    still or jittering in place rather than stepping
+  - foot contact alternation (toggle count on the existing per-foot
+    contact sensor, same FOOT_CONTACT_FORCE_THRESHOLD used by the env's
+    own "contact" observation) — a real gait lifts each foot repeatedly;
+    a foot that's always in contact (0 toggles) or never in contact means
+    no stepping is happening regardless of what the joints are doing
+
 Run via scripts/eval_policy_stability.sh:
   ISAACLAB_PATH=/path/to/IsaacLab ./scripts/eval_policy_stability.sh \
       --checkpoint /path/to/model_XXXX.pt [--headless] [--num_envs 8] [--num_steps 500]
@@ -40,6 +57,8 @@ from rsl_rl.runners import OnPolicyRunner  # noqa: E402
 
 import open_duck_mini_isaaclab.tasks  # noqa: E402, F401 - side effect: gym.register()
 from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import JoystickPPORunnerCfg  # noqa: E402
+from open_duck_mini_isaaclab.joint_order import ACT_LEG_JOINT_IDX  # noqa: E402
+from open_duck_mini_isaaclab.tasks.velocity.joystick_env import FOOT_CONTACT_FORCE_THRESHOLD  # noqa: E402
 from open_duck_mini_isaaclab.tasks.velocity.joystick_env_cfg import JoystickEnvCfg  # noqa: E402
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
 
@@ -55,15 +74,22 @@ runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg
 runner.load(args_cli.checkpoint)
 policy = runner.get_inference_policy(device=env.unwrapped.device)
 
-robot = env.unwrapped._robot
-joint_ids = env.unwrapped._joint_ids
-default_pos = robot.data.default_joint_pos[:, joint_ids].clone()
+unwrapped = env.unwrapped
+robot = unwrapped._robot
+joint_ids = unwrapped._joint_ids
+contact_sensor = unwrapped._contact_sensor
+feet_ids = unwrapped._feet_ids
+leg_joint_ids = [joint_ids[i] for i in ACT_LEG_JOINT_IDX]
 
 print(f"[info] HOME_BASE_HEIGHT (spawn z) = {env_cfg.robot.init_state.pos[2]:.4f} m", flush=True)
 
 obs, _ = env.get_observations()
 
-log_base_h, log_up, log_lin_vel_err = [], [], []
+log_base_h, log_up = [], []
+log_leg_pos = []  # per-step, mean-across-envs leg joint angles (10,)
+vel_err_sum, vel_err_count = 0.0, 0
+prev_contact = None
+toggle_count = torch.zeros(args_cli.num_envs, 2, device=unwrapped.device)
 nan_step = None
 
 for step in range(args_cli.num_steps):
@@ -82,6 +108,21 @@ for step in range(args_cli.num_steps):
 
     log_base_h.append(base_h.min().item())  # worst-case env
     log_up.append(up.max().item())  # worst-case env (least upright)
+    log_leg_pos.append(robot.data.joint_pos[:, leg_joint_ids].mean(dim=0).tolist())
+
+    commanded = unwrapped._command[:, :2]
+    achieved = robot.data.root_lin_vel_b[:, :2]
+    moving_mask = commanded.norm(dim=-1) > 0.02
+    if moving_mask.any():
+        err = (achieved[moving_mask] - commanded[moving_mask]).norm(dim=-1)
+        vel_err_sum += err.sum().item()
+        vel_err_count += int(moving_mask.sum().item())
+
+    forces = contact_sensor.data.net_forces_w_history[:, 0, feet_ids, :]
+    contact = torch.norm(forces, dim=-1) > FOOT_CONTACT_FORCE_THRESHOLD  # (num_envs, 2)
+    if prev_contact is not None:
+        toggle_count += (contact != prev_contact).float()
+    prev_contact = contact
 
 print("\n" + "=" * 70)
 print("TRAINED-POLICY STABILITY CHECK (real actions, not zero action)")
@@ -97,7 +138,24 @@ else:
     print(f"base height, last {len(tail)} steps  : [{min(tail):.4f}, {max(tail):.4f}] m  (HOME=0.150m)")
     print(f"worst-case upright, last {len(tail_up)} steps: {max(tail_up):.4f}  (-1=perfect, 0=sideways, >0=flipped)")
     standing = min(tail) > 0.10 and max(tail_up) < -0.5
-    print("\nRESULT:", "LIKELY STANDING (not collapsed)" if standing else "LIKELY STILL COLLAPSED/UNSTABLE")
+
+    import statistics
+
+    leg_pos_by_joint = list(zip(*log_leg_pos))  # 10 series of length n
+    leg_rom = [max(series) - min(series) for series in leg_pos_by_joint]
+    mean_leg_rom = statistics.mean(leg_rom)
+
+    mean_vel_err = vel_err_sum / vel_err_count if vel_err_count > 0 else float("nan")
+    mean_toggles_per_foot = toggle_count.mean().item()
+
+    print(f"\nmean leg-joint range of motion (10 joints): {mean_leg_rom:.4f} rad  (min {min(leg_rom):.4f}, max {max(leg_rom):.4f})")
+    print(f"lin-vel tracking error (moving steps only) : {mean_vel_err:.4f} m/s  (n={vel_err_count} env-steps with |cmd|>0.02)")
+    print(f"mean foot-contact toggles per foot per env  : {mean_toggles_per_foot:.1f}  (over {n} steps / {n * env.unwrapped.step_dt:.1f}s)")
+
+    walking = mean_leg_rom > 0.15 and mean_vel_err < 0.15 and mean_toggles_per_foot > 4
+
+    print("\nSTANDING RESULT:", "LIKELY STANDING (not collapsed)" if standing else "LIKELY STILL COLLAPSED/UNSTABLE")
+    print("WALKING RESULT: ", "LIKELY ACTUALLY WALKING" if walking else "LIKELY REWARD-HACKING (standing/twitching, not stepping)")
 print("=" * 70)
 sys.stdout.flush()
 
