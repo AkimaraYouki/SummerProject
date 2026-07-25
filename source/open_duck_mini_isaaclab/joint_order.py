@@ -68,15 +68,20 @@ assert [ACTUATOR_JOINT_NAMES[i] for i in ACT_LEG_JOINT_IDX] == [
     REF_JOINT_NAMES[i] for i in REF_LEG_JOINT_IDX
 ], "ACT_LEG_JOINT_IDX / REF_LEG_JOINT_IDX select different joints — fix before using either."
 
-# Body / site names (from the MJCF, carried into the converted USD's prim
-# names by UrdfConverter as long as merge_fixed_joints keeps these as real
-# links — verify on Ubuntu after conversion, see docs/decisions.md).
+# Body / site names, verified directly against robot/robot.urdf and the
+# converted USD (2026-07-25, OnShape-derived rebuild). These do NOT match
+# the original project's MJCF names — e.g. there is no link literally named
+# "base" (Playground's MJCF had one; this URDF's root/trunk link is named
+# ROOT_BODY_NAME below instead). Re-verify after any future re-import, since
+# onshape-to-robot derives these from OnShape mate/part names.
 ROOT_BODY_NAME = "trunk_assembly"
-BASE_BODY_NAME = "base"
 LEFT_FOOT_BODY_NAME = "foot_assembly"
 RIGHT_FOOT_BODY_NAME = "foot_assembly_2"
-LEFT_FOOT_COLLISION_GEOM = "left_foot_bottom_tpu"
-RIGHT_FOOT_COLLISION_GEOM = "right_foot_bottom_tpu"
+# Same left/"_2"-suffix-for-right convention as the rest of this URDF
+# (foot_assembly/foot_assembly_2, hip_roll_assembly/hip_roll_assembly_2,
+# etc.) — NOT "left_"/"right_"-prefixed like the original project's names.
+LEFT_FOOT_COLLISION_GEOM = "foot_bottom_tpu"
+RIGHT_FOOT_COLLISION_GEOM = "foot_bottom_tpu_2"
 
 # "home" keyframe joint positions (rad), in ACTUATOR_JOINT_NAMES order.
 # Source: playground xmls/scene_flat_terrain.xml <keyframe name="home">.

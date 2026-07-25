@@ -31,6 +31,7 @@ from open_duck_mini_isaaclab.joint_order import (
     ACTUATOR_JOINT_NAMES,
     LEFT_FOOT_BODY_NAME,
     RIGHT_FOOT_BODY_NAME,
+    ROOT_BODY_NAME,
 )
 from open_duck_mini_isaaclab.robot_cfg import OPEN_DUCK_MINI_V2_CFG
 
@@ -197,10 +198,14 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     )
 
     # IMU offset matches the MJCF <site name="imu" pos="-0.08 -0.0 0.05"/>
-    # relative to the "base" body — verify this survives URDF->USD
-    # conversion unchanged (see docs/decisions.md).
+    # relative to the root body. Playground's original MJCF called that body
+    # "base"; this OnShape-derived URDF calls it ROOT_BODY_NAME
+    # ("trunk_assembly") instead — confirmed via `robot/robot.urdf` and the
+    # converted USD (2026-07-25), no link literally named "base" exists.
+    # Mount the IMU on ROOT_BODY_NAME, not a hardcoded "base" string, so this
+    # can't silently drift out of sync with joint_order.py again.
     imu: ImuCfg = ImuCfg(
-        prim_path="/World/envs/env_.*/Robot/base",
+        prim_path=f"/World/envs/env_.*/Robot/{ROOT_BODY_NAME}",
         offset=ImuCfg.OffsetCfg(pos=(-0.08, 0.0, 0.05)),
         update_period=0.0,
     )
