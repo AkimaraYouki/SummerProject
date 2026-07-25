@@ -65,7 +65,13 @@ from .rewards import (
     reward_tracking_lin_vel,
 )
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# velocity/ -> tasks/ -> open_duck_mini_isaaclab/ -> source/ -> repo root:
+# 5 dirname() calls, not 4 — a 4-call version silently resolved to .../source
+# instead of the repo root, which only surfaced once cfg.reference_motion_pkl
+# (a "source/..."-prefixed relative path) got joined onto it, producing a
+# doubled "source/source/..." path (caught 2026-07-26 on Stage 2's first
+# real run: FileNotFoundError joining the two).
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 FOOT_CONTACT_FORCE_THRESHOLD = 1.0  # N
 
