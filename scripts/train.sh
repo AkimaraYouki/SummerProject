@@ -26,6 +26,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 "$ISAACLAB_PATH/isaaclab.sh" -p -c "import open_duck_mini_isaaclab" 2>/dev/null \
     || (cd "$REPO_ROOT" && "$ISAACLAB_PATH/isaaclab.sh" -p -m pip install -e .)
 
-"$ISAACLAB_PATH/isaaclab.sh" -p "$ISAACLAB_PATH/scripts/reinforcement_learning/rsl_rl/train.py" \
+# Delegate through _isaaclab_launch.py rather than calling train.py directly
+# — IsaacLab's train.py never imports this repo's package, so
+# --task Isaac-OpenDuckMini-Joystick-v0 would fail with
+# gymnasium.error.NameNotFound otherwise (confirmed 2026-07-25 smoke test;
+# see _isaaclab_launch.py's docstring for why the -m pip check above doesn't
+# already cover this).
+"$ISAACLAB_PATH/isaaclab.sh" -p "$REPO_ROOT/scripts/_isaaclab_launch.py" \
+    "$ISAACLAB_PATH/scripts/reinforcement_learning/rsl_rl/train.py" \
     --task Isaac-OpenDuckMini-Joystick-v0 \
     "$@"

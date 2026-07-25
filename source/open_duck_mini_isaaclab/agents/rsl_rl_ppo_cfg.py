@@ -1,34 +1,42 @@
 """rsl_rl PPO runner config for the Joystick task.
 
-Uses the current (non-deprecated) rsl_rl >= 4.0 API from this repo's
-targeted IsaacLab checkout (`isaaclab_rl.rsl_rl.rl_cfg`): `actor`/`critic`
-as `RslRlMLPModelCfg` + `obs_groups`, rather than the older deprecated
-`policy: RslRlPpoActorCriticCfg` field the abandoned WIP used (that field
-still exists but is marked deprecated in this checkout's rl_cfg.py, and
-`actor`/`critic`/`obs_groups`/`empirical_normalization` are MISSING/required
-regardless of which path is used — the modern path was verified directly
-against source rather than assumed from the WIP's possibly-stale example).
+Uses `isaaclab_rl.rsl_rl.rl_cfg`'s ACTUAL API as installed on the lab PC
+(isaaclab_rl==0.2.0, confirmed 2026-07-25 by reading rl_cfg.py directly and
+by a real smoke-test crash): a single `policy: RslRlPpoActorCriticCfg` field
+with `actor_hidden_dims`/`critic_hidden_dims`, not the `actor`/`critic`:
+`RslRlMLPModelCfg` + `obs_groups` shape a previous pass at this file assumed
+("the modern rsl_rl >= 4.0 API") — that assumption was wrong for this
+checkout: `RslRlMLPModelCfg` doesn't exist in this version of
+isaaclab_rl.rsl_rl at all, and the smoke test failed with
+`ImportError: cannot import name 'RslRlMLPModelCfg'` until this was fixed.
+`RslRlPpoActorCriticCfg` is not "deprecated" here — it's the only shape this
+version has. Re-verify against source (`cat` the actual installed rl_cfg.py)
+if this ever moves to a different IsaacLab checkout, rather than assuming
+either API shape.
+
+`empirical_normalization = True` here (opposite of the previous pass's
+`False`) because this API version has no per-model `obs_normalization` knob
+to fall back on — `empirical_normalization` is this checkout's only
+observation-normalization switch, so it must be on to get any normalization
+at all.
 
 Network sizing (GPU-memory-conscious: modest hidden layers, small
-mini-batch count) carried over in spirit from the WIP's own
+mini-batch count) carried over in spirit from the abandoned WIP's own
 `agents/rsl_rl_ppo_cfg.py`, whose comments note an RTX-class /
-VRAM-constrained target GPU — this repo's actual training GPU is still
-unknown, so kept conservative.
+VRAM-constrained target GPU — this repo's actual training GPU (RTX 5080,
+16GB, confirmed on the lab PC) has more headroom than that WIP assumed, so
+these sizes are conservative rather than tight; fine as a smoke-test/first-
+pass config, revisit once real training starts.
 
-TODO before Stage 4's Ubuntu gate: cross-check num_timesteps / network
-sizes against Playground's own
+TODO before trusting real training results: cross-check num_timesteps /
+network sizes against Playground's own
 `mujoco_playground.config.locomotion_params.brax_ppo_config("BerkeleyHumanoidJoystickFlatTerrain")`
-if that package is available — not found in any locally-read file during
-planning, so the values below are reasonable PPO defaults for a
-14-action-dim biped, not a verified match to Playground's exact recipe.
+if that package is available — not verified against Playground's exact
+recipe, just reasonable PPO defaults for a 14-action-dim biped.
 """
 
 from isaaclab.utils import configclass
-from isaaclab_rl.rsl_rl import RslRlMLPModelCfg, RslRlOnPolicyRunnerCfg, RslRlPpoAlgorithmCfg
-
-# No asymmetric critic in this v1 port (see joystick_env_cfg.py's
-# docstring) — actor and critic both consume the single "policy" obs group.
-_OBS_GROUPS = {"actor": ["policy"], "critic": ["policy"]}
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
 
 
 @configclass
@@ -37,19 +45,13 @@ class JoystickPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 3000
     save_interval = 100
     experiment_name = "open_duck_mini_v2_joystick"
-    empirical_normalization = False  # deprecated flag; obs_normalization below is the modern equivalent
-    obs_groups = _OBS_GROUPS
+    empirical_normalization = True
 
-    actor = RslRlMLPModelCfg(
-        hidden_dims=[256, 128, 64],
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_hidden_dims=[256, 128, 64],
+        critic_hidden_dims=[256, 128, 64],
         activation="elu",
-        obs_normalization=True,
-        distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=1.0),
-    )
-    critic = RslRlMLPModelCfg(
-        hidden_dims=[256, 128, 64],
-        activation="elu",
-        obs_normalization=True,
     )
 
     algorithm = RslRlPpoAlgorithmCfg(

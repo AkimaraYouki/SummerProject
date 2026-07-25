@@ -15,7 +15,12 @@ if [ -z "${ISAACLAB_PATH:-}" ]; then
     exit 1
 fi
 
-"$ISAACLAB_PATH/isaaclab.sh" -p "$ISAACLAB_PATH/scripts/reinforcement_learning/rsl_rl/play.py" \
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# See scripts/_isaaclab_launch.py's docstring — play.py has the same
+# "doesn't know about external task packages" problem train.py does.
+"$ISAACLAB_PATH/isaaclab.sh" -p "$REPO_ROOT/scripts/_isaaclab_launch.py" \
+    "$ISAACLAB_PATH/scripts/reinforcement_learning/rsl_rl/play.py" \
     --task Isaac-OpenDuckMini-Joystick-v0 \
     "$@"
 
