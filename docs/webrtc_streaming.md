@@ -64,6 +64,45 @@ GPU/CPU를 크게 잡아먹는 프로세스라(관측치: CPU 800%+, RAM 16GB+),
 - SSH로 `pkill` 등을 실행할 때 이따금 세션 자체가 exit code 255로 끊기는 경우가 있었다 —
   재접속해서 `ps aux`로 실제 상태를 확인하면 대개 명령 자체는 정상적으로 실행돼 있었다.
 
+## ⚠️ OnShape 임포터는 이 방식과 근본적으로 안 맞는다 (2026-07-25 결론)
+
+`--no-window`로 헤드리스 스트리밍 중인 상태에서 Isaac Sim의 OnShape 임포터로 로그인을 시도하면
+아래 에러가 계속 반복된다:
+
+```
+[Error] [omni.importer.onshape.client] Onshape Authentication Error: The open_authorize_grant_callback function did not work.
+```
+
+**1차 시도 — 포트 터널 (부분적으로만 맞는 접근):**
+OnShape OAuth 콜백을 받는 로컬 리스너가 랩 PC의 `127.0.0.1:4518`(로그에서 `kit` 프로세스가 물고
+있는 걸로 확인)에 떠있는데, 실제 로그인은 맥북 브라우저에서 하니 리다이렉트가 맥북 자신의
+localhost로 가서 실패한다고 추정하고 아래로 터널을 뚫었다:
+
+```bash
+ssh -N -L 4518:127.0.0.1:4518 do@192.168.137.111
+```
+
+이 터널 자체는 정상 동작했지만(포트 연결 확인됨), 재시도해도 **같은 에러가 그대로 재현됐다.**
+
+**진짜 원인 — GLFW 창을 못 띄움:**
+매 에러 직전 로그에 아래가 반복된다:
+
+```
+[Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+[Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin ...
+```
+
+OnShape 임포터의 로그인 UI는 GLFW로 **별도 네이티브 창**을 띄우는 방식인데, `--no-window` 헤드리스
+모드에서는 애초에 그 창 자체를 생성할 수 없다. 포트가 맞아도 콜백을 받을 창이 뜨질 못하니
+실패하는 것 — 네트워크 문제가 아니라 **헤드리스 스트리밍과 OnShape 임포터의 OAuth 플로우가
+구조적으로 호환되지 않는 것**으로 결론.
+
+**결론 — 이 경로는 포기하고 `onshape-to-robot`으로 전환한다.** OnShape API 키 기반의 헤드리스
+CLI(`pip install onshape-to-robot`)로 URDF를 직접 뽑아서, 이미 검증된 `scripts/convert_urdf.sh`
+경로를 그대로 쓰는 쪽이 GUI/OAuth 문제 자체를 우회한다. (참고로 이 문제와 별개로, WebRTC
+스트리밍 자체와 4518 포트 터널 기법은 다른 GUI 확인 작업—USD 검사, 시각적 디버깅 등—에는
+여전히 유효하다.)
+
 ## 참고 — 슈퍼컴퓨터(다른 클러스터)에서의 동일 절차
 
 같은 팀에서 슈퍼컴 L40S 노드(`kitsu02`)에 Docker로 Isaac Sim을 띄울 때도 같은 플래그를 쓴다:
