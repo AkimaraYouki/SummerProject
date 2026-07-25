@@ -12,18 +12,36 @@
 
 ## 액추에이터 게인 — 어떤 수치를 썼고 왜
 
-Open_Duck_Playground의 `xmls/open_duck_mini_v2.xml`에 있는 **활성(activated) sts3215 class 값**을 사용한다. 이게 현재 실제로 학습에 쓰이는 정책이 튜닝된 기준이기 때문이다. 후보로 있었던 다른 값들(모두 사용 안 함):
-- `~/Desktop/robot make/IsaacLab`의 XM430 값 (armature=0.01432 등) — 실제 로봇 하드웨어(Feetech STS3215)가 아니라 랩에서 실험 중이던 다른 모터(Dynamixel XM430) 기준이라 부적합.
-- `mini_bdx/robots/open_duck_mini_v2/robot.xml`의 대안 값 (kp=9.5, damping=1.0 등) — Playground가 실제로 학습에 쓰는 값이 아님.
+**(2026-07-25 정정: 이 항목은 원래 Playground의 STS3215 값을 쓴다고 적혀 있었으나, 이후 실제
+로봇 재설계가 확정되면서 완전히 뒤집혔다. 아래는 현재 유효한 버전.)**
 
-사용한 값:
+이 로봇의 실제 액추에이터는 **Dynamixel XM430**으로 확정됐다(OnShape CAD에 `xm430_assem`
+서브어셈블리로 포함, 12.0V 확정 — `docs/onshape_import.md` 참고). 즉 원래 Open_Duck_Playground가
+튜닝 기준으로 삼았던 Feetech STS3215도, 한때 "랩에서 실험 중이던 다른 모터라 부적합"이라고
+배제했던 `robot make/IsaacLab`의 XM430 값도 — 이제는 XM430 쪽이 맞고 STS3215 쪽이 이 로봇에는
+안 맞는 값이다.
+
+**출처가 두 갈래로 나뉜다:**
+
+1. **BAM 실측** (`~/Desktop/robot make/bam_xm430_params/m4.json`, "m4" 모델) — 실제 이 XM430
+   개체를 특성화(characterization)해서 얻은 값. 모터 개체차·기어박스 마찰까지 반영돼 있어서
+   데이터시트 이상적 스펙보다 정확:
+   ```
+   armature = 0.01432   # BAM "armature" 직접
+   damping  = 0.847      # BAM "friction_viscous" (URDF viscous damping과 가장 가까운 개념)
+   friction = 0.0761     # BAM "friction_base" (Stribeck 모델의 base항만 — Isaac Lab의
+                          # 단일 스칼라 friction엔 stribeck/load 항이 대응할 자리가 없음)
+   ```
+2. **로보티즈 데이터시트** (XM430-W350, 12.0V 확정 — BAM엔 토크/속도 한계값이 없어서):
+   ```
+   effort_limit_sim   = 4.1    # N*m, stall torque @ 12.0V/2.3A
+   velocity_limit_sim = 4.82   # rad/s, no-load speed @ 12.0V(46rpm)
+   ```
+
+**아직 미확정:**
 ```
-stiffness (kp)   = 13.37
-damping          = 0.56
-armature         = 0.027
-friction         = 0.068   # frictionloss
-effort_limit     = 3.23    # forcerange
-velocity_limit   = 5.24    # max_motor_velocity (joystick.py default_config)
+stiffness (kp) = 13.37   # STS3215 placeholder 그대로 — 컨트롤 게인이라 BAM/데이터시트
+                          # 어느 쪽도 측정 대상이 아님, 별도로 정해야 함
 ```
 
 ## 관절 순서 (14개 구동 관절)

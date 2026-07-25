@@ -9,8 +9,10 @@
 # --joint-damping is the Dynamixel XM430's measured viscous friction
 # (friction_viscous, "m4" model) from the BAM actuator characterization at
 # ~/Desktop/robot make/bam_xm430_params/m4.json (0.8470782260272692, rounded
-# below). armature is also directly measured there (0.014317492733137276)
-# but NOT wired in yet — only damping was requested so far.
+# below). armature/friction/effort_limit_sim/velocity_limit_sim are ALSO set
+# (BAM + XM430-W350 datasheet @ confirmed 12.0V) but live in
+# source/open_duck_mini_isaaclab/robot_cfg.py, not as CLI flags here — this
+# converter only exposes stiffness/damping.
 #
 # --joint-stiffness is still the old STS3215 placeholder (13.37) — BAM's
 # friction model doesn't produce a position-control stiffness/Kp value (that's
@@ -46,4 +48,7 @@ mkdir -p "$(dirname "$OUTPUT_USD")"
 
 echo "Wrote $OUTPUT_USD"
 echo "NOTE: --fix-base is intentionally omitted (defaults to false / floating base for this biped)."
-echo "Verify articulation root + joint/body names in Isaac Sim before proceeding to Stage 1's robot_cfg.py."
+echo "Joint/body names cross-checked against joint_order.py and confirmed via a working"
+echo "train.sh smoke test (2026-07-25) — re-verify only if robot/robot.urdf changes."
+echo "STILL OPEN: HOME_JOINT_POS has not been visually confirmed as a symmetric standing"
+echo "pose in Isaac Sim — check this next if training behaves oddly."
