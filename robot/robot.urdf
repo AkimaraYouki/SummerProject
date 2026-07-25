@@ -3120,7 +3120,7 @@
     <parent link="neck_pitch_assembly"/>
     <child link="head_pitch_assembly"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-1.5708" upper="-0"/>
+    <limit effort="10" velocity="10" lower="-1.5708" upper="0"/>
   </joint>
   <!-- Joint from trunk_assembly to neck_pitch_assembly -->
   <joint name="neck_pitch" type="revolute">
@@ -4355,7 +4355,7 @@
     </collision>
     <!-- Part foot_bottom_tpu_2 -->
     <visual>
-      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 0 -0"/>
+      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 -0 -0"/>
       <geometry>
         <mesh filename="package://assets/foot_bottom_tpu.stl"/>
       </geometry>
@@ -4364,14 +4364,14 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 0 -0"/>
+      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 -0 -0"/>
       <geometry>
         <mesh filename="package://assets/foot_bottom_tpu.stl"/>
       </geometry>
     </collision>
     <!-- Part foot_bottom_pla_2 -->
     <visual>
-      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 0 -0"/>
+      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 -0 -0"/>
       <geometry>
         <mesh filename="package://assets/foot_bottom_pla.stl"/>
       </geometry>
@@ -4380,7 +4380,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 0 -0"/>
+      <origin xyz="0.01656 0.2228 0.10955" rpy="-1.5708 -0 -0"/>
       <geometry>
         <mesh filename="package://assets/foot_bottom_pla.stl"/>
       </geometry>
