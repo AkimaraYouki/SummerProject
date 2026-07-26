@@ -29,6 +29,13 @@ class PlacoWalkEngine:
         robot_type = asset_path.split("/")[-1]
         if robot_type in ["open_duck_mini", "go_bdx"]:
             knee_limits = knee_limits or [-0.2, -0.01]
+        elif robot_type == "open_duck_mini_v2":
+            # No override: our robot.urdf now has correct, symmetric,
+            # physically-real knee limits (fixed 2026-07-26 — see
+            # docs/decisions.md's "좌우 비대칭 발견" section), unlike the
+            # narrow/backwards [0.2, 0.01] the generic "else" branch below
+            # used to apply to us. Trust the URDF's own <joint><limit>.
+            knee_limits = None
         else:
             knee_limits = knee_limits or [0.2, 0.01]
 
@@ -46,11 +53,17 @@ class PlacoWalkEngine:
         self.solver = placo.KinematicsSolver(self.robot)
         self.solver.enable_velocity_limits(True)
         self.robot.set_velocity_limits(12.0)
-        self.solver.enable_joint_limits(False)
+        # Enabled 2026-07-26 (was False): with joint limits disabled, Placo's
+        # IK freely produced knee/hip_pitch angles past our robot.urdf's real
+        # joint limits (up to 22 degrees over) on 100% of generated gaits —
+        # a likely root cause of the Stage 2 imitation training failure
+        # (physically-unreachable reference targets). See docs/decisions.md.
+        self.solver.enable_joint_limits(True)
         self.solver.dt = DT / REFINE
 
-        self.robot.set_joint_limits("left_knee", *knee_limits)
-        self.robot.set_joint_limits("right_knee", *knee_limits)
+        if knee_limits is not None:
+            self.robot.set_joint_limits("left_knee", *knee_limits)
+            self.robot.set_joint_limits("right_knee", *knee_limits)
 
         # Creating the walk QP tasks
         self.tasks = placo.WalkTasks()
