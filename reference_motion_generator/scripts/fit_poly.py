@@ -12,7 +12,7 @@ args = parser.parse_args()
 all_files = glob(f"{args.ref_motion}/*.json")
 
 
-def fit_ref_motion(file):
+def fit_ref_motion(file, intended_vel=None):
     data = json.load(open(file))
     Y_all = np.array(data["Frames"])
     period = data["Placo"]["period"]
@@ -33,6 +33,25 @@ def fit_ref_motion(file):
     base_angular_vel = _Y[
         :, frame_offsets["world_angular_vel"] : frame_offsets["joints_vel"]
     ]
+
+    # Remove the Placo planner's systematic drift bias from the velocity
+    # channels (2026-07-26). Even for a commanded-straight walk the planner
+    # yaws ~0.03 rad/s (reproduced on the untouched upstream open_duck_mini
+    # v1 assets too, so it's inherent to the vendored planner, not our
+    # robot). The pkl is keyed by the intended (grid) velocities, and the
+    # runtime snaps joystick commands to those keys — so the reference's
+    # mean lin x/y and ang z velocity should MATCH the key, not the drifted
+    # measurement, otherwise the imitation reward pulls the policy slightly
+    # off-command. Joint trajectories/contacts are left untouched (the
+    # "style" of the gait); only the mean of the velocity channels is
+    # re-centered onto the intended command.
+    if intended_vel is not None:
+        vx_int, vy_int, vth_int = intended_vel
+        base_linear_vel = base_linear_vel.copy()
+        base_angular_vel = base_angular_vel.copy()
+        base_linear_vel[:, 0] += vx_int - base_linear_vel[:, 0].mean()
+        base_linear_vel[:, 1] += vy_int - base_linear_vel[:, 1].mean()
+        base_angular_vel[:, 2] += vth_int - base_angular_vel[:, 2].mean()
 
     Y = np.concatenate(
         [joints_pos, joints_vel, foot_contacts, base_linear_vel, base_angular_vel],
@@ -72,7 +91,8 @@ for file in all_files:
     tmp = name.split("_")
     name = f"{tmp[1]}_{tmp[2]}_{tmp[3]}"
 
-    all_coefficients[name] = fit_ref_motion(file)
+    intended = (float(tmp[1]), float(tmp[2]), float(tmp[3]))
+    all_coefficients[name] = fit_ref_motion(file, intended_vel=intended)
 
 
 pickle.dump(all_coefficients, open("polynomial_coefficients.pkl", "wb"))
