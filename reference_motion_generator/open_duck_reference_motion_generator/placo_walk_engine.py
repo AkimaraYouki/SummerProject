@@ -46,10 +46,24 @@ class PlacoWalkEngine:
             # maps to right (+0.925,+1.571,-0.717) with identical foot pose
             # and knee offset). Enforce direction per side, keep a small
             # margin away from 0 to avoid the straight-leg singularity.
+            # Direction is enforced per side; the MAGNITUDE follows the
+            # URDF's own <limit> (2026-07-27: OnShape mates widened to a
+            # symmetric ±120° after the previous ±90° saturated the knees
+            # mid-gait — geometry needs ~105° stance / ~130° swing bend at
+            # walk_com_height=0.16), so future OnShape limit changes flow
+            # through without touching this file.
             knee_limits = None
+            import xml.etree.ElementTree as _ET
+            _root = _ET.parse(model_filename).getroot()
+            _urdf_limits = {}
+            for _j in _root.findall("joint"):
+                if _j.get("name") in ("left_knee", "right_knee"):
+                    _lim = _j.find("limit")
+                    _urdf_limits[_j.get("name")] = (
+                        float(_lim.get("lower")), float(_lim.get("upper")))
             per_side_knee_limits = {
-                "left_knee": (-1.5708, -0.01),
-                "right_knee": (0.01, 1.5708),
+                "left_knee": (_urdf_limits["left_knee"][0], -0.01),
+                "right_knee": (0.01, _urdf_limits["right_knee"][1]),
             }
         else:
             knee_limits = knee_limits or [0.2, 0.01]
