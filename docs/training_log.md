@@ -75,3 +75,24 @@ alive_scale 스윕과 별개로, "지금 것 안 되면 Stage 2로" 계획에 �
 **최종 검증**: 수정 후 재실행 → 240/240 녹화 성공, `fit_poly.py`로 피팅 → **최초로 실제 데이터가 든 `polynomial_coefficients.pkl`(2.8MB, 240 항목) 생성**(커밋 `f4cdcbb`/`c831005`). `PolyReferenceMotion` 클래스로 직접 로드해서 `get_reference_motion()` 호출까지 확인 — Stage 2 파이프라인이 처음부터 끝까지 실제로 동작함을 확인.
 
 **아직 남은 버그 (차단 요소 아님)**: `auto_waddle.py`의 속도필터가 `preset_name == "medium"`을 비교하는데 실제 값은 `"0_medium"`처럼 인덱스가 붙어있어서 **필터가 한 번도 매치되지 않음** — 240개가 전부(필터링 없이) pkl에 들어감. 일부는 속도가 매우 낮은 조합도 섞여 있음. Stage 2 학습 품질에 영향을 줄 수 있으나, "파이프라인이 작동하는가"라는 오늘 밤의 목표는 달성됨 — 다음 세션에서 필터 로직과 게이트 파라미터를 같이 손보면 됨.
+
+---
+
+## Run 6 — Stage 2 최초 본학습 (`imitation_v1`, 2026-07-26 09:02~12:14)
+
+- **설정**: `use_imitation=True`, `alive_scale=20.0`(원복), `num_envs=4096`, `max_iterations=3000`. 레퍼런스 모션은 위에서 만든 240개 조합 `polynomial_coefficients.pkl` (속도필터 버그로 필터링 없이 전부 포함된 상태, 그중 하나는 실측 `avg_x_lin_vel=0.3866 m/s`로 원래 의도한 0.05~0.15 밴드를 크게 벗어남 — 이 오염이 이번 결과의 유력한 원인 후보).
+- **학습 진행**: 3시간11분(iteration 0→2999) 완주. GPU 77% util, ~6GB/16GB VRAM. 에피소드 길이가 초반(iter 0: 24스텝)엔 꾸준히 늘다가 iter ~1200 이후로는 250~390스텝 구간에서 오르내리며 정체(1000스텝 풀 클리어에 도달 못함). Mean reward는 절대 스케일이 Stage1과 달라(imitation 벌점 포함) 직접 비교 불가 — 참고용으로 마지막 iteration 기준 2~4대.
+- **`eval_policy_stability.sh --checkpoint model_2999.pt --num_envs 8 --num_steps 500` 결과**:
+  - base height (전체 500스텝): [0.0938, 0.2227] m — 최저점이 종료 임계값(0.09m)에 바로 붙어있음
+  - base height (마지막 200스텝): [0.1054, 0.1184] m (HOME=0.150m, 70~79%) — Stage1의 콜랩스보다는 확실히 나음
+  - worst-case upright (마지막 200스텝): **-0.0101** (-1이 완벽 직립, 0이 완전 옆으로 누움) — 마지막 구간에도 순간적으로 거의 옆으로 넘어가는 순간이 있었다는 뜻
+  - mean leg-joint ROM: 0.7269 rad (임계값 0.15 대비 매우 높음 → PASS)
+  - lin-vel tracking error: 0.2142 m/s (임계값 0.15 → **FAIL**)
+  - foot-contact toggle: 초당 평균 11.7회/발 (임계값 4 대비 높음 → PASS 조건은 만족하지만, ROM/toggle이 둘 다 높다는 건 "잘 걷는다"보다 "격하게 흔든다"에 더 가까울 수 있음)
+  - **STANDING RESULT: LIKELY STILL COLLAPSED/UNSTABLE**
+  - **WALKING RESULT: LIKELY REWARD-HACKING (standing/twitching, not stepping)**
+- **판정**: **FAIL.** Stage1(뻣뻣하게 웅크려서 안 죽기)과는 다른 실패 양상 — 다리를 크게, 발을 자주 움직이지만(twitching) 명령 속도를 못 따라가고(vel err 0.21) 순간적으로 거의 넘어짐. "정지해서 버티기"형 리워드해킹은 확실히 깨졌지만, 대신 "격하게 흔들며 버티기"형 실패로 옮겨간 것으로 보임.
+- **다음 조치 후보** (미착수, 판단 근거만 남김):
+  1. **레퍼런스 모션 오염 가능성이 가장 유력** — `auto_waddle.py` 속도필터 버그로 240개가 필터링 없이 전부 pkl에 들어감. 실측 속도 밴드(중앙값 0.070 m/s)와 크게 어긋나는 조합(예: 0.39 m/s 레코딩)이 섞여 있으면, 명령 속도에 따라 참조 궤적 자체가 물리적으로 무리한 걸음일 수 있음 → 속도필터 버그부터 고치고 재생성 후 재학습이 우선순위 1번.
+  2. 3000 iteration이 imitation 학습엔 부족할 수 있음 — episode length가 아직 명확히 수렴하지 않고 정체 중이라 더 돌리면 개선될 여지가 있음(단, 위 1번을 먼저 고치는 게 순서상 맞아 보임).
+  3. `patch_urdf_for_placo.py`의 프레임 오프셋이 리빌드 전 구형 URDF에서 상속된 근사치라는 점도 궤적 자체의 물리적 정합성에 영향 줄 수 있음 — 현재 지오메트리로 재도출 필요(기존에도 TODO였음).
