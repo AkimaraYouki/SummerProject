@@ -99,8 +99,13 @@ class JoystickEnv(DirectRLEnv):
         # heuristic — a contact condition can't be evaded by folding into a
         # collapsed-but-technically-tall-enough, non-inverted heap the way
         # min_base_height_ratio could.
+        # No rigid body is literally named "head" in the USD-converted
+        # articulation (confirmed 2026-07-27: URDF has a "head" link, but
+        # it has no inertia of its own and gets merged into its fixed
+        # parent during import) — "head_pitch_assembly" is the actual
+        # physics body closest to the head.
         self._trunk_head_ids, _trunk_head_names = self._contact_sensor.find_bodies(
-            [ROOT_BODY_NAME, "head"], preserve_order=True
+            [ROOT_BODY_NAME, "head_pitch_assembly"], preserve_order=True
         )
 
         n = self.num_envs
