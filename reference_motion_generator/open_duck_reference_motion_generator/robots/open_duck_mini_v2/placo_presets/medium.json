@@ -40,8 +40,8 @@
     "right_ankle"
   ],
   "joint_angles": {
-    "neck_pitch": 20,
-    "head_pitch": -26,
+    "neck_pitch": 0,
+    "head_pitch": 0,
     "head_yaw": 0,
     "head_roll": 0
   }
