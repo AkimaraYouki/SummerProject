@@ -296,6 +296,7 @@ class JoystickEnv(DirectRLEnv):
                     contact,
                     self._current_reference_motion,
                     self._command,
+                    w_joint_pos=cfg.imitation_w_joint_pos,
                 )
                 * cfg.imitation_scale
             )

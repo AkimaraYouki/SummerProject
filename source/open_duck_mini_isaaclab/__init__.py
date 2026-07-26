@@ -28,7 +28,16 @@ try:
     # alive_scale sweep variants — see joystick_env_cfg.py's comment above
     # JoystickEnvCfg_Alive5/_Alive10 for why. The base task above now runs
     # with alive_scale=2.0.
-    for _variant_suffix, _variant_cfg_cls in [("Alive5", "JoystickEnvCfg_Alive5"), ("Alive10", "JoystickEnvCfg_Alive10")]:
+    for _variant_suffix, _variant_cfg_cls in [
+        ("Alive5", "JoystickEnvCfg_Alive5"),
+        ("Alive10", "JoystickEnvCfg_Alive10"),
+        # alive_scale x w_joint_pos sweep (2026-07-27) — see
+        # joystick_env_cfg.py's comment above JoystickEnvCfg_A10J10 for why.
+        ("A10J10", "JoystickEnvCfg_A10J10"),
+        ("A5J15", "JoystickEnvCfg_A5J15"),
+        ("A20J5", "JoystickEnvCfg_A20J5"),
+        ("A5J5", "JoystickEnvCfg_A5J5"),
+    ]:
         gym.register(
             id=f"Isaac-OpenDuckMini-Joystick-{_variant_suffix}-v0",
             entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",

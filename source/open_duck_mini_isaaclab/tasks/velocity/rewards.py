@@ -64,6 +64,7 @@ def reward_imitation(
     contacts: torch.Tensor,  # [N,2] bool/float, left then right
     reference_frame: torch.Tensor,  # [N,36], see poly_reference_motion.py docstring
     commands: torch.Tensor,  # [N,7]
+    w_joint_pos: float = 15.0,
 ) -> torch.Tensor:
     """Direct port of custom_rewards.py::reward_imitation.
 
@@ -82,7 +83,6 @@ def reward_imitation(
     w_lin_vel_z = 1.0
     w_ang_vel_xy = 0.5
     w_ang_vel_z = 0.5
-    w_joint_pos = 15.0
     w_joint_vel = 1.0e-3
     w_contact = 1.0
 

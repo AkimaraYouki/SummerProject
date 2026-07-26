@@ -290,6 +290,14 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # below actually provides the counterweight it was always designed with.
     alive_scale = 20.0
     imitation_scale = 1.0
+    # w_joint_pos (2026-07-27): was hardcoded inside reward_imitation() at
+    # 15.0. Pulled into cfg for the alive_scale x w_joint_pos sweep below —
+    # imitation_v2 (alive=20, w_joint_pos=15, this exact combo) FAILED just
+    # like imitation_v1, with MORE violent twitching (43.4 foot-contact
+    # toggles/10s vs v1's 11.7) despite the reference data itself being
+    # fully fixed (knee ROM, symmetry, limits, drift) by then — so the
+    # remaining suspects are these two reward weights, not the data.
+    imitation_w_joint_pos = 15.0
 
     # ── reference motion (imitation) ────────────────────────────────────
     # Stage 2 (2026-07-26): polynomial_coefficients.pkl now exists for real
@@ -326,3 +334,44 @@ class JoystickEnvCfg_Alive5(JoystickEnvCfg):
 @configclass
 class JoystickEnvCfg_Alive10(JoystickEnvCfg):
     alive_scale = 10.0
+
+
+# ── alive_scale x w_joint_pos sweep (2026-07-27) ────────────────────────
+# imitation_v2 (alive_scale=20, w_joint_pos=15 — Playground's original
+# combo) FAILED with MORE violent twitching than imitation_v1 (43.4
+# foot-contact toggles/10s vs 11.7), even though the reference-motion data
+# itself was fully fixed by then (knee ROM, symmetry, joint limits, drift
+# bias) — see docs/training_log.md Run 7. That rules the data out, leaving
+# these two reward weights as the remaining suspects: alive_scale may still
+# dominate the per-step reward ceiling enough to make "twitch but don't
+# fall" cheap, and/or w_joint_pos=15 may be too harsh against the new
+# reference's wider knee ROM (up to 120 deg), pushing the policy into
+# high-frequency chatter instead of smooth tracking. Four combos, chosen to
+# isolate each factor plus a jointly-reduced point, rather than the full
+# 4x3 cross product (too many runs for one GPU in reasonable time):
+#   A10J10 — both moderately cut, the "compromise" guess
+#   A5J15  — alive cut hard, w_joint_pos untouched (isolates alive_scale)
+#   A20J5  — alive untouched, w_joint_pos cut hard (isolates w_joint_pos)
+#   A5J5   — both cut hard
+@configclass
+class JoystickEnvCfg_A10J10(JoystickEnvCfg):
+    alive_scale = 10.0
+    imitation_w_joint_pos = 10.0
+
+
+@configclass
+class JoystickEnvCfg_A5J15(JoystickEnvCfg):
+    alive_scale = 5.0
+    imitation_w_joint_pos = 15.0
+
+
+@configclass
+class JoystickEnvCfg_A20J5(JoystickEnvCfg):
+    alive_scale = 20.0
+    imitation_w_joint_pos = 5.0
+
+
+@configclass
+class JoystickEnvCfg_A5J5(JoystickEnvCfg):
+    alive_scale = 5.0
+    imitation_w_joint_pos = 5.0
