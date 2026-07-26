@@ -27,15 +27,30 @@ class PlacoWalkEngine:
         self.ignore_feet_contact = ignore_feet_contact
 
         robot_type = asset_path.split("/")[-1]
+        per_side_knee_limits = None
         if robot_type in ["open_duck_mini", "go_bdx"]:
             knee_limits = knee_limits or [-0.2, -0.01]
         elif robot_type == "open_duck_mini_v2":
-            # No override: our robot.urdf now has correct, symmetric,
-            # physically-real knee limits (fixed 2026-07-26 — see
-            # docs/decisions.md's "좌우 비대칭 발견" section), unlike the
-            # narrow/backwards [0.2, 0.01] the generic "else" branch below
-            # used to apply to us. Trust the URDF's own <joint><limit>.
+            # Our robot.urdf's own knee limits are symmetric [-pi/2, pi/2]
+            # on BOTH sides (post-2026-07-26 OnShape fix), which lets the IK
+            # pick a bend direction per leg independently — and it did:
+            # verified numerically (frame-0 knee-vs-hip-ankle-line offsets)
+            # that a generated gait had the left knee jutting backward
+            # (bird-style, correct) while the right knee jutted FORWARD
+            # (human-squat, wrong), with right_hip_pitch pinned at its
+            # limit as collateral. This is exactly why upstream forces
+            # narrow same-direction knee_limits for its robots. FK probing
+            # shows the mirrored bird-bend convention here is:
+            #   left_knee NEGATIVE, right_knee POSITIVE
+            # (mirror pose check: left (hp,kn,an)=(+0.925,-1.571,+0.717)
+            # maps to right (+0.925,+1.571,-0.717) with identical foot pose
+            # and knee offset). Enforce direction per side, keep a small
+            # margin away from 0 to avoid the straight-leg singularity.
             knee_limits = None
+            per_side_knee_limits = {
+                "left_knee": (-1.5708, -0.01),
+                "right_knee": (0.01, 1.5708),
+            }
         else:
             knee_limits = knee_limits or [0.2, 0.01]
 
@@ -64,6 +79,9 @@ class PlacoWalkEngine:
         if knee_limits is not None:
             self.robot.set_joint_limits("left_knee", *knee_limits)
             self.robot.set_joint_limits("right_knee", *knee_limits)
+        if per_side_knee_limits is not None:
+            for joint_name, (lo, hi) in per_side_knee_limits.items():
+                self.robot.set_joint_limits(joint_name, lo, hi)
 
         # Creating the walk QP tasks
         self.tasks = placo.WalkTasks()
