@@ -50,6 +50,7 @@ from open_duck_mini_isaaclab.joint_order import (
     HOME_BASE_HEIGHT,
     LEFT_FOOT_BODY_NAME,
     RIGHT_FOOT_BODY_NAME,
+    ROOT_BODY_NAME,
 )
 from open_duck_mini_isaaclab.reference_motion.poly_reference_motion import REF_FRAME_DIM, PolyReferenceMotion
 
@@ -92,6 +93,14 @@ class JoystickEnv(DirectRLEnv):
         )
         self._feet_ids, _feet_names = self._contact_sensor.find_bodies(
             [LEFT_FOOT_BODY_NAME, RIGHT_FOOT_BODY_NAME], preserve_order=True
+        )
+        # Disney BD-X paper (Grandia et al. 2024), V-B: terminate on
+        # torso/head ground contact rather than (only) a height-ratio/flip
+        # heuristic — a contact condition can't be evaded by folding into a
+        # collapsed-but-technically-tall-enough, non-inverted heap the way
+        # min_base_height_ratio could.
+        self._trunk_head_ids, _trunk_head_names = self._contact_sensor.find_bodies(
+            [ROOT_BODY_NAME, "head"], preserve_order=True
         )
 
         n = self.num_envs
@@ -262,6 +271,10 @@ class JoystickEnv(DirectRLEnv):
         forces = self._contact_sensor.data.net_forces_w_history[:, 0, self._feet_ids, :]
         return (torch.norm(forces, dim=-1) > FOOT_CONTACT_FORCE_THRESHOLD).float()
 
+    def _get_trunk_head_contact(self) -> torch.Tensor:
+        forces = self._contact_sensor.data.net_forces_w_history[:, 0, self._trunk_head_ids, :]
+        return (torch.norm(forces, dim=-1) > FOOT_CONTACT_FORCE_THRESHOLD).any(dim=-1)
+
     # ── rewards ──────────────────────────────────────────────────────────
 
     def _get_rewards(self) -> torch.Tensor:
@@ -319,7 +332,12 @@ class JoystickEnv(DirectRLEnv):
         # (use_imitation=False) has no other guard against.
         collapsed = self._robot.data.root_pos_w[:, 2] < HOME_BASE_HEIGHT * self.cfg.min_base_height_ratio
         has_nan = torch.isnan(self._robot.data.joint_pos).any(dim=-1) | torch.isnan(self._robot.data.joint_vel).any(dim=-1)
-        terminated = flipped | collapsed | has_nan
+        # See _get_trunk_head_contact's docstring note (added alongside
+        # `collapsed`/`flipped`, not replacing them) — this catches
+        # collapsed-but-not-inverted-or-short-enough poses that both of
+        # those miss.
+        trunk_head_down = self._get_trunk_head_contact()
+        terminated = flipped | collapsed | has_nan | trunk_head_down
         return terminated, time_out
 
     # ── reset ────────────────────────────────────────────────────────────
