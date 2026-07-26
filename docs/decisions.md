@@ -110,6 +110,28 @@ BAM으로 직접 재측정할 예정** — kt/R 재피팅해서 stiffness/dampin
 재익스포트되면 `scripts/patch_urdf_for_placo.py`부터 다시 돌려 궤적 재생성 → 검증 →
 재학습 순서로 진행.
 
+**재임포트 결과 (2026-07-26, 랩PC `onshape-to-robot .` 재실행)**: 사용자가 프레임
+억제 해제, 파스너 추가(openduck 참고), 직립 자세로 수정, `right_knee` 관절 방향 수정을
+OnShape에서 완료 후 재익스포트.
+- ✅ **무릎 관절 방향 — 수정 확인됨**: 재임포트 후 `left_knee`/`right_knee` 둘 다
+  `lower=-1.5708, upper=1.5708`로 완전히 동일 (이전엔 left `[0,π]` vs right `[-π,0]`로
+  비대칭이었음). 이게 관절 한계 초과(+0.228rad) 현상의 직접 원인이었을 가능성이 큼.
+- ✅ **프레임 억제 해제/파스너/직립 — 정상 반영됨**: `Multiple base link` 경고 없음,
+  관절 14개 그대로(`ACTUATOR_JOINT_NAMES`와 이름 일치), 새 `imu_frame` 고정관절 추가됨.
+  총질량 1.9809kg → 2.1219kg로 증가(파스너 추가분 반영으로 추정, 정상).
+  새 "Frame" 파츠에 대해 "no mass" 경고 4건 발생 — 재질 미할당으로 추정, 무해할
+  가능성 높지만 추후 확인 필요.
+- ⏳ **질량 비대칭 — 미해결**: `left_roll_to_pitch_assembly`(105.16g) vs
+  `right_roll_to_pitch_assembly`(121.62g), diff +16.47g — 재임포트 후에도 완전히
+  동일한 수치로 그대로 남아있음(이번 OnShape 수정 범위에 포함 안 됐음, 예상된 결과).
+  사용자가 CAD에서 밀도를 직접 맞추기로 함(2026-07-26) — 완료 후 다시 재임포트해서
+  확인할 것. URDF를 직접 임시 패치하는 방안(어셈블리 총질량을 121.62g로 맞추고
+  관성텐서 비례 스케일)도 검토했으나, CAD에서 근본 수정하는 쪽으로 결정.
+
+**다음 스텝**: 질량까지 CAD에서 맞춘 뒤 재임포트 → `patch_urdf_for_placo.py` →
+`generate_reference_motion.sh` → `verify_gait.py`로 좌우 대칭 재검증 → 통과하면
+`imitation_v2` 학습 시작.
+
 ## 관절 순서 (14개 구동 관절)
 
 `left_hip_yaw, left_hip_roll, left_hip_pitch, left_knee, left_ankle, neck_pitch, head_pitch, head_yaw, head_roll, right_hip_yaw, right_hip_roll, right_hip_pitch, right_knee, right_ankle`
