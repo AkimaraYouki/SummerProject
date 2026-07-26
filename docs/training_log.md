@@ -166,3 +166,34 @@ WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
 전부 STANDING/WALKING FAIL (예상된 결과 — 총 학습량이 `imitation_v2`의 약 6.7%인 스크리닝이라 절대 성패가 아니라 상대비교 용도).
 
 **결론**: `alive_scale=5`(A5J15, A5J5)는 **학습 자체가 붕괴** — value function이 상수(≈0)로 무너지고 action noise std가 4.35까지 폭주(사실상 정책이 랜덤에 가까워짐). `alive_scale=10~20`은 안정적으로 학습됨. 그중 **`A20J5`(alive=20 유지, w_joint_pos만 15→5)가 4개 중 압도적으로 건강** — reward/ep_len 최고, toggle도 A10J10보다 낮음. → **`w_joint_pos=15`가 너무 가혹했다는 가설이 `alive_scale` 가설보다 더 유력**하다는 방향성 확보. `A20J5` 조합으로 본학습(num_envs=4096, max_iterations=3000) 재개를 사용자에게 제안, 승인 대기.
+
+## Run 8 — `imitation_v3` (2026-07-27 03:46, A20J5, num_envs=4096, max_iterations=3000)
+
+사용자 승인("응 시작해") 후 스윕 우승 조합(A20J5)으로 본학습. run dir `2026-07-27_03-46-08_imitation_v3`.
+
+**리워드 크기 의문 조사 (학습 중 사용자 지적: "스텝당 최대 리워드가 거의 30인데 지금 한자리수인게 말이 안 됨")**:
+- `_get_rewards()`의 `reward = torch.sum(...) * dt`에서 `dt=step_dt=0.02`를 빠뜨리고 이전에 "~33.5"라고 말한 것은 오산 — 정정하면 스텝당 이론 상한은 **~0.67**.
+- rsl_rl `on_policy_runner.py` 소스 확인: TensorBoard의 `Train/mean_reward`(콘솔 "Mean reward")는 스텝당 평균이 아니라 **에피소드 종료 시에만 flush되는 전체 누적합**(`rewbuffer`). 에피소드 길이 300~450스텝 기준 정상이면 누적 200~300은 나와야 하는데 실측 1~4 — 스텝당 실질 평균은 이론 상한의 1~2% 수준.
+- `_get_rewards()` 마지막 줄에 `torch.clamp(reward, 0.0, 10000.0)`이 있음을 재확인 — 페널티 항 합이 순간적으로 음수가 되는 스텝은 전부 0으로 깎임. 이게 낮은 누적치의 유력한 설명 후보로 지목, `scripts/reward_breakdown.py`(신규) 작성해 항목별 실측 시도 → 학습과 GPU 동시 점유로 원인불명 크래시(1차), 학습 완료 후 재시도 예정.
+
+**최종 결과 (2026-07-27 06:2x, iteration 2999 완주, `model_2999.pt`, `eval_policy_stability.sh --num_envs 8 --num_steps 500`)**:
+```
+worst-case upright (마지막 200스텝): -0.4396  (v2의 -0.0143보다 직립에 더 가까움)
+mean leg-joint ROM: 0.5590 rad
+lin-vel tracking error: 0.3932 m/s
+foot-contact toggle: 79.1회/발/10초 — v2(43.4)보다 1.8배 악화
+
+STANDING RESULT: LIKELY STILL COLLAPSED/UNSTABLE
+WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
+```
+**판정: FAIL.** 스윕(800 iter)에서 가장 건강해 보였던 A20J5가 3000 iter까지 풀스케일로 가니 toggle이 오히려 v2보다 악화 — `w_joint_pos` 단독 하향이 근본 해법은 아니었음을 시사. 자세(upright)는 개선됐지만 발 접촉이 훨씬 더 불안정해진, 다른 종류의 twitching으로 보임.
+
+## Disney BD-X 논문 대조 → 접촉기반 종료조건 도입 (2026-07-27)
+
+사용자가 Disney Research의 BD-X 로봇 논문(Grandia et al. 2024 — Open Duck Mini의 원본 설계 레퍼런스)과 우리 보상함수/종료조건을 대조한 분석(아티팩트 `f20e0cf8`)을 공유. 핵심 발견 두 가지:
+1. **`alive_scale=20`은 Disney 원본 숫자 그대로**였음 — 다만 Disney는 imitation 항(목 관절 추종 가중치 100!)을 처음부터 항상 켜놓고 학습해서 alive=20이 보상을 지배하지 못하게 상쇄됨. 우리는 이미 imitation을 켠 상태(Stage 2)이므로 이 항목은 구조적으로는 이미 반영돼 있음.
+2. **종료조건**: 논문 V-B절 — "머리 또는 몸통이 지면에 닿으면 즉시 종료"(접촉 기반). 우리는 높이비율(`min_base_height_ratio`)/뒤집힘(`flipped`) 기준만 썼는데, Run 1(높이조건 없음)과 Run 2(높이조건 추가 후)에서 각각 그 조건들을 우회하는 붕괴 자세를 정책이 찾아낸 전례가 있음 — 접촉 기반은 자세가 어떻게 뒤틀리든 우회 불가능해서 더 근본적.
+
+**조치**: `joystick_env.py`에 `ContactSensor`로 `trunk_assembly`/`head_pitch_assembly`(URDF의 `head` 링크는 관성이 없어 물리 바디로 안 남고 부모에 병합되므로, 실제 바디명은 `head_pitch_assembly` — 이 오타로 최초 커밋은 `find_bodies`에서 즉시 크래시, eval 실행 시 발견해 바로 수정) 접촉력을 읽어 `_get_dones()`의 기존 조건에 OR로 추가 (커밋: 몸통/머리 접촉 기반 종료조건 추가 → head 바디명 수정). 기존 높이/뒤집힘 조건은 유지(대체 아님, 추가).
+
+**다음**: 짧은 검증(num_envs=64, 소규모 iteration)으로 새 종료조건이 매 스텝 즉시-종료 같은 버그를 안 일으키는지 확인 후 `imitation_v4`(A20J5 + 접촉종료, num_envs=4096, max_iterations=3000) 본학습 시작 예정.
