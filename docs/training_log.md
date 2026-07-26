@@ -142,3 +142,27 @@ WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
 3. 단순히 수렴 부족 — 2.95억 스텝(원본 기본값의 약 2배)은 썼지만, 리워드가 학습 후반까지도 노이즈만 있고 뚜렷한 상승 추세가 없었음(0.9~5.5 구간에서 정체).
 
 세 후보 모두 그럴듯하고 서로 구분할 명확한 증거가 부족해 **자동 재시도는 보류**하고 사용자 판단을 기다림 (지시받은 "명확한 단일원인+저비용수정" 기준 미충족).
+
+## alive_scale × w_joint_pos 스윕 (2026-07-27, num_envs=1024, max_iterations=800 스크리닝)
+
+`imitation_v2` FAIL(twitching 심화) 원인 후보 중 리워드 가중치 축을 좁히기 위한 빠른 스윕. 4개 동시 실행, `A{alive_scale}J{w_joint_pos}` 네이밍.
+
+**학습 중 지표 (iteration 799/800)**:
+| 조합 | reward | ep_len | action noise std | value_fn loss |
+|---|---|---|---|---|
+| A10J10 | 0.02 | 67.34 | 1.00 | 0.0007 |
+| A5J15 | 0.00 | 35.18 | **4.35 (폭주)** | **0.0000 (붕괴)** |
+| A20J5 | **0.98** | **154.06** | 1.17 | 0.0345 |
+| A5J5 | 0.00 | 35.18 | **4.35 (폭주)** | **0.0000 (붕괴)** |
+
+**`eval_policy_stability.sh --num_envs 8 --num_steps 500` 결과** (참고: `imitation_v2` 풀런 베이스라인 toggle=43.4, upright=-0.0143, lin-vel err=0.173):
+| 조합 | toggle/10s | worst upright | lin-vel err | leg ROM |
+|---|---|---|---|---|
+| A10J10 | 124.9 | -0.0049 | 0.220 | 0.453 |
+| A5J15 | 70.7 | -0.0007 | 0.417 | 0.686 |
+| A20J5 | 104.9 | -0.0014 | 0.225 | 0.493 |
+| A5J5 | 77.7 | -0.0055 | 0.411 | 0.742 |
+
+전부 STANDING/WALKING FAIL (예상된 결과 — 총 학습량이 `imitation_v2`의 약 6.7%인 스크리닝이라 절대 성패가 아니라 상대비교 용도).
+
+**결론**: `alive_scale=5`(A5J15, A5J5)는 **학습 자체가 붕괴** — value function이 상수(≈0)로 무너지고 action noise std가 4.35까지 폭주(사실상 정책이 랜덤에 가까워짐). `alive_scale=10~20`은 안정적으로 학습됨. 그중 **`A20J5`(alive=20 유지, w_joint_pos만 15→5)가 4개 중 압도적으로 건강** — reward/ep_len 최고, toggle도 A10J10보다 낮음. → **`w_joint_pos=15`가 너무 가혹했다는 가설이 `alive_scale` 가설보다 더 유력**하다는 방향성 확보. `A20J5` 조합으로 본학습(num_envs=4096, max_iterations=3000) 재개를 사용자에게 제안, 승인 대기.
