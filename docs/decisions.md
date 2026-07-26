@@ -128,9 +128,29 @@ OnShape에서 완료 후 재익스포트.
   확인할 것. URDF를 직접 임시 패치하는 방안(어셈블리 총질량을 121.62g로 맞추고
   관성텐서 비례 스케일)도 검토했으나, CAD에서 근본 수정하는 쪽으로 결정.
 
-**다음 스텝**: 질량까지 CAD에서 맞춘 뒤 재임포트 → `patch_urdf_for_placo.py` →
-`generate_reference_motion.sh` → `verify_gait.py`로 좌우 대칭 재검증 → 통과하면
-`imitation_v2` 학습 시작.
+**최종 해결 (2026-07-26, 커밋 `0ffa3d5`/`abc61fd`)**: 질량 CAD 수정 후에도 순수 직진
+걸음에서 여전히 좌우 비대칭(`left_knee`/`right_knee`가 아예 겹치지 않는 범위)이 남아있어서
+추가로 파고든 결과, **`patch_urdf_for_placo.py`가 주입하던 `left_foot_frame`/
+`right_foot_frame` 오프셋이 좌우 완전히 동일한 값(미러링 안 됨)이었던 게 진짜 원인**이었음.
+사용자가 OnShape에 `trunk_frame`/`left_foot_frame`/`right_foot_frame`/`head_frame`이라는
+이름의 Fastened 메이트를 직접 만들어서(업스트림 GitHub 구조 참고), `imu_frame`이 그랬듯
+onshape-to-robot이 이 4개를 **네이티브로, 실제로 미러링된 xyz/rpy**로 뽑아내도록 만듦.
+재검증 결과 `left_hip_pitch`/`right_hip_pitch` ROM 0.642/0.627, `left_knee`/`right_knee`
+ROM 1.092/1.117(부호만 반대 — 정상 축 컨벤션), 발 접촉 토글 38/37 — 완전히 대칭인 보행 확인.
+
+부수적으로 두 가지 더 정리:
+- `patch_urdf_for_placo.py`는 이제 4개 프레임이 네이티브로 있는지 확인만 하는
+  검증 스크립트로 축소 (하드코딩 주입은 비상 폴백으로만 남김).
+- 재구조화 과정에서 발 링크 이름이 `foot_assembly`/`foot_assembly_2`로 원복돼서
+  `joint_order.py`의 `LEFT_FOOT_BODY_NAME`/`RIGHT_FOOT_BODY_NAME`도 같이 갱신.
+- `HOME_JOINT_POS`를 전부 0으로, `HOME_BASE_HEIGHT`를 0.15→0.193으로 갱신 (Isaac Sim에서
+  zero-action PD hold로 직접 검증: steady-state 높이 0.1937~0.1938m, upright -0.9960,
+  soft-limit 위반 0건, PASS).
+- 속도필터로 걸러진 스파스 그리드(6×4×10=240 중 120개 생존) 때문에 `PolyReferenceMotion`이
+  `KeyError`로 크래시하던 버그도 발견/수정 — 빠진 grid cell은 최근접 실제 기록으로 채우도록
+  변경 (`poly_reference_motion.py`).
+
+**다음 스텝**: Stage 2 재학습(`imitation_v2`) 시작 준비 완료.
 
 ## 관절 순서 (14개 구동 관절)
 
