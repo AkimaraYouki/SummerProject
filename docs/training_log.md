@@ -96,3 +96,27 @@ alive_scale 스윕과 별개로, "지금 것 안 되면 Stage 2로" 계획에 �
   1. **레퍼런스 모션 오염 가능성이 가장 유력** — `auto_waddle.py` 속도필터 버그로 240개가 필터링 없이 전부 pkl에 들어감. 실측 속도 밴드(중앙값 0.070 m/s)와 크게 어긋나는 조합(예: 0.39 m/s 레코딩)이 섞여 있으면, 명령 속도에 따라 참조 궤적 자체가 물리적으로 무리한 걸음일 수 있음 → 속도필터 버그부터 고치고 재생성 후 재학습이 우선순위 1번.
   2. 3000 iteration이 imitation 학습엔 부족할 수 있음 — episode length가 아직 명확히 수렴하지 않고 정체 중이라 더 돌리면 개선될 여지가 있음(단, 위 1번을 먼저 고치는 게 순서상 맞아 보임).
   3. `patch_urdf_for_placo.py`의 프레임 오프셋이 리빌드 전 구형 URDF에서 상속된 근사치라는 점도 궤적 자체의 물리적 정합성에 영향 줄 수 있음 — 현재 지오메트리로 재도출 필요(기존에도 TODO였음).
+
+---
+
+## Run 7 — Stage 2 재도전 준비: 하루 종일의 근본수정 후 `imitation_v2` 착수 (2026-07-26 22:27~)
+
+Run 6(imitation_v1) 실패 후 이날 하루 동안 잡은 수정 전체 (상세는 decisions.md·리포트 아티팩트):
+1. `auto_waddle.py` 속도필터 문자열버그 수정 (`"{i}_medium"` vs `"medium"`)
+2. OnShape 재작업(사용자): 질량 비대칭(밀도), `right_knee` 메이트 회전방향, 억제 프레임 해제, 직립 기준자세, 파스너 추가
+3. `trunk/left_foot/right_foot/head` 프레임을 OnShape Fastened 메이트로 네이티브 임포트 (미러링된 정확한 오프셋) — `patch_urdf_for_placo.py`는 검증기로 축소
+4. `HOME_JOINT_POS` 전부 0 / `HOME_BASE_HEIGHT` 0.15→0.193 (Isaac zero-action PD hold 실측 PASS)
+5. `PolyReferenceMotion` 스파스 그리드 KeyError → 최근접 폴백
+6. Placo `enable_joint_limits(True)` (기존 False — 전 궤적이 한계 초과 상태였음)
+7. `medium.json` walk_com_height 0.205→0.16 (defaults만 고치고 실제 스윕 프리셋 미적용이었던 것), feet_spacing 0.16→0.18(제로포즈 실측 0.183)
+8. `medium.json` neck 20°/head −26° 하드코딩 → 0 (구부정한 머리)
+9. 무릎 굽힘 방향 강제 (left≤0/right≥0) — 오른무릎 사람식 꺾임 수정
+10. Mac 뷰어 stale URDF 교훈: 겉보기 "왼발 분리"는 뷰어용 URDF 사본이 아침 버전이라서. 순수 pinocchio 멀티클립 뷰어 신설(`replay_motion_meshcat.py`)
+11. 직진 드리프트 조사: 몸기준 vy≈0.004 (미끄러짐 없음), 무명령 yaw ~2°/s — **업스트림 v1 대조실험에서도 동일 재현** → 플래너 고유 특성으로 결론
+12. `fit_poly.py`에서 참조 속도채널(lin x/y, ang z) 평균을 그리드 키(명령값)에 재정렬 — 이미테이션이 드리프트를 가르치지 않도록
+
+**최종 데이터 검증(118개)**: 관절한계 위반 0, 무릎 방향 위반 0, 속도 100% in-band, 발접촉 토글 38/37(이론 ~37).
+
+**⚠️ 발견된 미해결 이슈 — 무릎 90° 포화**: 최종 세트에서 무릎 ROM이 거의 0 (left −1.571~−1.535, right +1.571 고정). 기하 계산상 com 0.16이 요구하는 무릎 굽힘은 ~105°인데 URDF 한계가 ±90°(OnShape 메이트 설정값)라 무릎이 한계에 눌러붙고 나머지를 hip/ankle이 흡수 — 물리적으론 유효하나 걸음 스타일이 뻣뻣한 크라우치로 왜곡됨. (수정 전 궤적들이 103°까지 갔던 것과 정합 — 애초에 ±90°가 실기 가동범위인지 재확인 필요. 업스트림 v2는 무릎 범위 π 사용.) **내일 할 일: 실기 무릎 실제 가동범위 확인 → OnShape 메이트 한계 갱신 → 재임포트·재생성·재학습.**
+
+**Run 7 실행**: 위 상태의 pkl로 `imitation_v2` 학습 시작 (num_envs=4096, 3000 iter, run dir `2026-07-26_22-27-31_imitation_v2`) — 무릎 스타일 이슈에도 학습이 성립하는지 확인하는 실험 성격. TensorBoard :6006 해당 런으로 재스코프.
