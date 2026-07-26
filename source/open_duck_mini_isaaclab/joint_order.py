@@ -84,45 +84,53 @@ assert [ACTUATOR_JOINT_NAMES[i] for i in ACT_LEG_JOINT_IDX] == [
 ROOT_BODY_NAME = "trunk_assembly"
 LEFT_FOOT_BODY_NAME = "foot_assembly"
 RIGHT_FOOT_BODY_NAME = "foot_assembly_2"
-# Same left/"_2"-suffix-for-right convention as the rest of this URDF
-# (foot_assembly/foot_assembly_2, hip_roll_assembly/hip_roll_assembly_2,
-# etc.) — NOT "left_"/"right_"-prefixed like the original project's names.
+# Updated 2026-07-26: briefly "frame"/"frame_3" during an intermediate
+# OnShape restructure, but the user rebuilt the mate hierarchy to match the
+# upstream GitHub project's structure (and added properly-named Fastened
+# mates for trunk_frame/left_foot_frame/right_foot_frame/head_frame — see
+# patch_urdf_for_placo.py, now a no-op verifier since these come natively
+# from OnShape), which reverted the foot link names back to
+# foot_assembly/foot_assembly_2. Re-verify after any future re-import.
 LEFT_FOOT_COLLISION_GEOM = "foot_bottom_tpu"
 RIGHT_FOOT_COLLISION_GEOM = "foot_bottom_tpu_2"
 
 # "home" keyframe joint positions (rad), in ACTUATOR_JOINT_NAMES order.
-# Source: playground xmls/scene_flat_terrain.xml <keyframe name="home">,
-# EXCEPT right_hip_pitch and right_knee — see note below.
 #
-# This URDF's <joint><limit> ranges (checked 2026-07-25 against
-# robot/robot.urdf) don't use the same left/right sign convention
-# Playground's original URDF did:
-#   right_hip_pitch: [-1.745, 0]  — SAME sign as left_hip_pitch's [-1.745, 0]
-#                                    (Playground's was mirrored: left negative,
-#                                    right positive)
-#   right_knee:      [-3.142, 0]  — OPPOSITE sign from left_knee's [0, 3.142]
-#                                    (Playground's was NOT mirrored: both
-#                                    positive)
-# Playground's original values (right_hip_pitch=0.635, right_knee=1.379) are
-# out of range for this URDF (ValueError: default positions out of limits,
-# hit during the 2026-07-25 smoke test) — negated below to land the same
-# physical pose under this URDF's axis convention. NOT visually verified in
-# Isaac Sim yet — if the robot's home stance looks asymmetric, check these
-# two first.
+# UPDATED 2026-07-26 after the OnShape re-import that fixed left/right
+# mass/joint-axis asymmetry AND re-set the assembly's reference pose to be
+# upright: all-zero now IS the standing pose (previously needed the
+# Playground-derived offsets below, which went out-of-range after the
+# re-import and are kept here only as a historical note). Verified in
+# Isaac Sim via check_joint_stability.sh with zero-action PD hold:
+# steady-state base height settled at 0.1917-0.1942m, worst-case upright
+# -0.9925 (-1=perfect), 0 soft-limit violations, PASS. See
+# docs/decisions.md's "좌우 비대칭 발견" section for the full story.
+#
+# Old (pre-2026-07-26) values, source: playground xmls/scene_flat_terrain.xml
+# <keyframe name="home">, with right_hip_pitch/right_knee negated to match
+# this URDF's then-asymmetric joint-limit sign convention (since fixed):
+#   left_hip_yaw=0.002, left_hip_roll=0.053, left_hip_pitch=-0.63,
+#   left_knee=1.368, left_ankle=-0.784, right_hip_yaw=-0.003,
+#   right_hip_roll=-0.065, right_hip_pitch=-0.635, right_knee=-1.379,
+#   right_ankle=-0.796
 HOME_JOINT_POS = {
-    "left_hip_yaw": 0.002,
-    "left_hip_roll": 0.053,
-    "left_hip_pitch": -0.63,
-    "left_knee": 1.368,
-    "left_ankle": -0.784,
+    "left_hip_yaw": 0.0,
+    "left_hip_roll": 0.0,
+    "left_hip_pitch": 0.0,
+    "left_knee": 0.0,
+    "left_ankle": 0.0,
     "neck_pitch": 0.0,
     "head_pitch": 0.0,
     "head_yaw": 0.0,
     "head_roll": 0.0,
-    "right_hip_yaw": -0.003,
-    "right_hip_roll": -0.065,
-    "right_hip_pitch": -0.635,
-    "right_knee": -1.379,
-    "right_ankle": -0.796,
+    "right_hip_yaw": 0.0,
+    "right_hip_roll": 0.0,
+    "right_hip_pitch": 0.0,
+    "right_knee": 0.0,
+    "right_ankle": 0.0,
 }
-HOME_BASE_HEIGHT = 0.15  # m
+# Measured via check_joint_stability.sh steady-state settle (2026-07-26,
+# post-reimport): base height range [0.1917, 0.1942]m — was 0.15m
+# (pre-reimport estimate) before the upright-pose fix changed the robot's
+# natural standing height.
+HOME_BASE_HEIGHT = 0.193  # m

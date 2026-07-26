@@ -92,11 +92,36 @@ class PolyReferenceMotion:
 
         # [nb_dx, nb_dy, nb_dtheta, D, K] — K = polynomial degree + 1,
         # highest-degree coefficient first (Horner's method convention).
+        # The recorded set can be a SPARSE subset of the full dx*dy*dtheta
+        # grid (e.g. a speed filter drops out-of-band (dx,dy,dtheta) combos
+        # individually — see auto_waddle.py's step-5 filter, fixed 2026-07-26).
+        # get_reference_motion() below still does per-axis-independent
+        # nearest-grid-point snapping, so every cell of this dense grid must
+        # be populated. For any (dx,dy,dtheta) combo that was filtered out,
+        # fall back to the coefficients of the nearest recorded combo (plain
+        # Euclidean distance over (dx,dy,dtheta)) instead of crashing.
+        all_points = [
+            (dx, dy, dtheta)
+            for dx, dy_map in parsed.items()
+            for dy, dtheta_map in dy_map.items()
+            for dtheta in dtheta_map
+        ]
+
+        def nearest_coeffs(dx: float, dy: float, dtheta: float) -> list:
+            best = min(
+                all_points,
+                key=lambda p: (p[0] - dx) ** 2 + (p[1] - dy) ** 2 + (p[2] - dtheta) ** 2,
+            )
+            return parsed[best[0]][best[1]][best[2]]
+
         grid = torch.zeros(nb_dx, nb_dy, nb_dtheta, REF_FRAME_DIM, degree_plus_1, device=self.device)
         for xi, dx in enumerate(self.dxs):
             for yi, dy in enumerate(self.dys):
                 for ti, dtheta in enumerate(self.dthetas):
-                    coeffs = parsed[dx][dy][dtheta]  # list of D lists, each length K
+                    if dtheta in parsed.get(dx, {}).get(dy, {}):
+                        coeffs = parsed[dx][dy][dtheta]  # list of D lists, each length K
+                    else:
+                        coeffs = nearest_coeffs(dx, dy, dtheta)
                     grid[xi, yi, ti] = torch.tensor(coeffs, device=self.device)
 
         self.coeffs = grid

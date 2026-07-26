@@ -1,33 +1,27 @@
 #!/usr/bin/env python3
-"""Patch robot/robot.urdf with the fixed-joint frame aliases Placo's
-HumanoidRobot requires by name (trunk/left_foot/right_foot/head), then write
-the result into reference_motion_generator's robots/open_duck_mini_v2/ dir.
+"""Verify robot/robot.urdf has the fixed-joint frame aliases Placo's
+HumanoidRobot requires by name (trunk/left_foot/right_foot/head), then copy
+it into reference_motion_generator's robots/open_duck_mini_v2/ dir.
 
-Why this exists: our OnShape-exported robot.urdf names its links after
-OnShape part/assembly names (trunk_assembly, foot_assembly, foot_assembly_2,
-head_pitch_assembly, ...), but placo.HumanoidRobot(urdf_path) looks up
-specific canonical frame names ("left_foot", "right_foot", possibly "trunk",
-"head") internally and raises `RuntimeError: Frame with name left_foot not
-found in model` if they're missing. The original (now-replaced) bundled copy
-of this URDF had these as extra zero-mass fixed joints; our raw OnShape
-export doesn't, since onshape-to-robot has no concept of "Placo's expected
-frame names."
+History: this used to INJECT these 4 frames as hardcoded fixed-joint offsets
+copied from an old pre-rebuild URDF, because our OnShape export didn't have
+them. That was a real source of bugs — the injected left/right foot offsets
+were identical (not mirrored), which visibly asymmetric-ified every
+generated gait even after the URDF's own mass/joint-limit asymmetries were
+fixed. As of 2026-07-26 the user added real Fastened mates named
+trunk_frame/left_foot_frame/right_foot_frame/head_frame directly in OnShape
+(matching the upstream GitHub project's mate structure), so onshape-to-robot
+now emits these natively with correct, properly-mirrored transforms — same
+mechanism that already produced imu_frame natively. This script is now just
+a safety-net verifier + copy step: it only injects the old hardcoded
+FALLBACK_FRAME_ALIASES for any frame that's still missing (which should not
+happen anymore), and always warns loudly if it has to.
 
 This is a real file (not a symlink) written into
 reference_motion_generator/.../open_duck_mini_v2/ for BOTH Mac and the
 exFAT-formatted lab-PC SSD (which can't hold symlinks at all) — re-run this
 script after any OnShape re-import instead of relying on the old
 symlink-to-robot/robot.urdf approach.
-
-The 4 fixed-joint offsets below are inherited from the old (2026-07-15,
-pre-rebuild) bundled URDF as a best-effort approximation, NOT re-derived
-from the current geometry — reasonable since the underlying kinematic
-design hasn't changed, but flagged here as worth revisiting if reference
-motions look physically off (especially foot contact height/orientation).
-head_frame's parent changed from the old "head_assembly" (link no longer
-exists) to "head_pitch_assembly" (closest current equivalent) — also
-approximate, and lower-priority since gait planning cares mostly about
-trunk/feet.
 
 Usage:
   python3 scripts/patch_urdf_for_placo.py
@@ -47,9 +41,14 @@ DST_URDF = os.path.join(
     "open_duck_mini_v2.urdf",
 )
 
-# (joint_name, parent_link, child_link, xyz, rpy) — xyz/rpy inherited from the
-# pre-rebuild bundled URDF (see module docstring).
-FRAME_ALIASES = [
+# Required child frame link names Placo's HumanoidRobot looks up by name.
+REQUIRED_FRAME_LINKS = ["trunk", "left_foot", "right_foot", "head"]
+
+# (joint_name, parent_link, child_link, xyz, rpy) — STALE fallback values
+# inherited from the old (2026-07-15) pre-rebuild URDF. Only used if OnShape
+# stops providing one of REQUIRED_FRAME_LINKS natively; do not trust these
+# for anything but an emergency stopgap (see module docstring).
+FALLBACK_FRAME_ALIASES = [
     (
         "trunk_frame",
         "trunk_assembly",
@@ -104,26 +103,34 @@ def main():
 
     existing_links = set(re.findall(r'<link name="([^"]+)"', urdf))
 
-    additions = []
-    for joint, parent, child, xyz, rpy in FRAME_ALIASES:
-        if parent not in existing_links:
-            raise SystemExit(
-                f"patch_urdf_for_placo: parent link '{parent}' (needed for '{joint}') "
-                f"not found in {SRC_URDF} — robot.urdf's link names have changed, update FRAME_ALIASES."
-            )
-        if child in existing_links:
-            print(f"[skip] link '{child}' already exists in robot.urdf, not adding a duplicate")
-            continue
-        additions.append(ZERO_MASS_LINK_TEMPLATE.format(name=child))
-        additions.append(FIXED_JOINT_TEMPLATE.format(joint=joint, parent=parent, child=child, xyz=xyz, rpy=rpy))
+    missing = [name for name in REQUIRED_FRAME_LINKS if name not in existing_links]
 
-    patched = urdf.replace("</robot>", "".join(additions) + "</robot>")
+    additions = []
+    if not missing:
+        print(f"All required frame links present natively from OnShape: {REQUIRED_FRAME_LINKS}")
+    else:
+        print(
+            f"WARNING: {missing} missing from OnShape export — falling back to STALE "
+            "hardcoded offsets (see FALLBACK_FRAME_ALIASES docstring warning). "
+            "Add named Fastened mates for these in OnShape instead of relying on this fallback."
+        )
+        for joint, parent, child, xyz, rpy in FALLBACK_FRAME_ALIASES:
+            if child not in missing:
+                continue
+            if parent not in existing_links:
+                raise SystemExit(
+                    f"patch_urdf_for_placo: fallback parent link '{parent}' (needed for '{joint}') "
+                    f"not found in {SRC_URDF} either — update FALLBACK_FRAME_ALIASES."
+                )
+            additions.append(ZERO_MASS_LINK_TEMPLATE.format(name=child))
+            additions.append(FIXED_JOINT_TEMPLATE.format(joint=joint, parent=parent, child=child, xyz=xyz, rpy=rpy))
+
+    patched = urdf.replace("</robot>", "".join(additions) + "</robot>") if additions else urdf
 
     os.makedirs(os.path.dirname(DST_URDF), exist_ok=True)
     with open(DST_URDF, "w") as f:
         f.write(patched)
     print(f"Wrote Placo-compatible URDF: {DST_URDF}")
-    print(f"Added frame aliases: {[a[0] for a in FRAME_ALIASES]}")
 
 
 if __name__ == "__main__":
