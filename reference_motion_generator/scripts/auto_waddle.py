@@ -256,17 +256,26 @@ def main(args):
                 avg_x_vel = placo_data.get("avg_x_lin_vel", 0)
                 avg_y_vel = placo_data.get("avg_y_lin_vel", 0)
                 preset_name = placo_data.get("preset_name", "unknown")
+                # preset_name is actually "{index}_{speed_category}" (see
+                # gait_generator.py's `args.preset.split("/")[-1].split(".")[0]`,
+                # and auto_waddle.py's own tmp_preset naming above) — strip the
+                # numeric prefix to recover the speed category for filtering.
+                # Bug: comparing the raw "{i}_medium" value against "medium"
+                # below never matched, so this filter silently never fired.
+                preset_category = (
+                    preset_name.split("_", 1)[1] if "_" in preset_name else preset_name
+                )
 
                 total_speed = np.sqrt(avg_x_vel**2 + avg_y_vel**2)
 
                 # If the speeds do not fit the indicated preset name, remove
                 if (
-                    (preset_name == "slow" and total_speed > slow)
+                    (preset_category == "slow" and total_speed > slow)
                     or (
-                        preset_name == "medium"
+                        preset_category == "medium"
                         and (total_speed <= slow or total_speed > fast)
                     )
-                    or (preset_name == "fast" and total_speed <= medium)
+                    or (preset_category == "fast" and total_speed <= medium)
                 ):
                     os.remove(file_path)
                     print(f"Deleted {file_path}")
