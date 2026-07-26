@@ -79,6 +79,37 @@ damping   = friction_viscous + kt**2 / R
 검증된 게 아니라서 실익이 없다고 판단. **사용자가 내일(2026-07-27 예상) XM430 실물을
 BAM으로 직접 재측정할 예정** — kt/R 재피팅해서 stiffness/damping 값을 갱신할 것.
 
+## 좌우 비대칭 발견 — OnShape CAD 레벨 이슈 (2026-07-26, 학습 재개 전 BLOCKER)
+
+재생성된 117개 레퍼런스 모션의 단일 걸음 검증(verify_gait.py)에서 사용자가 지적:
+`left_knee` ROM [1.497, 2.692]는 홈포즈(1.368)보다 더 굽혀진 쪽에, `right_knee` ROM
+[-0.913, +0.228]는 홈포즈(-1.379)보다 훨씬 덜 굽혀진 쪽에 있어 좌우가 전혀 미러링되지
+않음. 게다가 `right_knee` 실측 최대값(+0.228)이 URDF에 정의된 관절 상한(`upper≈0`)을
+0.228rad(13°) 초과 — 물리적으로 불가능한 값이 레퍼런스 궤적에 포함돼 있었음.
+
+사용자가 OnShape을 직접 확인해 3가지 CAD 레벨 원인을 지목:
+1. **질량 비대칭** — `left_roll_to_pitch_assembly`(105.16g) vs
+   `right_roll_to_pitch_assembly`(121.62g), diff +16.47g(~15.7%). URDF 파싱으로 직접
+   확인됨. Placo는 ZMP 기반으로 걸음을 생성하므로 무게중심 계산에 이 비대칭이 그대로
+   들어가 좌우 다리가 다르게 걷도록 유도했을 가능성.
+   **사용자 재확인**: OnShape 상에서 두 부품의 밀도/부피/겉넓이가 전부 동일 — 즉
+   CAD 형상 자체는 대칭인데 질량만 다름. 따라서 설계를 다시 할 필요는 없고,
+   **onshape-to-robot 익스포트 과정에서 한쪽에만 숨겨진 파스너가 질량 계산에
+   포함됐거나, 재질/캐싱 오류로 질량이 잘못 산출됐을 가능성이 유력** — 재익스포트
+   시 이 부분부터 확인.
+2. **`right_knee` 관절 회전 방향(CW/CCW) 반전** — OnShape 메이트 정의에서 각도 표시는
+   같지만 시계/반시계 방향이 `left_knee`와 반대. URDF 레벨에서는 검증 불가(OnShape
+   접근 필요), 위 관절 한계 초과 현상과 정합적.
+3. **억제된(suppressed) 프레임 상태로 어셈블리 임포트 + 로봇이 비직립 상태로 임포트됨**
+   — `HOME_JOINT_POS`가 실제 물리적 중립 자세를 정확히 반영하지 못했을 가능성. 이것도
+   OnShape 쪽에서만 확인 가능.
+
+**결정 (사용자, 2026-07-26)**: 위 3가지를 OnShape에서 고치고 URDF를 재익스포트할
+때까지 Stage 2 재학습을 보류. 지금 상태(속도필터는 고쳤지만 좌우 비대칭은 남아있음)로
+학습을 돌려도 비슷한 실패(twitching/reward-hacking)가 재현될 가능성이 높다고 판단.
+재익스포트되면 `scripts/patch_urdf_for_placo.py`부터 다시 돌려 궤적 재생성 → 검증 →
+재학습 순서로 진행.
+
 ## 관절 순서 (14개 구동 관절)
 
 `left_hip_yaw, left_hip_roll, left_hip_pitch, left_knee, left_ankle, neck_pitch, head_pitch, head_yaw, head_roll, right_hip_yaw, right_hip_roll, right_hip_pitch, right_knee, right_ankle`
