@@ -111,8 +111,25 @@ class JoystickEnv(DirectRLEnv):
         # it has no inertia of its own and gets merged into its fixed
         # parent during import) — "head_pitch_assembly" is the actual
         # physics body closest to the head.
+        #
+        # Extended 2026-07-27 to also include both legs' knee/ankle bodies:
+        # contact_diagnostic.py showed imitation_v4's converged policy
+        # holding a perfectly stable crouch (base_z=0.133-0.134,
+        # zero trunk/head contact force for 180+ steps) that evaded
+        # trunk/head-only contact termination entirely — trunk and head
+        # never touch anything in that pose, only the legs fold. Paired
+        # with raising min_base_height_ratio (see joystick_env_cfg.py),
+        # not a replacement for it.
         self._trunk_head_ids, _trunk_head_names = self._contact_sensor.find_bodies(
-            [ROOT_BODY_NAME, "head_pitch_assembly"], preserve_order=True
+            [
+                ROOT_BODY_NAME,
+                "head_pitch_assembly",
+                "knee_and_ankle_assembly",
+                "knee_and_ankle_assembly_2",
+                "knee_and_ankle_assembly_3",
+                "knee_and_ankle_assembly_4",
+            ],
+            preserve_order=True,
         )
 
         n = self.num_envs

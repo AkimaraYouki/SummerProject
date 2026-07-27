@@ -264,7 +264,15 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # the ground, never triggering `terminated`) and by watching the trained
     # policy over WebRTC. This threshold gives Stage 1 its own "has fallen"
     # signal independent of imitation.
-    min_base_height_ratio = 0.6
+    #
+    # Raised 0.6->0.75 on 2026-07-27: contact_diagnostic.py measured
+    # imitation_v4's converged policy holding a perfectly stable crouch at
+    # base_z=0.133-0.134 (ratio ~0.69 of HOME_BASE_HEIGHT=0.193) with ZERO
+    # trunk/head contact force for 180+ consecutive steps — a pose that
+    # evades all three termination conditions (not flipped, above the old
+    # 0.6 height ratio, no trunk/head contact) simultaneously. 0.75 puts
+    # that specific crouch below the new threshold.
+    min_base_height_ratio = 0.75
 
     # ── reward scales ────────────────────────────────────────────────────
     tracking_lin_vel_scale = 2.5
