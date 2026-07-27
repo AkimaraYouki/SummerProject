@@ -423,8 +423,17 @@ class JoystickEnv(DirectRLEnv):
         # default pose, which isn't RSI.
         if self.cfg.use_imitation:
             ref_frame = self._current_reference_motion[env_ids]
-            joint_pos[:, ACT_LEG_JOINT_IDX] = ref_frame[:, 0:14][:, REF_LEG_JOINT_IDX]
-            joint_vel[:, ACT_LEG_JOINT_IDX] = ref_frame[:, 14:28][:, REF_LEG_JOINT_IDX]
+            # BUG (caught by rsi_validation's episode length pinned at ~8):
+            # ACT_LEG_JOINT_IDX indexes ACTUATOR_JOINT_NAMES order, but
+            # joint_pos/joint_vel here are in the articulation's NATIVE
+            # order (same as default_joint_pos) -- that's exactly why
+            # self._joint_ids (actuator-order -> native-order) exists, see
+            # __init__'s find_joints() call. Indexing directly with
+            # ACT_LEG_JOINT_IDX silently wrote each leg's reference value
+            # into the wrong (arbitrary) native joint slot.
+            leg_native_ids = [self._joint_ids[i] for i in ACT_LEG_JOINT_IDX]
+            joint_pos[:, leg_native_ids] = ref_frame[:, 0:14][:, REF_LEG_JOINT_IDX]
+            joint_vel[:, leg_native_ids] = ref_frame[:, 14:28][:, REF_LEG_JOINT_IDX]
 
         default_root_state = self._robot.data.default_root_state[env_ids].clone()
         default_root_state[:, :3] += self._terrain.env_origins[env_ids]  # local -> world
