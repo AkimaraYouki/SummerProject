@@ -201,3 +201,32 @@ WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
 **WebRTC로 `imitation_v3`(model_2999.pt) 직접 시각 확인 (`play.py --livestream 2`)**: 사용자 육안 관찰 — "시작하자마자 관절이 특정각도에 고착되면서 팡 하고 튕겨나감 → 터미네이트". eval 수치(toggle=79.1, reward-hacking 판정)와 정합되는 시각적 확인. 관절이 한계각 근처에서 고착 후 순간적으로 큰 힘이 실려 튕겨나가는 양상 — 단순 "제자리 떨림"보다는 관절한계/PD게인 근처에서의 불안정한 힘 스파이크에 가까워 보임 (원인 특정은 안 됨, 참고용 기록).
 
 **다음**: `imitation_v4`(A20J5 + 접촉종료, num_envs=4096, max_iterations=3000) 본학습 시작.
+
+## Run 9 — `imitation_v4` (A20J5 + 접촉기반 종료조건) — 완주 실패(크래시) + FAIL
+
+run dir `2026-07-27_11-53-51_imitation_v4`. iteration 2900까지는 정상(에피소드 길이 373~576, 최대치 근처로 안정적 — v3보다 훨씬 건강해 보이는 궤적이었음), 그러다:
+
+```
+iter 2978: value_function loss = 63.96 (정상)
+iter 2979: value_function loss = 385,798,126.4        ← 폭발 시작
+iter 2980: value_function loss = 799,433,533,738,188.75
+iter 2981: value_function loss = 2,828,388,348,591,223,603,200.0
+iter 2982: value_function loss = 3.17×10^27
+iter 2983: value_function loss = 4.93×10^32 → RuntimeError: normal expects all elements of std >= 0.0
+```
+
+단 5 iteration 만에 value function loss가 기하급수적으로 폭주 → 정책의 액션 분포 표준편차가 NaN이 되며 iteration 2983/3000(99.4%)에서 크래시. `model_2999.pt`는 없음, 마지막 정상 체크포인트는 `model_2900.pt`(96.7%).
+
+**`model_2900.pt` eval 결과**:
+```
+worst-case upright (마지막 200스텝): -0.0013 (거의 완전히 옆으로 누움 — v3의 -0.4396보다도 나쁨)
+mean leg-joint ROM: 0.4336 rad
+lin-vel tracking error: 0.1980 m/s
+foot-contact toggle: 78.9회/발/10초 (v3의 79.1과 사실상 동일)
+
+STANDING RESULT: LIKELY STILL COLLAPSED/UNSTABLE
+WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
+```
+**판정: FAIL.** toggle이 v3와 거의 동일해서, 접촉기반 종료조건 도입 자체는 이 트위칭 실패 양상을 해결하지 못했음을 시사(하지만 종료조건 우회 문제 자체는 별개로 여전히 유효한 개선). 학습 후반부 value function 폭주는 새로운 실패 유형 — 원인 미조사(NaN 유발 지점의 관측치/리워드 스파이크 등 후속 조사 필요, 지금은 보류).
+
+**다음**: 사용자 지시로 스윕 방향을 반전 — `imitation_v5`(A30J25: alive_scale 20→30, w_joint_pos 5→25) 시작.
