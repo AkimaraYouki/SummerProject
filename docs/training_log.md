@@ -317,3 +317,21 @@ WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping) — �
 **구현**: RSI 코드를 삭제하는 대신 `cfg.use_rsi` 플래그로 토글 가능하게 만듦 (커밋 `218db78`/`ca28e5d`) — `use_rsi=False`면 `_reset_idx()`가 항상 phase=0으로 리셋하고 다리 관절도 기본자세로 스폰(v1~v5 원래 동작과 동일). 신규 config `JoystickEnvCfg_A20J5_NoRSI` (gym task `Isaac-OpenDuckMini-Joystick-A20J5NoRSI-v0`) 등록. 코드 삭제가 아니라 토글로 만든 이유: "RSI 켠 버전"(v6/v7)과 "Disney 원본대로(RSI 없음)"를 같은 코드베이스에서 직접 비교하기 위함.
 
 **다음**: `imitation_v7`(RSI 켬) 완주 대기 중 — 완료되면 eval+시각확인 후, 곧바로 짧은 검증(num_envs=64, 150~200 iter)으로 no-RSI 경로에 새 버그 없는지 확인한 뒤 `imitation_v8` = A20J5NoRSI(Disney 원본 방식) 본학습 시작 예정. v7(RSI)과 v8(No-RSI)을 직접 비교해서 RSI가 실제로 도움이 되는지 처음으로 검증하는 실험.
+
+## imitation_v7 결과 — FAIL, num_envs 스케일업이 오히려 악화 (2026-07-28 05:09, iteration 2999 완주)
+
+**eval 결과 (`model_2999.pt`)**:
+```
+worst-case upright (마지막 200스텝): -0.0025 (v6의 -0.0040보다도 나쁨, 거의 완전 sideways)
+mean leg-joint ROM: 1.0561 rad (v6=1.3072보다 낮지만 이전 런들(0.42~0.56)보다는 여전히 큼)
+lin-vel tracking error: 0.2891 m/s (v6=0.4304보다는 개선, v4/v5보다는 나쁨)
+foot-contact toggle: 90.6회/발/10초 — v6(29.4)보다 3배 악화, v3(79.1)/v4(78.9) 수준으로 회귀
+
+STANDING RESULT: LIKELY STILL COLLAPSED/UNSTABLE
+WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
+```
+**판정: FAIL, v6보다 명확히 악화.** 예상 밖의 결과 — "v6가 안 좋았던 건 num_envs=512로 인한 데이터 부족"이라는 가설을 반박함. num_envs를 512→4096(8배)로 늘렸는데 toggle이 오히려 3배 나빠짐. 학습 로그상 최종 에피소드 길이(89~91)는 v6(64~82)보다 오히려 길었는데, eval에서는 더 불안정하게 나온 것도 흥미로운 불일치 — 학습 중 수집된 노이즈 있는 배치 통계와 실제 정책 품질이 어긋날 수 있음을 시사. num_envs 자체의 인과 효과인지, 단순 학습 런간 시드/변동성인지는 이 실험만으론 확정 불가 (같은 설정 반복실험 없이 num_envs만 바꿨으므로). 수치가 명확한 FAIL(v6보다 악화)이라 시각 확인 생략, 바로 기록.
+
+## Run 13 — `imitation_v8`: RSI 끄고 Disney 원본 방식 (2026-07-28)
+
+계획대로 진행. RSI가 도움이 되는지 불확실해진 상황(v6는 개선, v7은 악화)이라 더더욱 "RSI 없는 버전"과의 직접 비교가 필요해짐. `use_rsi=False`(A20J5NoRSI) 검증 후 본학습.
