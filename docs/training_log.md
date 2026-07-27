@@ -335,3 +335,31 @@ WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
 ## Run 13 — `imitation_v8`: RSI 끄고 Disney 원본 방식 (2026-07-28)
 
 계획대로 진행. RSI가 도움이 되는지 불확실해진 상황(v6는 개선, v7은 악화)이라 더더욱 "RSI 없는 버전"과의 직접 비교가 필요해짐. `use_rsi=False`(A20J5NoRSI) 검증(num_envs=64, 200 iter — 트레이스백 없음, 에피소드 길이 40~45 정상 범위) 통과 후 본학습(`num_envs=4096`, `--headless`) 시작, ETA~2h51m. run dir `2026-07-28_05-14-05_imitation_v8`.
+
+**학습 중 관찰**: 학습 로그 지표(에피소드 길이, value_function loss)가 v6/v7보다 훨씬 좋아 보였음 — iter~700대에서 에피소드 길이 60.51(v6=38.78, v7=32.72), value_function loss는 0.06~0.14 사이로 학습 끝까지 매우 낮고 안정적(v6/v7은 같은 구간에서 1.2~2.8까지 올라갔었음).
+
+## imitation_v8 결과 — FAIL, 학습 지표는 최고였지만 eval은 v7과 비슷하거나 더 나쁨 (2026-07-28 07:37, iteration 2999 완주)
+
+**eval 결과 (`model_2999.pt`)**:
+```
+worst-case upright (마지막 200스텝): -0.0028
+mean leg-joint ROM: 0.9768 rad
+lin-vel tracking error: 0.3546 m/s
+foot-contact toggle: 96.7회/발/10초 — v7(90.6)보다도 살짝 나쁨, v6(29.4)보다 훨씬 나쁨
+
+STANDING RESULT: LIKELY STILL COLLAPSED/UNSTABLE
+WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
+```
+**판정: FAIL.** 학습 중 지표(에피소드 길이·value_function loss)는 v6/v7보다 압도적으로 좋아 보였는데, eval에서는 v7과 비슷하거나 오히려 더 나쁜 결과 — **학습-타임 지표와 eval-time 실제 정책 품질이 괴리되는 패턴이 세 번째로 재확인됨.**
+
+### RSI on/off 종합 결론 (v6/v7/v8 3자 비교)
+
+| run | RSI | num_envs | toggle | 판정 |
+|---|---|---|---|---|
+| v6 | 켬 | 512 | **29.4 (최고)** | FAIL |
+| v7 | 켬 | 4096 | 90.6 | FAIL |
+| v8 | 끔 | 4096 | 96.7 (최악) | FAIL |
+
+**v7↔v8(num_envs 동일, RSI만 다름)만 놓고 보면 RSI가 켜진 v7(90.6)이 꺼진 v8(96.7)보다 미세하게 나음** — RSI가 아주 약간은 도움이 됐다는 뜻일 수 있으나, 차이(90.6 vs 96.7, 6.7%)가 크지 않아 노이즈 범위일 가능성도 있음. 반면 **압도적으로 제일 좋았던 v6는 RSI on + num_envs=512** 조합 — RSI 유무보다 num_envs=512(적은 병렬환경)라는 조건 자체가 핵심이었을 가능성을 시사하지만, v6는 반복실험이 없어 우연(시드 변동성)일 가능성도 배제 못 함.
+
+**종합**: 3번의 시도(v6/v7/v8) 전부 FAIL, "RSI를 끄고 Disney 원본대로 단순화"해도 개선 안 됨. 사용자에게 이 결과를 명확히 보고하고 다음 방향 논의 필요 — 자동으로 또 다른 대규모 실험을 시작하지 않고 대기.
