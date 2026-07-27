@@ -252,3 +252,31 @@ base_z: 스폰 직후 ~0.21 → 100+스텝 동안 0.133~0.134에서 완벽히 �
 ## Run 10 — `imitation_v5` (A30J25 + 크로치 방지 수정) 시작 (2026-07-27, run dir 로그 확인)
 
 num_envs=4096, max_iterations=3000, ETA~2h48m. alive_scale=30(20→30), w_joint_pos=25(5→25) — 스윕 근거와 반대 방향의 사용자 지시 시도. 실패 시 `imitation_v6`(imitation_scale=2.0, init_noise_std=2.0 추가)로 자동 진행 예정.
+
+**결과 (2026-07-27 17:26, iteration 2999 완주, `eval_policy_stability.sh`)**:
+```
+worst-case upright (마지막 200스텝): -0.0792
+mean leg-joint ROM: 0.4235 rad
+lin-vel tracking error: 0.1887 m/s
+foot-contact toggle: 159.1회/발/10초 — 지금까지 전체 런 중 최악 (v2=43.4, v3=79.1, v4=78.9)
+
+STANDING RESULT: LIKELY STILL COLLAPSED/UNSTABLE
+WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
+```
+**판정: FAIL, 그것도 최악.** alive_scale·w_joint_pos를 동시에 올리는 방향이 명확히 역효과였음 — 문헌조사(아래 참고)의 경고("생존 보너스 과다 → 전진 없이 서있기만")와 정합.
+
+에피소드 길이도 특이했음: v4 대비 같은 iteration 지점에서 6~8배 짧았다가(크로치 방지 수정으로 종료조건이 훨씬 자주 발동한 결과로 추정) 후반부(iter 2349)엔 128까지 회복 — 크로치 자체는 확실히 못 쓰게 막았지만 대신 toggle이 급증하는 다른 실패 양상으로 이동한 것으로 보임.
+
+`reward_breakdown.py`로 alive/imitation 상쇄 가설을 실측하려 했으나 GPU 자원경합 없이도 3회 연속 조용히 크래시 — 스크립트 자체가 불안정하다고 판단, 추가 재시도 없이 정성적 판단으로 대체(공식 기반 추론: alive=30의 raw 기여도 스텝당 +0.6인데 w_joint_pos=25의 관절오차 페널티가 학습 초반 이를 쉽게 상쇄해 클램프로 0이 되는 스텝이 대부분일 것으로 추정, 미확정).
+
+## Run 11 — RSI(Reference State Initialization) 도입 → `imitation_v6` (2026-07-27)
+
+사용자가 "실측하고 네가 방향성 정해서 알아서 돌려, 내 개입없이"로 전권 위임. v5가 최악의 결과였고 문헌조사에서 이미 "alive/imitation 동시 상승"에 대한 근거가 약하다고 나왔던 것과 종합해, 사전승인됐던 `imitation_v6`(가중치 추가상승+노이즈2배) 대신 문헌조사에서 나온 더 근거있는 대안인 **RSI**로 방향 전환.
+
+**발견**: `_reset_idx()`가 매 에피소드 `self._imitation_i[env_ids] = 0`으로 항상 레퍼런스 모션 phase=0에서 시작하고 있었음 — DeepMimic(Peng et al. 2018, 이 리워드 계보 전체의 원조)이 쓰는 RSI(에피소드를 레퍼런스 클립의 랜덤 지점에서 시작)가 빠져있었음. v3~v5 전부 이 부분은 안 건드리고 가중치만 조정했었음.
+
+**구현**: `_imitation_i`를 `[0, gait_period_steps)` 균등샘플로 바꾸고, 다리 관절(`ACT_LEG_JOINT_IDX`)의 스폰 시 자세/속도를 그 샘플된 phase의 레퍼런스 프레임 값으로 직접 세팅.
+
+**버그 1회 발견/수정**: 첫 검증(`rsi_validation`, num_envs=64, 200 iter)에서 에피소드 길이가 8 근처에 완전히 고정 — 스폰 직후 거의 즉시 종료되는 심각한 버그. 원인: `ACT_LEG_JOINT_IDX`(액추에이터 순서)를 네이티브(USD) 순서 텐서인 `joint_pos`/`joint_vel`에 그대로 인덱싱해서 엉뚱한 관절에 레퍼런스 값이 쓰였음 — `self._joint_ids`로 액추에이터→네이티브 순서 매핑 필요. 수정 후 재검증(`rsi_validation2`)에서 에피소드 길이 35~39로 정상화 확인.
+
+**결정**: RSI 효과를 A30J25(방금 최악으로 확인됨)가 아니라 더 나은 베이스라인인 **A20J5** 위에서 격리해서 테스트하기로 판단 (변수 하나씩 검증하는 원칙 유지). `imitation_v6` = A20J5 config + 접촉기반 종료조건 + 크로치 방지(높이비율 0.75, 무릎/발목 접촉) + RSI(신규), num_envs=512(사용자 요청 — 데이터량은 8배 줄지만), `--livestream 2`(headless 대신 WebRTC 렌더링, 사용자가 실시간으로 보고 싶어함), max_iterations=3000, ETA~2h32m 시작.
