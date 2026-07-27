@@ -280,3 +280,7 @@ WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
 **버그 1회 발견/수정**: 첫 검증(`rsi_validation`, num_envs=64, 200 iter)에서 에피소드 길이가 8 근처에 완전히 고정 — 스폰 직후 거의 즉시 종료되는 심각한 버그. 원인: `ACT_LEG_JOINT_IDX`(액추에이터 순서)를 네이티브(USD) 순서 텐서인 `joint_pos`/`joint_vel`에 그대로 인덱싱해서 엉뚱한 관절에 레퍼런스 값이 쓰였음 — `self._joint_ids`로 액추에이터→네이티브 순서 매핑 필요. 수정 후 재검증(`rsi_validation2`)에서 에피소드 길이 35~39로 정상화 확인.
 
 **결정**: RSI 효과를 A30J25(방금 최악으로 확인됨)가 아니라 더 나은 베이스라인인 **A20J5** 위에서 격리해서 테스트하기로 판단 (변수 하나씩 검증하는 원칙 유지). `imitation_v6` = A20J5 config + 접촉기반 종료조건 + 크로치 방지(높이비율 0.75, 무릎/발목 접촉) + RSI(신규), num_envs=512(사용자 요청 — 데이터량은 8배 줄지만), `--livestream 2`(headless 대신 WebRTC 렌더링, 사용자가 실시간으로 보고 싶어함), max_iterations=3000, ETA~2h32m 시작.
+
+**중단 사고 (iteration ~250/3000, 18:59)**: 사용자가 WebRTC 화면에서 시뮬레이션 출력을 USD로 바꿨다가 화면이 깨짐 — 로그에 `OGN deregister omni.physx.fabric` 발생 후 학습 루프 자체가 멈춤(GPU util 0%, 타임스텝 정지, 프로세스는 살아있으나 응답없음). 사용자 지시로 이 런의 로그/체크포인트 전체 삭제(`2026-07-27_18-46-36_imitation_v6` 디렉토리) 후 재시작.
+
+재시작 첫 시도에서 `omni.physx.fabric.plugin CUDA error: invalid argument (DirectGpuHelper.cpp:752)`가 연속 발생 — 강제종료(`kill -9`)가 GPU 렌더 상태를 깨끗이 정리 못 하고 남긴 것으로 추정. `--headless`로는 CUDA 에러 0건 정상 작동 확인(렌더 파이프라인만 손상, 물리연산 자체는 정상). 빈 스트리밍 세션(`isaac-sim.streaming.sh`)만 단독으로 띄워 렌더러가 살아있는지 확인 → CUDA 에러 0건, 정상 로드 — 즉 일시적 GPU 상태 문제였고 시간이 지나며 회복된 것으로 보임. 이후 `train.py --livestream 2`로 재시도 → 정상 작동(CUDA 에러 0건). `imitation_v6` 최종적으로 새 run dir로 18:59경 재시작, ETA~2h33m.
