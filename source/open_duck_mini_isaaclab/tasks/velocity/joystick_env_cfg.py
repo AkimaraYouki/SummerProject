@@ -315,6 +315,16 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # (use_imitation=False, pure RL) reward-hacked into a collapsed-but-
     # technically-alive pose across every alive_scale tried.
     use_imitation: bool = True
+    # RSI (Reference State Initialization, DeepMimic/Peng et al. 2018) —
+    # added 2026-07-27 for imitation_v6/v7, NOT part of Disney's BD-X paper
+    # (confirmed 2026-07-28 by reading the actual paper: no mention of RSI
+    # or random-phase episode initialization anywhere in it — Disney always
+    # implicitly starts from a fixed reference state, same as our pre-RSI
+    # behavior). Kept as a toggle rather than deleted so "RSI on" vs "RSI
+    # off, Disney-literal" can be compared directly on the same codebase.
+    # When False, _reset_idx() always resets to reference-motion phase 0,
+    # matching v1-v5's original (pre-RSI) behavior.
+    use_rsi: bool = True
     reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/polynomial_coefficients.pkl"
     # Gait-phase clock period (env steps), used for the imitation_phase
     # observation channel when use_imitation=False (no PolyReferenceMotion
@@ -377,6 +387,17 @@ class JoystickEnvCfg_A5J15(JoystickEnvCfg):
 class JoystickEnvCfg_A20J5(JoystickEnvCfg):
     alive_scale = 20.0
     imitation_w_joint_pos = 5.0
+
+
+# Disney's BD-X paper doesn't use RSI (confirmed 2026-07-28 against the
+# actual paper — see joystick_env_cfg.py's use_rsi docstring). This variant
+# is A20J5 (already Disney's own alive_scale=20) with RSI turned off, for a
+# direct on/off comparison against imitation_v6/v7 on identical everything
+# else (contact-termination + crouch-fix stay on — those match/extend
+# Disney's own paper's contact-based termination, not a deviation from it).
+@configclass
+class JoystickEnvCfg_A20J5_NoRSI(JoystickEnvCfg_A20J5):
+    use_rsi = False
 
 
 @configclass

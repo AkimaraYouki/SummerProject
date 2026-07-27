@@ -398,9 +398,15 @@ class JoystickEnv(DirectRLEnv):
         # never this). Added 2026-07-27 per literature survey (DeepMimic is
         # the origin of the r_imitation+r_regularization+r_survival
         # template this whole reward lineage — including Disney's BD-X and
-        # our own — already uses).
+        # our own — already uses) — NOT itself part of Disney's own recipe
+        # (confirmed 2026-07-28 against the actual paper), hence the
+        # `cfg.use_rsi` toggle so this can be compared against Disney's
+        # literal always-phase-0 behavior on the same codebase.
         if self.cfg.use_imitation:
-            self._imitation_i[env_ids] = torch.randint(0, self._gait_period_steps, (n,), device=dev)
+            if self.cfg.use_rsi:
+                self._imitation_i[env_ids] = torch.randint(0, self._gait_period_steps, (n,), device=dev)
+            else:
+                self._imitation_i[env_ids] = 0
             self._current_reference_motion[env_ids] = self._prm.get_reference_motion(
                 self._command[env_ids, 0], self._command[env_ids, 1], self._command[env_ids, 2], self._imitation_i[env_ids]
             )
@@ -421,7 +427,7 @@ class JoystickEnv(DirectRLEnv):
         # otherwise a random phase index alone would just make the *target*
         # jump around while the robot still always spawns in the same
         # default pose, which isn't RSI.
-        if self.cfg.use_imitation:
+        if self.cfg.use_imitation and self.cfg.use_rsi:
             ref_frame = self._current_reference_motion[env_ids]
             # BUG (caught by rsi_validation's episode length pinned at ~8):
             # ACT_LEG_JOINT_IDX indexes ACTUATOR_JOINT_NAMES order, but

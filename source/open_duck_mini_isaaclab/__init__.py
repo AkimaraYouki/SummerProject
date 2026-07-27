@@ -38,6 +38,7 @@ try:
         ("A20J5", "JoystickEnvCfg_A20J5"),
         ("A5J5", "JoystickEnvCfg_A5J5"),
         ("A30J25", "JoystickEnvCfg_A30J25"),
+        ("A20J5NoRSI", "JoystickEnvCfg_A20J5_NoRSI"),
     ]:
         gym.register(
             id=f"Isaac-OpenDuckMini-Joystick-{_variant_suffix}-v0",
