@@ -334,4 +334,4 @@ WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
 
 ## Run 13 — `imitation_v8`: RSI 끄고 Disney 원본 방식 (2026-07-28)
 
-계획대로 진행. RSI가 도움이 되는지 불확실해진 상황(v6는 개선, v7은 악화)이라 더더욱 "RSI 없는 버전"과의 직접 비교가 필요해짐. `use_rsi=False`(A20J5NoRSI) 검증 후 본학습.
+계획대로 진행. RSI가 도움이 되는지 불확실해진 상황(v6는 개선, v7은 악화)이라 더더욱 "RSI 없는 버전"과의 직접 비교가 필요해짐. `use_rsi=False`(A20J5NoRSI) 검증(num_envs=64, 200 iter — 트레이스백 없음, 에피소드 길이 40~45 정상 범위) 통과 후 본학습(`num_envs=4096`, `--headless`) 시작, ETA~2h51m. run dir `2026-07-28_05-14-05_imitation_v8`.
