@@ -230,3 +230,25 @@ WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
 **판정: FAIL.** toggle이 v3와 거의 동일해서, 접촉기반 종료조건 도입 자체는 이 트위칭 실패 양상을 해결하지 못했음을 시사(하지만 종료조건 우회 문제 자체는 별개로 여전히 유효한 개선). 학습 후반부 value function 폭주는 새로운 실패 유형 — 원인 미조사(NaN 유발 지점의 관측치/리워드 스파이크 등 후속 조사 필요, 지금은 보류).
 
 **다음**: 사용자 지시로 스윕 방향을 반전 — `imitation_v5`(A30J25: alive_scale 20→30, w_joint_pos 5→25) 시작.
+
+## WebRTC 육안 확인 → 크로치(crouch) 리워드해킹 발견 + 대응 (2026-07-27)
+
+`imitation_v4`의 `model_2900.pt`를 `play.py --livestream 2`로 사용자가 직접 확인. 관찰: "터미네이션 안될려고 무슨 플랭크같이 머리랑 발로 버티는 동작", "시작하자마자 땅이랑 겹치는지 튕겨나가고 행동이 고착됨".
+
+**진단 (`scripts/contact_diagnostic.py`, 신규 작성)**: model_2900.pt로 200스텝 롤아웃하며 몸통/머리 접촉력과 base_z를 프레임별로 로깅.
+```
+trunk/head 접촉력: 200스텝 내내 8개 env 전부 정확히 0.000N (단 한 번도 0 아님)
+base_z: 스폰 직후 ~0.21 → 100+스텝 동안 0.133~0.134에서 완벽히 안정
+```
+**분석**: `min_base_height_ratio=0.6` 기준 붕괴 판정 높이 = `HOME_BASE_HEIGHT(0.193)×0.6 = 0.1158m`. 정책이 찾은 크로치 자세(0.133~0.134m, ratio≈0.69)는 이보다 살짝 높아서 안 걸림. 자기충돌(`enabled_self_collisions=False`)이 꺼져있어 머리가 자기 다리를 뚫고 들어가도 물리적으로 힘이 안 생기므로 접촉기반 종료조건도 안 걸림. **뒤집힘/높이/접촉 세 종료조건을 전부 동시에 피하는 자세를 정확히 찾아낸 것** — "붕괴됐지만 안 죽는" 리워드해킹의 새 버전.
+
+**조치**:
+1. `min_base_height_ratio`: 0.6 → 0.75 (이 크로치 자세가 새 기준 밑으로 들어감)
+2. 접촉기반 종료조건에 양쪽 다리 `knee_and_ankle_assembly`(1~4) 추가 — 트렁크/머리가 안 닿아도 다리를 접어서 자세를 낮추는 경우까지 감지
+3. (참고, 결과적으로 불필요했지만 시도함) 접촉 임계값 자체를 발 리워드용과 분리해 1.0N→0.5N으로 낮춤 — 실측 결과 힘이 진짜 0이라 임계값 조정만으론 해결 안 됐음을 확인, 별도 임계값 분리는 유지(향후 유용할 수 있음)
+
+검증(num_envs=64, max_iterations=150) 정상 완주, 에피소드 길이 40~45로 안정, 새 바디명(`knee_and_ankle_assembly*`) 크래시 없음 확인 후 `imitation_v5` 시작.
+
+## Run 10 — `imitation_v5` (A30J25 + 크로치 방지 수정) 시작 (2026-07-27, run dir 로그 확인)
+
+num_envs=4096, max_iterations=3000, ETA~2h48m. alive_scale=30(20→30), w_joint_pos=25(5→25) — 스윕 근거와 반대 방향의 사용자 지시 시도. 실패 시 `imitation_v6`(imitation_scale=2.0, init_noise_std=2.0 추가)로 자동 진행 예정.
