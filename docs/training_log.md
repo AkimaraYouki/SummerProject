@@ -196,4 +196,8 @@ WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
 
 **조치**: `joystick_env.py`에 `ContactSensor`로 `trunk_assembly`/`head_pitch_assembly`(URDF의 `head` 링크는 관성이 없어 물리 바디로 안 남고 부모에 병합되므로, 실제 바디명은 `head_pitch_assembly` — 이 오타로 최초 커밋은 `find_bodies`에서 즉시 크래시, eval 실행 시 발견해 바로 수정) 접촉력을 읽어 `_get_dones()`의 기존 조건에 OR로 추가 (커밋: 몸통/머리 접촉 기반 종료조건 추가 → head 바디명 수정). 기존 높이/뒤집힘 조건은 유지(대체 아님, 추가).
 
-**다음**: 짧은 검증(num_envs=64, 소규모 iteration)으로 새 종료조건이 매 스텝 즉시-종료 같은 버그를 안 일으키는지 확인 후 `imitation_v4`(A20J5 + 접촉종료, num_envs=4096, max_iterations=3000) 본학습 시작 예정.
+**검증 완료 (2026-07-27 06:4x)**: `imitation_v4_contactterm_validation`(num_envs=64, max_iterations=200) 정상 완주, 에피소드 길이 13→50까지 상승 후 42~45에서 안정 — 즉시-종료 버그 없음 확인.
+
+**WebRTC로 `imitation_v3`(model_2999.pt) 직접 시각 확인 (`play.py --livestream 2`)**: 사용자 육안 관찰 — "시작하자마자 관절이 특정각도에 고착되면서 팡 하고 튕겨나감 → 터미네이트". eval 수치(toggle=79.1, reward-hacking 판정)와 정합되는 시각적 확인. 관절이 한계각 근처에서 고착 후 순간적으로 큰 힘이 실려 튕겨나가는 양상 — 단순 "제자리 떨림"보다는 관절한계/PD게인 근처에서의 불안정한 힘 스파이크에 가까워 보임 (원인 특정은 안 됨, 참고용 기록).
+
+**다음**: `imitation_v4`(A20J5 + 접촉종료, num_envs=4096, max_iterations=3000) 본학습 시작.
