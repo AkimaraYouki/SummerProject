@@ -283,4 +283,24 @@ WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping)
 
 **중단 사고 (iteration ~250/3000, 18:59)**: 사용자가 WebRTC 화면에서 시뮬레이션 출력을 USD로 바꿨다가 화면이 깨짐 — 로그에 `OGN deregister omni.physx.fabric` 발생 후 학습 루프 자체가 멈춤(GPU util 0%, 타임스텝 정지, 프로세스는 살아있으나 응답없음). 사용자 지시로 이 런의 로그/체크포인트 전체 삭제(`2026-07-27_18-46-36_imitation_v6` 디렉토리) 후 재시작.
 
-재시작 첫 시도에서 `omni.physx.fabric.plugin CUDA error: invalid argument (DirectGpuHelper.cpp:752)`가 연속 발생 — 강제종료(`kill -9`)가 GPU 렌더 상태를 깨끗이 정리 못 하고 남긴 것으로 추정. `--headless`로는 CUDA 에러 0건 정상 작동 확인(렌더 파이프라인만 손상, 물리연산 자체는 정상). 빈 스트리밍 세션(`isaac-sim.streaming.sh`)만 단독으로 띄워 렌더러가 살아있는지 확인 → CUDA 에러 0건, 정상 로드 — 즉 일시적 GPU 상태 문제였고 시간이 지나며 회복된 것으로 보임. 이후 `train.py --livestream 2`로 재시도 → 정상 작동(CUDA 에러 0건). `imitation_v6` 최종적으로 새 run dir로 18:59경 재시작, ETA~2h33m.
+재시작 첫 시도에서 `omni.physx.fabric.plugin CUDA error: invalid argument (DirectGpuHelper.cpp:752)`가 연속 발생 — 강제종료(`kill -9`)가 GPU 렌더 상태를 깨끗이 정리 못 하고 남긴 것으로 추정. `--headless`로는 CUDA 에러 0건 정상 작동 확인(렌더 파이프라인만 손상, 물리연산 자체는 정상). 빈 스트리밍 세션(`isaac-sim.streaming.sh`)만 단독으로 띄워 렌더러가 살아있는지 확인 → CUDA 에러 0건, 정상 로드 — 즉 일시적 GPU 상태 문제였고 시간이 지나며 회복된 것으로 보임. 이후 `train.py --livestream 2`로 재시도 → 정상 작동(CUDA 에러 0건). `imitation_v6` 최종적으로 새 run dir(`2026-07-27_19-07-37_imitation_v6`)로 19:07경 재시작, ETA~2h33m.
+
+## imitation_v6 결과 — 지금까지 중 가장 유의미한 진전 (2026-07-27 21:50, iteration 2999 완주)
+
+**eval 결과 (`model_2999.pt`)**:
+```
+worst-case upright (마지막 200스텝): -0.0040
+mean leg-joint ROM: 1.3072 rad — 역대 최대 (v3=0.559, v4=0.4235, v5=0.4235의 2.3~3배)
+lin-vel tracking error: 0.4304 m/s — 오히려 악화 (v4=0.198, v5=0.189보다 나쁨)
+foot-contact toggle: 29.4회/발/10초 — 역대 최저, v2(43.4, Stage1 베이스라인)보다도 낮은 첫 사례
+
+STANDING RESULT: LIKELY STILL COLLAPSED/UNSTABLE
+WALKING RESULT:  LIKELY REWARD-HACKING (standing/twitching, not stepping) — 자동판정 임계값 기준
+```
+**판정: eval 스크립트 자동판정은 여전히 FAIL이지만, 지표 조합의 성격이 이전과 확연히 다름.** toggle이 극적으로 낮아지고 ROM이 2배 이상 커진 건 "제자리에서 버티기/편법"이 아니라 **실제로 크게 움직이며 걷기를 시도하는 패턴**과 정합 — 다만 아직 균형을 못 잡아 속도추종은 악화. WebRTC로 사용자가 직접 확인: "계속 넘어짐". IMU 버그 의심 제기 → 코드 재검토(가속도계는 `lin_acc_w = Δv/dt + gravity_bias_w`로 중력 정상 포함 확인, observation엔 orientation 직접 안 들어가지만 이건 Playground 원본도 동일한 구조라 v1~v6 공통이지 v6만의 문제 아님) → **IMU 버그보다는 "더 크고 실제 걷기에 가까운 동작을 시도하다 아직 균형이 안 따라오는" 상태**로 결론.
+
+## Run 12 — `imitation_v7`: RSI 유지 + num_envs 스케일업 (2026-07-28)
+
+사용자 전권 위임 하에 판단: v6는 처음으로 리워드해킹이 아닌 "진짜 걷기 시도" 패턴을 보였으나, num_envs=512(사용자가 실시간 시각화 위해 4096→512로 낮췄던 것 — 데이터량 8분의 1)라 단순히 학습 데이터 부족으로 아직 안정화가 덜 됐을 가능성이 높다고 판단. 새 레버(대칭손실 등) 추가하기 전에 **RSI 그대로 유지 + num_envs만 4096으로 복귀(headless, 실시간 시각화는 이번엔 포기)** — 새 코드 변경 없는 순수 스케일업이라 별도 검증 없이 바로 시작.
+
+사용자가 "최대로 자원써서 빠르게" 요청 → num_envs=8192로 먼저 시도(Disney 논문 규모) → **오히려 ETA가 2h50m→4h48m으로 악화** (GPU가 이미 4096에서 70% 활용 중이라 컴퓨트 병목, 메모리는 여유 있었지만 관계없었음) → 4096이 이 GPU에서 실질적 최적점으로 판단, 4096으로 복귀. `imitation_v7` 시작, ETA~2h38m.
