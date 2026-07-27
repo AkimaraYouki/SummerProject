@@ -75,6 +75,13 @@ from .rewards import (
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 FOOT_CONTACT_FORCE_THRESHOLD = 1.0  # N
+# Separate (lower) threshold for the trunk/head termination check — 2026-07-27,
+# after the user watched a live policy hold a "plank" pose (propped on
+# head+feet, self-collision is off so the head can rest against its own legs
+# without generating force) that never triggered termination. Lowered from
+# 1.0N so a lightly-loaded head/torso prop is still caught, without changing
+# the (unrelated) foot-contact reward's own threshold above.
+TRUNK_HEAD_CONTACT_FORCE_THRESHOLD = 0.5  # N
 
 
 class JoystickEnv(DirectRLEnv):
@@ -278,7 +285,7 @@ class JoystickEnv(DirectRLEnv):
 
     def _get_trunk_head_contact(self) -> torch.Tensor:
         forces = self._contact_sensor.data.net_forces_w_history[:, 0, self._trunk_head_ids, :]
-        return (torch.norm(forces, dim=-1) > FOOT_CONTACT_FORCE_THRESHOLD).any(dim=-1)
+        return (torch.norm(forces, dim=-1) > TRUNK_HEAD_CONTACT_FORCE_THRESHOLD).any(dim=-1)
 
     # ── rewards ──────────────────────────────────────────────────────────
 
