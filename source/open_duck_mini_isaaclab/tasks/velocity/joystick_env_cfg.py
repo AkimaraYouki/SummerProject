@@ -375,3 +375,16 @@ class JoystickEnvCfg_A20J5(JoystickEnvCfg):
 class JoystickEnvCfg_A5J5(JoystickEnvCfg):
     alive_scale = 5.0
     imitation_w_joint_pos = 5.0
+
+
+# A30J25 — 2026-07-27, user-directed reversal of the A20J5 direction after
+# imitation_v3 (A20J5 full run) came back WORSE than imitation_v2 (foot
+# toggle 79.1 vs 43.4). User's read: both alive_scale and w_joint_pos
+# should go UP, not down — opposite of what the sweep evidence pointed to
+# (alive_scale=5 collapsed training; w_joint_pos=15 was imitation_v2's
+# suspected culprit). Untested territory above alive_scale=20 — logged
+# here, not silently assumed correct.
+@configclass
+class JoystickEnvCfg_A30J25(JoystickEnvCfg):
+    alive_scale = 30.0
+    imitation_w_joint_pos = 25.0
