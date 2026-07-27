@@ -48,5 +48,19 @@ try:
                 "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg",
             },
         )
+
+    # imitation_v6 pre-approved fallback (only if imitation_v5/A30J25 also
+    # fails) — see joystick_env_cfg.py::JoystickEnvCfg_A30J25Im2 and
+    # rsl_rl_ppo_cfg.py::JoystickPPORunnerCfg_N2 for why. Registered
+    # separately since it also swaps the PPO runner cfg, not just the env.
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-A30J25Im2N2-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_A30J25Im2",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_N2",
+        },
+    )
 except ImportError:
     pass

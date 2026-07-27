@@ -388,3 +388,15 @@ class JoystickEnvCfg_A5J5(JoystickEnvCfg):
 class JoystickEnvCfg_A30J25(JoystickEnvCfg):
     alive_scale = 30.0
     imitation_w_joint_pos = 25.0
+
+
+# A30J25Im2 — pre-approved fallback (imitation_v6) if imitation_v5 (A30J25)
+# also fails. User's next lever, in order: raise imitation-related weights
+# further (imitation_scale 1.0->2.0, doubling reward_imitation()'s overall
+# contribution on top of A30J25's already-raised w_joint_pos) and raise PPO
+# initial exploration noise (see rsl_rl_ppo_cfg.py's JoystickPPORunnerCfg_N2,
+# init_noise_std 1.0->2.0) to try to escape the observed local-minimum
+# ("joint locks near a limit angle then pops/flings outward") failure mode.
+@configclass
+class JoystickEnvCfg_A30J25Im2(JoystickEnvCfg_A30J25):
+    imitation_scale = 2.0

@@ -68,3 +68,18 @@ class JoystickPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
+
+
+# Pre-approved fallback (imitation_v6, paired with
+# joystick_env_cfg.py::JoystickEnvCfg_A30J25Im2) if imitation_v5 (A30J25)
+# also fails to escape the observed local-minimum ("joint locks near a
+# limit angle then pops/flings outward") behavior. Doubles the initial
+# action-noise std to widen early exploration.
+@configclass
+class JoystickPPORunnerCfg_N2(JoystickPPORunnerCfg):
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=2.0,
+        actor_hidden_dims=[256, 128, 64],
+        critic_hidden_dims=[256, 128, 64],
+        activation="elu",
+    )
