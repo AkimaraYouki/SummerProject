@@ -46,9 +46,11 @@ from isaaclab.sensors import ContactSensor, Imu
 from isaaclab.terrains import TerrainImporter
 
 from open_duck_mini_isaaclab.joint_order import (
+    ACT_LEG_JOINT_IDX,
     ACTUATOR_JOINT_NAMES,
     HOME_BASE_HEIGHT,
     LEFT_FOOT_BODY_NAME,
+    REF_LEG_JOINT_IDX,
     RIGHT_FOOT_BODY_NAME,
     ROOT_BODY_NAME,
 )
@@ -385,8 +387,25 @@ class JoystickEnv(DirectRLEnv):
         self._last_last_act[env_ids] = 0.0
         self._last_last_last_act[env_ids] = 0.0
         self._action_delay_buf.reset_idx(env_ids)
-        self._imitation_i[env_ids] = 0
         self._command[env_ids] = self._sample_command(env_ids)
+
+        # Reference State Initialization (RSI, DeepMimic/Peng et al. 2018):
+        # sample the imitation phase uniformly instead of always resetting
+        # to phase 0 — otherwise every episode practices the exact same
+        # starting pose and the policy may never discover mid-gait phases,
+        # a plausible contributor to imitation_v3/v4/v5's stuck-pose
+        # failure modes (all of which only varied alive_scale/w_joint_pos,
+        # never this). Added 2026-07-27 per literature survey (DeepMimic is
+        # the origin of the r_imitation+r_regularization+r_survival
+        # template this whole reward lineage — including Disney's BD-X and
+        # our own — already uses).
+        if self.cfg.use_imitation:
+            self._imitation_i[env_ids] = torch.randint(0, self._gait_period_steps, (n,), device=dev)
+            self._current_reference_motion[env_ids] = self._prm.get_reference_motion(
+                self._command[env_ids, 0], self._command[env_ids, 1], self._command[env_ids, 2], self._imitation_i[env_ids]
+            )
+        else:
+            self._imitation_i[env_ids] = 0
 
         # multiplicative joint-pos randomization (matches Playground's
         # `qpos_j = home_qpos * U(0.5, 1.5)` — applied to ALL joints in
@@ -394,6 +413,18 @@ class JoystickEnv(DirectRLEnv):
         factor = math_utils.sample_uniform(0.5, 1.5, (n, self._robot.num_joints), dev)
         joint_pos = self._robot.data.default_joint_pos[env_ids] * factor
         joint_vel = torch.zeros(n, self._robot.num_joints, device=dev)
+
+        # RSI continued: overwrite the leg joints (head/neck aren't part of
+        # imitation, stay at the multiplicative-randomized default) with the
+        # sampled reference frame's own pose/velocity, so the robot's actual
+        # starting state matches what it's scored against from step 0 —
+        # otherwise a random phase index alone would just make the *target*
+        # jump around while the robot still always spawns in the same
+        # default pose, which isn't RSI.
+        if self.cfg.use_imitation:
+            ref_frame = self._current_reference_motion[env_ids]
+            joint_pos[:, ACT_LEG_JOINT_IDX] = ref_frame[:, 0:14][:, REF_LEG_JOINT_IDX]
+            joint_vel[:, ACT_LEG_JOINT_IDX] = ref_frame[:, 14:28][:, REF_LEG_JOINT_IDX]
 
         default_root_state = self._robot.data.default_root_state[env_ids].clone()
         default_root_state[:, :3] += self._terrain.env_origins[env_ids]  # local -> world
@@ -408,7 +439,5 @@ class JoystickEnv(DirectRLEnv):
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
         self._motor_targets[env_ids] = joint_pos[:, self._joint_ids]
-        if self.cfg.use_imitation:
-            self._current_reference_motion[env_ids] = self._prm.get_reference_motion(
-                self._command[env_ids, 0], self._command[env_ids, 1], self._command[env_ids, 2], self._imitation_i[env_ids]
-            )
+        # (self._current_reference_motion already set above, at the sampled
+        # RSI phase — no need to fetch it again here.)
