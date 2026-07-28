@@ -41,6 +41,7 @@ try:
         ("A20J5NoRSI", "JoystickEnvCfg_A20J5_NoRSI"),
         ("A20J5Bounded", "JoystickEnvCfg_A20J5_Bounded"),
         ("Walk", "JoystickEnvCfg_Walk"),
+        ("Walk2", "JoystickEnvCfg_Walk2"),
     ]:
         gym.register(
             id=f"Isaac-OpenDuckMini-Joystick-{_variant_suffix}-v0",

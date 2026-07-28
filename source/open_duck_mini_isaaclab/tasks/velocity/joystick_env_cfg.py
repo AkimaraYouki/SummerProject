@@ -325,6 +325,15 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # _pre_physics_step). Default False to keep older variants unchanged.
     lock_head_joints = False
 
+    # Per-term sensitivities inside reward_imitation. Defaults reproduce
+    # v1-v11 exactly; JoystickEnvCfg_Walk2 is where they actually change.
+    # See rewards.py's comment block for the imit_internals2.py measurement
+    # that motivated making them configurable.
+    imitation_k_lin_vel_xy = 8.0
+    imitation_w_lin_vel_z = 1.0
+    imitation_w_ang_vel_xy = 0.5
+    imitation_w_contact = 1.0
+
     # ── reference motion (imitation) ────────────────────────────────────
     # Stage 2 (2026-07-26): polynomial_coefficients.pkl now exists for real
     # (240 swept gaits, see docs/training_log.md) after fixing the Placo
@@ -516,3 +525,60 @@ class JoystickEnvCfg_A30J25(JoystickEnvCfg):
 @configclass
 class JoystickEnvCfg_A30J25Im2(JoystickEnvCfg_A30J25):
     imitation_scale = 2.0
+
+
+# Walk2 / imitation_v12 (2026-07-28). imitation_v11 failed identically to
+# v10 -- user watched it over WebRTC: "또 부들부들거림 발 안뜸... 걸을려고 안함".
+# scripts/imit_internals2.py on v11's model_300 measured WHY, and it was not
+# where the v11 changes had aimed:
+#
+#   base speed 0.064 m/s   (reference: 0.265 m/s)  <- barely moving
+#   lin_vel_z  +0.954/1.0    ang_vel_xy +0.220/0.5   lin_vel_xy +0.556/1.0
+#   joint_pos  +0.379/1.0    ang_vel_z  +0.258/0.5   contact    +0.205/~0.63
+#   joint_vel  -0.056        (the term I had suspected -- 2% of the total)
+#
+# ~92% of the raw imitation reward was collectable while standing still. The
+# decisive one is lin_vel_xy, the term whose entire job is to price walking:
+# at sharpness k=8, missing the reference speed by 100% (err^2 = 0.265^2 =
+# 0.070) still pays exp(-0.56) = 0.57. Standing and walking were nearly
+# indistinguishable to the reward.
+#
+# Changes, each tied to one measured number above:
+#   1. k_lin_vel_xy 8 -> 20 — standing now scores exp(-20*0.070) = 0.25
+#      instead of 0.56, while walking at the reference speed still scores
+#      ~1.0. (Not the "exact" k~43 that would drive standing to 0.05: that
+#      also flattens the gradient everywhere below half speed, which is the
+#      failure mode the w_joint_pos=5 experiment already demonstrated.)
+#   2. w_lin_vel_z 1.0 -> 0.1 — 0.954/1.0 free, the single largest freebie,
+#      and vertical velocity carries almost no gait information anyway.
+#   3. w_ang_vel_xy 0.5 -> 0.1 — scripts/ref_stats.py puts the reference's
+#      own roll/pitch-rate spread at 0.0000, i.e. the term has no
+#      discriminating power by construction.
+#   4. w_contact 1.0 -> 2.0 — with swing_only_contact this is now the ONLY
+#      term that standing cannot earn, so it should not also be the smallest.
+#   5. alive_scale 10 -> 3 — same reasoning as v11's 20->10, one step
+#      further now that termination (not alive reward) is what prevents
+#      falling.
+#   6. use_rsi back ON — the v7-vs-v8 RSI comparison that concluded "no real
+#      difference" ran while default_joint_pos was still HOME, i.e. while the
+#      reference pose sat 8 sigma outside the policy's action distribution;
+#      RSI was initializing into poses the policy could not hold under ANY
+#      action, so that test measured nothing. Now that READY makes the
+#      reference reachable, RSI does what it is for: starting episodes
+#      mid-stride is the standard escape from exactly the local optimum
+#      observed here (sitting at the gait's mean pose, which is what READY
+#      is, because partial out-of-phase tracking scores worse than not
+#      moving at all).
+#
+# Predicted effect, applying the new coefficients to v11's measured behavior:
+# standing 2.52 -> 1.38 raw, perfect walk 4.58 -> 3.90, so the standing-to-
+# walking ratio drops 55% -> 35%. Verify with reward_at_ready.py before
+# trusting the run.
+@configclass
+class JoystickEnvCfg_Walk2(JoystickEnvCfg_Walk):
+    imitation_k_lin_vel_xy = 20.0
+    imitation_w_lin_vel_z = 0.1
+    imitation_w_ang_vel_xy = 0.1
+    imitation_w_contact = 2.0
+    alive_scale = 3.0
+    use_rsi = True

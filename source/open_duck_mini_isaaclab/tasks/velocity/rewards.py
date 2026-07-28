@@ -67,6 +67,10 @@ def reward_imitation(
     w_joint_pos: float = 15.0,
     bounded_joint_pos: bool = False,
     swing_only_contact: bool = False,
+    k_lin_vel_xy: float = 8.0,
+    w_lin_vel_z: float = 1.0,
+    w_ang_vel_xy: float = 0.5,
+    w_contact: float = 1.0,
 ) -> torch.Tensor:
     """Direct port of custom_rewards.py::reward_imitation.
 
@@ -81,12 +85,20 @@ def reward_imitation(
     reproduced here. If reward curves look off during the Stage 3 Ubuntu
     smoke test, this is the first place to check.
     """
+    # 2026-07-28 (imitation_v12): w_lin_vel_z / w_ang_vel_xy / w_contact and
+    # the lin_vel_xy exp sharpness became arguments. scripts/imit_internals2.py
+    # measured imitation_v11's final policy standing still (base speed
+    # 0.064 m/s against the reference's 0.265) and still collecting:
+    #   lin_vel_z  0.954/1.0   ang_vel_xy 0.220/0.5   lin_vel_xy 0.556/1.0
+    # i.e. ~92% of the raw imitation total was reachable without walking.
+    # lin_vel_xy is the term that is *supposed* to price walking, and at the
+    # default sharpness k=8 being wrong by the entire reference speed
+    # (err^2 = 0.265^2 = 0.070) still pays exp(-0.56) = 0.57. The term simply
+    # could not tell standing from walking. Defaults below are unchanged so
+    # v1-v11 stay reproducible; JoystickEnvCfg_Walk2 supplies the new values.
     w_lin_vel_xy = 1.0
-    w_lin_vel_z = 1.0
-    w_ang_vel_xy = 0.5
     w_ang_vel_z = 0.5
     w_joint_vel = 1.0e-3
-    w_contact = 1.0
 
     cmd_norm = torch.linalg.norm(commands[:, :3], dim=-1)
 
@@ -99,7 +111,9 @@ def reward_imitation(
     joint_pos = joints_qpos[:, ACT_LEG_JOINT_IDX]  # [N,10]
     joint_vel = joints_qvel[:, ACT_LEG_JOINT_IDX]  # [N,10]
 
-    lin_vel_xy_rew = torch.exp(-8.0 * torch.sum((base_lin_vel_w[:, :2] - ref_lin_vel[:, :2]) ** 2, dim=-1)) * w_lin_vel_xy
+    lin_vel_xy_rew = (
+        torch.exp(-k_lin_vel_xy * torch.sum((base_lin_vel_w[:, :2] - ref_lin_vel[:, :2]) ** 2, dim=-1)) * w_lin_vel_xy
+    )
     lin_vel_z_rew = torch.exp(-8.0 * (base_lin_vel_w[:, 2] - ref_lin_vel[:, 2]) ** 2) * w_lin_vel_z
     ang_vel_xy_rew = torch.exp(-2.0 * torch.sum((base_ang_vel_w[:, :2] - ref_ang_vel[:, :2]) ** 2, dim=-1)) * w_ang_vel_xy
     ang_vel_z_rew = torch.exp(-2.0 * (base_ang_vel_w[:, 2] - ref_ang_vel[:, 2]) ** 2) * w_ang_vel_z
