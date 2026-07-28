@@ -65,6 +65,7 @@ def reward_imitation(
     reference_frame: torch.Tensor,  # [N,36], see poly_reference_motion.py docstring
     commands: torch.Tensor,  # [N,7]
     w_joint_pos: float = 15.0,
+    bounded_joint_pos: bool = False,
 ) -> torch.Tensor:
     """Direct port of custom_rewards.py::reward_imitation.
 
@@ -102,7 +103,21 @@ def reward_imitation(
     ang_vel_xy_rew = torch.exp(-2.0 * torch.sum((base_ang_vel_w[:, :2] - ref_ang_vel[:, :2]) ** 2, dim=-1)) * w_ang_vel_xy
     ang_vel_z_rew = torch.exp(-2.0 * (base_ang_vel_w[:, 2] - ref_ang_vel[:, 2]) ** 2) * w_ang_vel_z
 
-    joint_pos_rew = -torch.sum((joint_pos - ref_joint_pos) ** 2, dim=-1) * w_joint_pos
+    # 2026-07-28: joint_pos was the ONE unbounded term here — every other
+    # tracking term above is exp(-err), bounded to [0, 1], while this was a
+    # raw negative quadratic that grows without limit. reward_breakdown_v2.py
+    # measured the consequence on imitation_v8's final policy: imitation
+    # contributed -1.01/step on average (vs alive's +0.40, the largest
+    # positive term), driving the summed reward negative on 81.6% of steps —
+    # and `_get_rewards` clamps to [0, ...], so those steps delivered a
+    # constant 0 and no gradient. The policy was effectively learning from
+    # under a fifth of its experience. `bounded_joint_pos` switches this to
+    # the same exp form as the velocity terms so it can't dominate; the old
+    # quadratic stays reachable for direct comparison.
+    if bounded_joint_pos:
+        joint_pos_rew = torch.exp(-w_joint_pos * torch.sum((joint_pos - ref_joint_pos) ** 2, dim=-1))
+    else:
+        joint_pos_rew = -torch.sum((joint_pos - ref_joint_pos) ** 2, dim=-1) * w_joint_pos
     joint_vel_rew = -torch.sum((joint_vel - ref_joint_vel) ** 2, dim=-1) * w_joint_vel
 
     ref_contacts_bool = (ref_foot_contacts > 0.5).float()

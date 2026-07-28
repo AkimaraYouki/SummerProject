@@ -306,6 +306,18 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # fully fixed (knee ROM, symmetry, limits, drift) by then — so the
     # remaining suspects are these two reward weights, not the data.
     imitation_w_joint_pos = 15.0
+    # bounded_joint_pos (2026-07-28): reward_breakdown_v2.py measured, on
+    # imitation_v8's converged policy, that the imitation term averaged
+    # -1.01/step while the largest positive term (alive) gave only +0.40 —
+    # so the summed reward went negative on 81.6% of steps and `_get_rewards`
+    # clamped every one of those to exactly 0, erasing the learning signal on
+    # over four fifths of all experience. Root cause: joint_pos was the only
+    # unbounded term in reward_imitation (raw -err^2 * w) while every other
+    # tracking term there is exp(-err), bounded to [0,1]. Setting this True
+    # switches joint_pos to the same exp form so it can't dominate. Left
+    # False on the base cfg so v1-v8's numbers stay reproducible; see
+    # JoystickEnvCfg_A20J5_Bounded.
+    imitation_bounded_joint_pos = False
 
     # ── reference motion (imitation) ────────────────────────────────────
     # Stage 2 (2026-07-26): polynomial_coefficients.pkl now exists for real
@@ -398,6 +410,31 @@ class JoystickEnvCfg_A20J5(JoystickEnvCfg):
 @configclass
 class JoystickEnvCfg_A20J5_NoRSI(JoystickEnvCfg_A20J5):
     use_rsi = False
+
+
+# Bounded (2026-07-28) — the reward-shaping fix derived from
+# reward_breakdown_v2.py's measurement on imitation_v8 (imitation -1.01/step
+# vs alive +0.40/step => 81.6% of steps clamped to 0, no gradient). Three
+# coupled changes, all following from that one measurement:
+#   1. imitation_bounded_joint_pos=True — joint_pos becomes exp(-w*err^2),
+#      bounded [0,1] like every other tracking term, so it can no longer
+#      drive the sum negative on its own.
+#   2. imitation_w_joint_pos 5.0 -> 0.25 — under exp(), w is a *sharpness*,
+#      not a linear weight. At v8's measured error (sum err^2 ~ 10.6 rad^2)
+#      w=5 would saturate exp() to ~0.0000 and hand back a flat gradient,
+#      which is a different way of learning nothing. w=0.25 gives 0.07 there
+#      and rises smoothly as tracking improves (0.61 at err^2=2, 0.88 at 0.5).
+#   3. imitation_scale 1.0 -> 4.0 — bounding joint_pos caps the whole
+#      imitation term near 6 raw, against alive's 20, which would re-create
+#      the alive-dominated stand-still reward hacking that killed v1-v5.
+#      x4 puts imitation's ceiling (~24) back on par with alive.
+# RSI stays off (v7 vs v8 showed no real difference; user wants Disney's
+# simpler recipe), so this isolates the reward-shaping change alone.
+@configclass
+class JoystickEnvCfg_A20J5_Bounded(JoystickEnvCfg_A20J5_NoRSI):
+    imitation_bounded_joint_pos = True
+    imitation_w_joint_pos = 0.25
+    imitation_scale = 4.0
 
 
 @configclass
