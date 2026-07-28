@@ -630,3 +630,31 @@ class JoystickEnvCfg_Upstream(JoystickEnvCfg):
     head_pitch_range = (0.0, 0.0)
     head_yaw_range = (0.0, 0.0)
     head_roll_range = (0.0, 0.0)
+
+
+# Walk4 / imitation_v15 (2026-07-29). Two measurements drive this.
+#
+# 1. imitation_v14 (upstream-exact rewards) was stopped at iter ~900 after its
+#    curve turned out to overlay imitation_v11's almost exactly -- the user
+#    spotted it. reward_at_ready.py on all three configs at the READY pose
+#    explains why: upstream's imitation term nets +0.004/step against alive's
+#    +0.400, i.e. 1%. The unbounded joint-position penalty (-0.2023 * 15 =
+#    -3.03 raw) cancels the positive tracking terms (~+3.2 raw) almost exactly,
+#    so imitation collapses to ~0 and the policy trains on `alive` alone. That
+#    is the reward-hack regime by construction, and it means upstream's recipe
+#    cannot work in this setup regardless of the pose fix -- a second,
+#    independent reason v1-v9 failed.
+#
+# 2. v13's own joint_pos sensitivity is now too SHARP, in the mirror-image of
+#    the mistake that produced it. k=4.0 was derived from the reference's
+#    intrinsic spread (0.234 rad^2) measured while the robot was standing. The
+#    trained policy's actual in-motion error is 0.684 rad^2 (imit_internals2 on
+#    model_2999), where exp(-4 * 0.684) = 0.065 -- saturated near zero with a
+#    flat gradient, so the term cannot pull the pose back. Matching k to the
+#    error that actually occurs, 1/0.684 = 1.46, puts a typical error at
+#    exp(-1) ~ 0.37, in the responsive part of the curve. Rounded to 1.5.
+#    Consistent with v13's other symptoms: joint RMS rose 9.9deg -> 16.5deg and
+#    the joint amplitude ratio overshot to 1.31x the reference.
+@configclass
+class JoystickEnvCfg_Walk4(JoystickEnvCfg_Walk3):
+    imitation_w_joint_pos = 1.5
