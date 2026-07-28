@@ -333,6 +333,9 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     imitation_w_lin_vel_z = 1.0
     imitation_w_ang_vel_xy = 0.5
     imitation_w_contact = 1.0
+    # Penalty weight for lifting a foot the reference says should be planted.
+    # 0.0 reproduces v11/v12 exactly; see rewards.py for the chatter it caused.
+    imitation_w_stance_violation = 0.0
 
     # ── reference motion (imitation) ────────────────────────────────────
     # Stage 2 (2026-07-26): polynomial_coefficients.pkl now exists for real
@@ -582,3 +585,16 @@ class JoystickEnvCfg_Walk2(JoystickEnvCfg_Walk):
     imitation_w_contact = 2.0
     alive_scale = 3.0
     use_rsi = True
+
+
+# Walk3 / imitation_v13 (2026-07-28). v12 plateaued from iter ~350 to ~1066
+# (per-step 0.117 -> 0.112, episode length 214 -> 219, both flat) and the user
+# watched it: forward motion too slow, feet chattering against the ground.
+# Measured at iter 400: forward 0.097 m/s against a 0.15 command (65%), contact
+# toggles 144-319/10s against v6's 29.4 best. The chatter traces to a flaw in
+# v11's own swing_only_contact: it pays for lifting a foot the reference wants
+# lifted but costs nothing for lifting one it wants planted, so flickering both
+# feet buys overlap with the swing phase. w_stance_violation closes that.
+@configclass
+class JoystickEnvCfg_Walk3(JoystickEnvCfg_Walk2):
+    imitation_w_stance_violation = 1.0

@@ -71,6 +71,7 @@ def reward_imitation(
     w_lin_vel_z: float = 1.0,
     w_ang_vel_xy: float = 0.5,
     w_contact: float = 1.0,
+    w_stance_violation: float = 0.0,
 ) -> torch.Tensor:
     """Direct port of custom_rewards.py::reward_imitation.
 
@@ -136,7 +137,21 @@ def reward_imitation(
     joint_vel_rew = -torch.sum((joint_vel - ref_joint_vel) ** 2, dim=-1) * w_joint_vel
 
     ref_contacts_bool = (ref_foot_contacts > 0.5).float()
-    if swing_only_contact:
+    if swing_only_contact and w_stance_violation > 0.0:
+        # 2026-07-28 (v13): the plain swing_only form below pays for lifting a
+        # foot the reference wants lifted, but costs NOTHING for lifting one the
+        # reference wants planted. Flickering both feet therefore raises the
+        # chance of overlapping a swing phase and gets paid for it -- and that is
+        # exactly what imitation_v12 produced: the user watched it and reported
+        # the feet "진동하는것마냥" chattering against the ground, with the
+        # measured contact toggle rate at 144-319/10s against v6's 29.4 best.
+        # Adding the stance-violation penalty keeps standing at 0 (feet planted
+        # during stance costs nothing, and the swing term pays nothing) while
+        # making chatter strictly negative.
+        swing = torch.sum((1.0 - ref_contacts_bool) * (1.0 - contacts), dim=-1)
+        stance_violation = torch.sum(ref_contacts_bool * (1.0 - contacts), dim=-1)
+        contact_rew = (swing - w_stance_violation * stance_violation) * w_contact
+    elif swing_only_contact:
         # Credit only for lifting a foot the reference says should be lifted.
         # The plain agreement form below counts a planted foot as "matching"
         # whenever the reference also has it planted -- and scripts/ref_stats.py

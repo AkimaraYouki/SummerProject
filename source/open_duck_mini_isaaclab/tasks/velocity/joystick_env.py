@@ -362,6 +362,7 @@ class JoystickEnv(DirectRLEnv):
                     w_lin_vel_z=cfg.imitation_w_lin_vel_z,
                     w_ang_vel_xy=cfg.imitation_w_ang_vel_xy,
                     w_contact=cfg.imitation_w_contact,
+                    w_stance_violation=cfg.imitation_w_stance_violation,
                 )
                 * cfg.imitation_scale
             )
