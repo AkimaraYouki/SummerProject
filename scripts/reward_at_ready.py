@@ -31,6 +31,9 @@ _MAP = {"Isaac-OpenDuckMini-Joystick-A20J5Bounded-v0": "JoystickEnvCfg_A20J5_Bou
         "Isaac-OpenDuckMini-Joystick-Walk-v0": "JoystickEnvCfg_Walk",
         "Isaac-OpenDuckMini-Joystick-Walk2-v0": "JoystickEnvCfg_Walk2",
         "Isaac-OpenDuckMini-Joystick-Walk3-v0": "JoystickEnvCfg_Walk3",
+        "Isaac-OpenDuckMini-Joystick-Walk4-v0": "JoystickEnvCfg_Walk4",
+        "Isaac-OpenDuckMini-Joystick-Walk5-v0": "JoystickEnvCfg_Walk5",
+    "Isaac-OpenDuckMini-Joystick-Walk6-v0": "JoystickEnvCfg_Walk6",
         "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream"}
 cfg = getattr(_cm, _MAP[args_cli.task])()
 cfg.scene.num_envs = args_cli.num_envs
@@ -62,10 +65,22 @@ for i in range(args_cli.num_steps):
             u._robot.data.root_lin_vel_w, u._robot.data.root_ang_vel_w, j_pos, j_vel, contact,
             u._current_reference_motion, u._command,
             w_joint_pos=cfg.imitation_w_joint_pos,
-            bounded_joint_pos=cfg.imitation_bounded_joint_pos) * cfg.imitation_scale
+            bounded_joint_pos=cfg.imitation_bounded_joint_pos,
+            # 2026-07-29: these were missing, so every knob added after
+            # bounded_joint_pos silently fell back to reward_imitation's
+            # upstream defaults and this script reported numbers for a config
+            # nobody was training. Caught when w_joint_pos_amp=3.0 produced no
+            # change here despite being correctly wired into the env.
+            swing_only_contact=cfg.imitation_swing_only_contact,
+            k_lin_vel_xy=cfg.imitation_k_lin_vel_xy,
+            w_lin_vel_z=cfg.imitation_w_lin_vel_z,
+            w_ang_vel_xy=cfg.imitation_w_ang_vel_xy,
+            w_contact=cfg.imitation_w_contact,
+            w_stance_violation=cfg.imitation_w_stance_violation,
+            w_joint_pos_amp=cfg.imitation_w_joint_pos_amp) * cfg.imitation_scale
         e2 = torch.sum((j_pos[:, ACT_LEG_JOINT_IDX] - u._current_reference_motion[:, 0:14][:, REF_LEG_JOINT_IDX]) ** 2, dim=-1)
         jp_err_acc += e2.mean().item()
-        jpr_acc += torch.exp(-cfg.imitation_w_joint_pos * e2).mean().item()
+        jpr_acc += (torch.exp(-cfg.imitation_w_joint_pos * e2) * cfg.imitation_w_joint_pos_amp).mean().item()
     s = torch.sum(torch.stack(list(t.values())), 0) * u.step_dt
     n_clamped += (s < 0).sum().item()
     for k, v in t.items():

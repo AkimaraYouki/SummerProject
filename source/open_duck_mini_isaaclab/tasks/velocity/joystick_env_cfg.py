@@ -336,6 +336,7 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # Penalty weight for lifting a foot the reference says should be planted.
     # 0.0 reproduces v11/v12 exactly; see rewards.py for the chatter it caused.
     imitation_w_stance_violation = 0.0
+    imitation_w_joint_pos_amp = 1.0
 
     # ── reference motion (imitation) ────────────────────────────────────
     # Stage 2 (2026-07-26): polynomial_coefficients.pkl now exists for real
@@ -658,3 +659,38 @@ class JoystickEnvCfg_Upstream(JoystickEnvCfg):
 @configclass
 class JoystickEnvCfg_Walk4(JoystickEnvCfg_Walk3):
     imitation_w_joint_pos = 1.5
+
+
+# Walk5 / imitation_v16 (2026-07-29). v15's negative result, measured at
+# matched model_900 checkpoints against v13:
+#   actual joint error  14.0deg (v13) -> 14.3deg (v15)   [unchanged]
+#   joint_pos_rew        0.148  -> 0.425                 [pure exp() rescaling]
+# So sharpness alone cannot move behavior. joint_pos is one of seven roughly
+# equal terms inside imitation and is bounded to [0,1], so halving the pose
+# error buys only ~+0.02/step -- less than the fall risk of moving precisely.
+# Pose tracking is underpriced, not mis-scaled. w_joint_pos_amp=3.0 makes it
+# worth ~3x any other imitation term; sharpness stays at v15's measurement-
+# matched 1.5. w_lin_vel_z drops to 0 because it measured 0.86/1.0 across every
+# checkpoint of every run -- constant income carrying no gait information.
+@configclass
+class JoystickEnvCfg_Walk5(JoystickEnvCfg_Walk4):
+    imitation_w_joint_pos_amp = 3.0
+    imitation_w_lin_vel_z = 0.0
+
+
+# Walk6 / imitation_v17 (2026-07-29). amp=3.0 (v16) overshot: measured at
+# model_3100 against v13's model_2999,
+#   joint RMS      13.0-16.5deg -> 8.2-10.4deg   (won)
+#   forward        0.117 -> 0.059 m/s            (lost, halved)
+#   backward       -0.066 -> -0.029              (lost)
+#   left / right   0.091/-0.061 -> 0.066/-0.038  (lost)
+# and the periodicity check found the policy's dominant frequency at 3.70 Hz,
+# exactly 2x the 1.85 Hz gait fundamental -- mincing at double cadence with
+# half the stride rather than reproducing the reference gait. Consistent with
+# the slower travel: with pose tracking worth 3x every other imitation term,
+# hovering near the reference pose beats actually covering ground.
+# amp=2.0 splits v13 (1.0, good command tracking / poor pose) and v16 (3.0,
+# good pose / poor command tracking).
+@configclass
+class JoystickEnvCfg_Walk6(JoystickEnvCfg_Walk5):
+    imitation_w_joint_pos_amp = 2.0

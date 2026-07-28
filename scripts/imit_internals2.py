@@ -35,6 +35,8 @@ _MAP = {
     "Isaac-OpenDuckMini-Joystick-Walk2-v0": "JoystickEnvCfg_Walk2",
     "Isaac-OpenDuckMini-Joystick-Walk3-v0": "JoystickEnvCfg_Walk3",
     "Isaac-OpenDuckMini-Joystick-Walk4-v0": "JoystickEnvCfg_Walk4",
+    "Isaac-OpenDuckMini-Joystick-Walk5-v0": "JoystickEnvCfg_Walk5",
+    "Isaac-OpenDuckMini-Joystick-Walk6-v0": "JoystickEnvCfg_Walk6",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
 }
 env_cfg = getattr(_cm, _MAP[args_cli.task])()
@@ -81,16 +83,19 @@ for step in range(args_cli.num_steps):
     err2 = torch.sum((jp - ref_jp) ** 2, dim=-1)
     verr2 = torch.sum((jv - ref_jv) ** 2, dim=-1)
     w = cfg.imitation_w_joint_pos
-    jpr = torch.exp(-w * err2) if cfg.imitation_bounded_joint_pos else -err2 * w
+    AMP = cfg.imitation_w_joint_pos_amp
+    jpr = torch.exp(-w * err2) * AMP if cfg.imitation_bounded_joint_pos else -err2 * w
     jvr = -verr2 * 1.0e-3
-    lxy = torch.exp(-8.0 * torch.sum((blv[:, :2] - ref_lv[:, :2]) ** 2, dim=-1)) * 1.0
-    lz = torch.exp(-8.0 * (blv[:, 2] - ref_lv[:, 2]) ** 2) * 1.0
-    axy = torch.exp(-2.0 * torch.sum((bav[:, :2] - ref_av[:, :2]) ** 2, dim=-1)) * 0.5
+    lxy = torch.exp(-cfg.imitation_k_lin_vel_xy * torch.sum((blv[:, :2] - ref_lv[:, :2]) ** 2, dim=-1)) * 1.0
+    lz = torch.exp(-8.0 * (blv[:, 2] - ref_lv[:, 2]) ** 2) * cfg.imitation_w_lin_vel_z
+    axy = torch.exp(-2.0 * torch.sum((bav[:, :2] - ref_av[:, :2]) ** 2, dim=-1)) * cfg.imitation_w_ang_vel_xy
     az = torch.exp(-2.0 * (bav[:, 2] - ref_av[:, 2]) ** 2) * 0.5
     if cfg.imitation_swing_only_contact:
-        cr = torch.sum((1.0 - ref_c) * (1.0 - contacts), dim=-1) * 1.0
+        sw = torch.sum((1.0 - ref_c) * (1.0 - contacts), dim=-1)
+        sv = torch.sum(ref_c * (1.0 - contacts), dim=-1)
+        cr = (sw - cfg.imitation_w_stance_violation * sv) * cfg.imitation_w_contact
     else:
-        cr = torch.sum((contacts == ref_c).float(), dim=-1) * 1.0
+        cr = torch.sum((contacts == ref_c).float(), dim=-1) * cfg.imitation_w_contact
 
     acc["joint_pos_err2"] += err2.mean().item()
     acc["joint_pos_rew"] += jpr.mean().item()

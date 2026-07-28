@@ -72,6 +72,7 @@ def reward_imitation(
     w_ang_vel_xy: float = 0.5,
     w_contact: float = 1.0,
     w_stance_violation: float = 0.0,
+    w_joint_pos_amp: float = 1.0,
 ) -> torch.Tensor:
     """Direct port of custom_rewards.py::reward_imitation.
 
@@ -131,7 +132,15 @@ def reward_imitation(
     # the same exp form as the velocity terms so it can't dominate; the old
     # quadratic stays reachable for direct comparison.
     if bounded_joint_pos:
-        joint_pos_rew = torch.exp(-w_joint_pos * torch.sum((joint_pos - ref_joint_pos) ** 2, dim=-1))
+        # w_joint_pos is the exp SHARPNESS; w_joint_pos_amp is how much the
+        # bounded term is worth relative to the other six imitation terms.
+        # v15 proved these are not interchangeable: dropping sharpness 4.0->1.5
+        # raised joint_pos_rew 0.148->0.425 at matched checkpoints while the
+        # actual joint error stayed put (14.0deg -> 14.3deg). Pose tracking was
+        # structurally underpriced -- halving the error is worth only ~+0.02/step
+        # against the fall risk of moving precisely -- and no sharpness setting
+        # can fix that, because the term is bounded to [0,1] either way.
+        joint_pos_rew = torch.exp(-w_joint_pos * torch.sum((joint_pos - ref_joint_pos) ** 2, dim=-1)) * w_joint_pos_amp
     else:
         joint_pos_rew = -torch.sum((joint_pos - ref_joint_pos) ** 2, dim=-1) * w_joint_pos
     joint_vel_rew = -torch.sum((joint_vel - ref_joint_vel) ** 2, dim=-1) * w_joint_vel
