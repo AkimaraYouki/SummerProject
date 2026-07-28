@@ -42,6 +42,23 @@ parser = argparse.ArgumentParser(description="Trained-policy rollout stability c
 parser.add_argument("--checkpoint", type=str, required=True)
 parser.add_argument("--num_envs", type=int, default=8)
 parser.add_argument("--num_steps", type=int, default=500, help="500 steps * 0.02s ctrl_dt = 10s sim time")
+# 2026-07-28: this script used to hardcode the BASE JoystickEnvCfg and the base
+# gym task regardless of what the checkpoint was actually trained on. For v3-v9
+# that was harmless — those variants differ only in reward weights, and this
+# script measures rollout BEHAVIOR (toggle / leg ROM / vel error), never reward,
+# so the historical toggle numbers remain comparable. It stopped being harmless
+# at JoystickEnvCfg_Walk: that variant trains with `lock_head_joints=True` and
+# all four head command ranges pinned to (0,0), so evaluating such a policy
+# under the base cfg both (a) feeds it random head commands it never saw during
+# training — an observation-distribution shift — and (b) lets its untrained head
+# action outputs actually drive the head. Default stays the base task so old
+# invocations reproduce exactly.
+parser.add_argument(
+    "--task",
+    type=str,
+    default="Isaac-OpenDuckMini-Joystick-v0",
+    help="gym task id the checkpoint was TRAINED with (must match, or eval is measuring a different env)",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -59,13 +76,36 @@ import open_duck_mini_isaaclab.tasks  # noqa: E402, F401 - side effect: gym.regi
 from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import JoystickPPORunnerCfg  # noqa: E402
 from open_duck_mini_isaaclab.joint_order import ACT_LEG_JOINT_IDX  # noqa: E402
 from open_duck_mini_isaaclab.tasks.velocity.joystick_env import FOOT_CONTACT_FORCE_THRESHOLD  # noqa: E402
-from open_duck_mini_isaaclab.tasks.velocity.joystick_env_cfg import JoystickEnvCfg  # noqa: E402
+from open_duck_mini_isaaclab.tasks.velocity import joystick_env_cfg as _cfg_module  # noqa: E402
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
 
-env_cfg = JoystickEnvCfg()
+# Explicit task -> cfg-class table rather than isaaclab's parse_env_cfg: an
+# earlier attempt to use parse_env_cfg here made this script die silently on
+# every run (no traceback, no OOM, no signal), six times in a row, and the
+# explicit-dict version worked first try. Keep it explicit.
+_TASK_TO_CFG_CLASS = {
+    "Isaac-OpenDuckMini-Joystick-v0": "JoystickEnvCfg",
+    "Isaac-OpenDuckMini-Joystick-Alive5-v0": "JoystickEnvCfg_Alive5",
+    "Isaac-OpenDuckMini-Joystick-Alive10-v0": "JoystickEnvCfg_Alive10",
+    "Isaac-OpenDuckMini-Joystick-A10J10-v0": "JoystickEnvCfg_A10J10",
+    "Isaac-OpenDuckMini-Joystick-A5J15-v0": "JoystickEnvCfg_A5J15",
+    "Isaac-OpenDuckMini-Joystick-A20J5-v0": "JoystickEnvCfg_A20J5",
+    "Isaac-OpenDuckMini-Joystick-A5J5-v0": "JoystickEnvCfg_A5J5",
+    "Isaac-OpenDuckMini-Joystick-A30J25-v0": "JoystickEnvCfg_A30J25",
+    "Isaac-OpenDuckMini-Joystick-A20J5NoRSI-v0": "JoystickEnvCfg_A20J5_NoRSI",
+    "Isaac-OpenDuckMini-Joystick-A20J5Bounded-v0": "JoystickEnvCfg_A20J5_Bounded",
+    "Isaac-OpenDuckMini-Joystick-Walk-v0": "JoystickEnvCfg_Walk",
+    "Isaac-OpenDuckMini-Joystick-Walk2-v0": "JoystickEnvCfg_Walk2",
+}
+if args_cli.task not in _TASK_TO_CFG_CLASS:
+    raise SystemExit(
+        f"unknown --task {args_cli.task!r}; add it to _TASK_TO_CFG_CLASS. known: {sorted(_TASK_TO_CFG_CLASS)}"
+    )
+env_cfg = getattr(_cfg_module, _TASK_TO_CFG_CLASS[args_cli.task])()
 env_cfg.scene.num_envs = args_cli.num_envs
+print(f"[info] task={args_cli.task} cfg={_TASK_TO_CFG_CLASS[args_cli.task]}", flush=True)
 
-env = gym.make("Isaac-OpenDuckMini-Joystick-v0", cfg=env_cfg)
+env = gym.make(args_cli.task, cfg=env_cfg)
 agent_cfg = JoystickPPORunnerCfg()
 env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
