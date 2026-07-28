@@ -694,3 +694,33 @@ class JoystickEnvCfg_Walk5(JoystickEnvCfg_Walk4):
 @configclass
 class JoystickEnvCfg_Walk6(JoystickEnvCfg_Walk5):
     imitation_w_joint_pos_amp = 2.0
+
+
+# Walk7 / imitation_v18 (2026-07-29). Term-by-term audit of what standing at
+# READY earns versus what the trained policy earns, using measured values
+# (READY joint error 0.186 rad^2 from reward_at_ready; v16's in-motion error
+# 0.3099 rad^2 from imit_internals2 at model_3100):
+#
+#   term          standing            walking (v16)      winner
+#   joint_pos     exp(-1.5*.186)*A    exp(-1.5*.310)*A   STANDING
+#   contact       0.000               +0.305             walking
+#   lin_vel_xy    ~0.247              +0.300             walking
+#
+# READY *is* the reference gait's mean pose, so holding it scores a LOWER
+# average pose error than actually traversing the gait. joint_pos therefore
+# pays the policy to stand at the mean, and raising w_joint_pos_amp widens that
+# gap rather than closing it -- which is why v16 (amp=3) walked worse than v13
+# (amp=1), the opposite of what I intended when I raised it. At amp=2 the net
+# margin for walking is only ~+0.10 raw (~0.008/step): the policy is nearly
+# indifferent between walking and standing.
+#
+# w_contact is the one term standing cannot earn by construction (swing-only
+# credit plus a stance-violation penalty, both zero when both feet stay
+# planted). Doubling it 2.0 -> 4.0 leaves standing's score untouched and widens
+# the walking margin from +0.305 to +0.610. amp goes back to 1.0 (v13's value,
+# the best command tracking measured so far) since the amp sweep showed higher
+# values actively favor standing.
+@configclass
+class JoystickEnvCfg_Walk7(JoystickEnvCfg_Walk6):
+    imitation_w_joint_pos_amp = 1.0
+    imitation_w_contact = 4.0
