@@ -433,7 +433,18 @@ class JoystickEnvCfg_A20J5_NoRSI(JoystickEnvCfg_A20J5):
 @configclass
 class JoystickEnvCfg_A20J5_Bounded(JoystickEnvCfg_A20J5_NoRSI):
     imitation_bounded_joint_pos = True
-    imitation_w_joint_pos = 0.25
+    # 0.25 (what imitation_v9 ran with) was derived from imitation_v8's error
+    # scale, back when the robot initialized straight-legged and sat ~79 deg
+    # per joint from the reference. Now that it initializes into READY the
+    # error is ~8.7 deg, and scripts/reward_at_ready.py measured joint_pos_rew
+    # pinned at 0.944/1.0 there -- near-maximum for simply holding the neutral
+    # pose, so the term barely discriminates and gives little reason to
+    # actually step. scripts/ref_stats.py puts the reference's own joint_pos
+    # spread at 0.234 rad^2, so k=1/0.234=4.28 is the value that lands a
+    # typical error near exp(-1)~0.37, i.e. in the responsive middle of the
+    # curve. Rounded to 4.0: holding READY now scores ~0.40 while tracking the
+    # gait properly scores ~1.0.
+    imitation_w_joint_pos = 4.0
     imitation_scale = 4.0
 
 

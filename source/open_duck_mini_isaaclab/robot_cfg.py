@@ -81,8 +81,8 @@ from isaaclab.assets.articulation import ArticulationCfg
 
 from .joint_order import (
     ACTUATOR_JOINT_NAMES,
-    HOME_BASE_HEIGHT,
-    HOME_JOINT_POS,
+    READY_BASE_HEIGHT,
+    READY_JOINT_POS,
 )
 
 # Resolved relative to this repo's root, so the config works regardless of
@@ -150,8 +150,8 @@ OPEN_DUCK_MINI_V2_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, HOME_BASE_HEIGHT),
-        joint_pos=dict(HOME_JOINT_POS),
+        pos=(0.0, 0.0, READY_BASE_HEIGHT),
+        joint_pos=dict(READY_JOINT_POS),
         joint_vel={".*": 0.0},
     ),
     soft_joint_pos_limit_factor=0.95,

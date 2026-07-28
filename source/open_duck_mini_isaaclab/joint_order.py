@@ -114,6 +114,10 @@ RIGHT_FOOT_COLLISION_GEOM = "foot_bottom_tpu_2"
 #   right_hip_roll=-0.065, right_hip_pitch=-0.635, right_knee=-1.379,
 #   right_ankle=-0.796
 HOME_JOINT_POS = {
+    # The robot's physical rest/home pose: legs straight, everything at zero.
+    # This is what the real hardware powers on at, and what a "go home" command
+    # would drive to. It is deliberately NOT the pose training runs from -- see
+    # READY_JOINT_POS below.
     "left_hip_yaw": 0.0,
     "left_hip_roll": 0.0,
     "left_hip_pitch": 0.0,
@@ -129,8 +133,47 @@ HOME_JOINT_POS = {
     "right_knee": 0.0,
     "right_ankle": 0.0,
 }
-# Measured via check_joint_stability.sh steady-state settle (2026-07-26,
-# post-reimport): base height range [0.1917, 0.1942]m — was 0.15m
-# (pre-reimport estimate) before the upright-pose fix changed the robot's
-# natural standing height.
+
+# READY pose (2026-07-28): the stance the robot adopts when it starts
+# operating -- crouched, knees loaded, ready to step. Computed by
+# scripts/calc_home.py as the reference gait's mean pose over 8 representative
+# commands x a full gait cycle.
+#
+# This is what the RL articulation initializes to, which makes it
+# `default_joint_pos`, which is what actions are applied around:
+#     target = default_joint_pos + action * action_scale(0.25)
+# Training previously initialized to HOME (straight legs) instead, so reaching
+# the reference's crouch (knee ~2.03 rad) needed action ~8.1 -- 8 sigma out of
+# the policy's init distribution, i.e. unreachable by exploration. Measured
+# consequence (scripts/imit_internals.py on imitation_v9): the joint_pos
+# imitation term sat at +0.012 of a possible 1.0 with a permanent ~79 deg
+# per-joint error and therefore a flat gradient, which is why v1-v9 all failed
+# the same way no matter how the reward weights were tuned. From READY the
+# gait's own amplitude needs only |action| <= 1.30.
+READY_JOINT_POS = {
+    "left_hip_yaw": 0.0004,
+    "left_hip_roll": 0.0213,
+    "left_hip_pitch": 1.1069,
+    "left_knee": -2.0143,
+    "left_ankle": 0.9785,
+    "neck_pitch": 0.0,
+    "head_pitch": 0.0,
+    "head_yaw": 0.0,
+    "head_roll": 0.0,
+    "right_hip_yaw": -0.0010,
+    "right_hip_roll": -0.0018,
+    "right_hip_pitch": 1.1197,
+    "right_knee": 2.0320,
+    "right_ankle": -0.9832,
+}
+# Base height with legs straight (HOME_JOINT_POS), measured via
+# check_joint_stability.sh steady-state settle (2026-07-26, post-reimport).
 HOME_BASE_HEIGHT = 0.193  # m
+
+# Base height in the READY crouch, measured via scripts/settle_pose.py
+# (2026-07-28): dropped in READY_JOINT_POS with action=0 and left to settle,
+# the base holds [0.1175, 0.1237]m, mean 0.1208, pitch fixed at -3.3 deg with
+# sub-cm drift. This is the height training actually operates at, so it -- not
+# HOME_BASE_HEIGHT -- is what the spawn height and the `collapsed` termination
+# threshold (READY_BASE_HEIGHT * cfg.min_base_height_ratio) must use.
+READY_BASE_HEIGHT = 0.121  # m

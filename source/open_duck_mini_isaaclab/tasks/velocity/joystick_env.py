@@ -48,7 +48,7 @@ from isaaclab.terrains import TerrainImporter
 from open_duck_mini_isaaclab.joint_order import (
     ACT_LEG_JOINT_IDX,
     ACTUATOR_JOINT_NAMES,
-    HOME_BASE_HEIGHT,
+    READY_BASE_HEIGHT,
     LEFT_FOOT_BODY_NAME,
     REF_LEG_JOINT_IDX,
     RIGHT_FOOT_BODY_NAME,
@@ -362,7 +362,7 @@ class JoystickEnv(DirectRLEnv):
         # min_base_height_ratio docstring — `flipped` alone only catches
         # >90 deg tips, not a collapsed-but-not-inverted heap, which Stage 1
         # (use_imitation=False) has no other guard against.
-        collapsed = self._robot.data.root_pos_w[:, 2] < HOME_BASE_HEIGHT * self.cfg.min_base_height_ratio
+        collapsed = self._robot.data.root_pos_w[:, 2] < READY_BASE_HEIGHT * self.cfg.min_base_height_ratio
         has_nan = torch.isnan(self._robot.data.joint_pos).any(dim=-1) | torch.isnan(self._robot.data.joint_vel).any(dim=-1)
         # See _get_trunk_head_contact's docstring note (added alongside
         # `collapsed`/`flipped`, not replacing them) — this catches
@@ -414,11 +414,18 @@ class JoystickEnv(DirectRLEnv):
         else:
             self._imitation_i[env_ids] = 0
 
-        # multiplicative joint-pos randomization (matches Playground's
-        # `qpos_j = home_qpos * U(0.5, 1.5)` — applied to ALL joints in
-        # native articulation order, order-independent since it's elementwise).
-        factor = math_utils.sample_uniform(0.5, 1.5, (n, self._robot.num_joints), dev)
-        joint_pos = self._robot.data.default_joint_pos[env_ids] * factor
+        # Spawn-pose randomization. Playground uses multiplicative
+        # `qpos_j = home_qpos * U(0.5, 1.5)`, which was a silent no-op here for
+        # as long as the init pose was all zeros (0 * anything == 0). Now that
+        # the robot initializes into READY (the reference gait's crouch,
+        # 2026-07-28), multiplicative
+        # noise would scatter e.g. the knee's 2.03 rad over [1.0, 3.0] — well
+        # past its +-2.094 limit — so this is additive instead: same intent
+        # (start each episode slightly off-nominal), but bounded and
+        # limit-safe regardless of the home pose's magnitude.
+        joint_pos = self._robot.data.default_joint_pos[env_ids] + math_utils.sample_uniform(
+            -0.05, 0.05, (n, self._robot.num_joints), dev
+        )
         joint_vel = torch.zeros(n, self._robot.num_joints, device=dev)
 
         # RSI continued: overwrite the leg joints (head/neck aren't part of
