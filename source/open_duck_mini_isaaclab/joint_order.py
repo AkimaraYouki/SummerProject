@@ -151,13 +151,24 @@ HOME_JOINT_POS = {
 # the same way no matter how the reward weights were tuned. From READY the
 # gait's own amplitude needs only |action| <= 1.30.
 READY_JOINT_POS = {
+    # neck_pitch/head_pitch form the "Z" neck: specifying either angle fixes
+    # the other, since the head is levelled by counter-rotating the neck's
+    # lean. Set to 50 deg (0.8727) per request -- but head_pitch's URDF limit
+    # is +-0.785 (45 deg), so it cancels only 45 of the neck's 50 and the head
+    # ends up 5 deg off level. 45/-45 would be exactly level if that matters
+    # more than the neck angle. "Level" here means level in the TRUNK frame:
+    # the head carries no IMU, so no other frame is measurable on hardware.
+    # The reference motion holds both joints at 0 and the imitation reward
+    # excludes the head entirely, so this pose costs nothing in tracking error.
     "left_hip_yaw": 0.0004,
     "left_hip_roll": 0.0213,
     "left_hip_pitch": 1.1069,
     "left_knee": -2.0143,
     "left_ankle": 0.9785,
-    "neck_pitch": 0.0,
-    "head_pitch": 0.0,
+    "neck_pitch": 0.785,    # +45 deg
+    "head_pitch": 0.785,    # +45 deg (sign flipped per visual check -- the
+                            # two joints level the head at matching signs, not
+                            # opposite ones, in this URDF's convention)
     "head_yaw": 0.0,
     "head_roll": 0.0,
     "right_hip_yaw": -0.0010,

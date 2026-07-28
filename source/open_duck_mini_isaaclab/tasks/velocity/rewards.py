@@ -66,6 +66,7 @@ def reward_imitation(
     commands: torch.Tensor,  # [N,7]
     w_joint_pos: float = 15.0,
     bounded_joint_pos: bool = False,
+    swing_only_contact: bool = False,
 ) -> torch.Tensor:
     """Direct port of custom_rewards.py::reward_imitation.
 
@@ -121,7 +122,19 @@ def reward_imitation(
     joint_vel_rew = -torch.sum((joint_vel - ref_joint_vel) ** 2, dim=-1) * w_joint_vel
 
     ref_contacts_bool = (ref_foot_contacts > 0.5).float()
-    contact_rew = torch.sum((contacts == ref_contacts_bool).float(), dim=-1) * w_contact
+    if swing_only_contact:
+        # Credit only for lifting a foot the reference says should be lifted.
+        # The plain agreement form below counts a planted foot as "matching"
+        # whenever the reference also has it planted -- and scripts/ref_stats.py
+        # measured the reference's stance duty at 0.692/0.652, so a robot that
+        # simply keeps both feet on the ground collects ~1.34 of the available
+        # 2.0 for doing nothing at all. That is exactly the behavior observed on
+        # imitation_v10 ("발이 붙여진 상태" -- trembling in place, feet planted,
+        # never stepping). Scoring swing agreement instead makes standing worth
+        # 0 here and forces actual foot alternation to earn the term.
+        contact_rew = torch.sum((1.0 - ref_contacts_bool) * (1.0 - contacts), dim=-1) * w_contact
+    else:
+        contact_rew = torch.sum((contacts == ref_contacts_bool).float(), dim=-1) * w_contact
 
     reward = lin_vel_xy_rew + lin_vel_z_rew + ang_vel_xy_rew + ang_vel_z_rew + joint_pos_rew + joint_vel_rew + contact_rew
     reward = reward * (cmd_norm > 0.01).float()

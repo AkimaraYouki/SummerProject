@@ -10,10 +10,10 @@ simulation_app = app_launcher.app
 
 import torch, gymnasium as gym  # noqa: E402
 import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
-from open_duck_mini_isaaclab.tasks.velocity.joystick_env_cfg import JoystickEnvCfg_A20J5_Bounded  # noqa: E402
+from open_duck_mini_isaaclab.tasks.velocity.joystick_env_cfg import JoystickEnvCfg_Walk  # noqa: E402
 from open_duck_mini_isaaclab.joint_order import READY_BASE_HEIGHT  # noqa: E402
 
-cfg = JoystickEnvCfg_A20J5_Bounded()
+cfg = JoystickEnvCfg_Walk()
 cfg.scene.num_envs = 1
 cfg.min_base_height_ratio = 0.0   # never terminate; this is a static viewer
 cfg.events.push_robot = None      # disable the 5-10s random push (up to 1 m/s):
@@ -22,7 +22,7 @@ cfg.events.push_robot = None      # disable the 5-10s random push (up to 1 m/s):
                                   # robot and tells us nothing about whether
                                   # the READY pose itself is stable
 cfg.episode_length_s = 10000.0
-env = gym.make("Isaac-OpenDuckMini-Joystick-A20J5Bounded-v0", cfg=cfg)
+env = gym.make("Isaac-OpenDuckMini-Joystick-Walk-v0", cfg=cfg)
 u = env.unwrapped
 u.reset()
 zero = torch.zeros(1, len(u._joint_ids), device=u.device)
@@ -32,7 +32,11 @@ while simulation_app.is_running():
     u.step(zero)
     i += 1
     if i % 250 == 0:
+        from open_duck_mini_isaaclab.joint_order import ACTUATOR_JOINT_NAMES as AN
+        jn = u._robot.data.joint_pos[0, u._joint_ids[AN.index("neck_pitch")]].item()
+        jh = u._robot.data.joint_pos[0, u._joint_ids[AN.index("head_pitch")]].item()
         print(f"[step {i}] base_z={u._robot.data.root_pos_w[0,2].item():.4f} "
-              f"upright={u._robot.data.projected_gravity_b[0,2].item():+.4f}", flush=True)
+              f"upright={u._robot.data.projected_gravity_b[0,2].item():+.4f} "
+              f"neck={jn:+.3f}(목표+0.600) head={jh:+.3f}(목표-0.600)", flush=True)
 env.close()
 simulation_app.close()

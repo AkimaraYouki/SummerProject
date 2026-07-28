@@ -318,6 +318,12 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # False on the base cfg so v1-v8's numbers stay reproducible; see
     # JoystickEnvCfg_A20J5_Bounded.
     imitation_bounded_joint_pos = False
+    # See rewards.py's swing_only_contact branch. Default False so v1-v10's
+    # numbers stay reproducible.
+    imitation_swing_only_contact = False
+    # Freeze the 4 head DOFs at their READY pose (see joystick_env.py's
+    # _pre_physics_step). Default False to keep older variants unchanged.
+    lock_head_joints = False
 
     # ── reference motion (imitation) ────────────────────────────────────
     # Stage 2 (2026-07-26): polynomial_coefficients.pkl now exists for real
@@ -446,6 +452,39 @@ class JoystickEnvCfg_A20J5_Bounded(JoystickEnvCfg_A20J5_NoRSI):
     # gait properly scores ~1.0.
     imitation_w_joint_pos = 4.0
     imitation_scale = 4.0
+
+
+# Walk-incentive fix (2026-07-28). imitation_v10 reproduced the reward hack
+# predicted from the term-by-term audit: the policy stood at READY, kept both
+# feet planted, and trembled just enough not to fall. Measured freebies for
+# doing exactly that: alive 100%, contact 67%, joint_pos 51%, lin_vel_z 82%,
+# ang_vel_xy 100% -- while action_rate/torques/joint_vel all actively punish
+# moving. Standing collected 0.734/step against a perfect walk's 1.050, i.e.
+# 70%, for none of the risk. Three coupled changes, each aimed at one measured
+# cause:
+#   1. swing_only_contact — standing scores 0 on the contact term instead of
+#      1.34/2.0, so the term can only be earned by actually lifting feet.
+#   2. alive_scale 20 -> 10 — this is the single largest term and it is
+#      identical whether the robot walks or stands, so it dilutes every signal
+#      that does discriminate. (The earlier sweep showed 5 collapses training
+#      and 10 trains stably, so 10 is the safe floor.)
+#   3. tracking_lin_vel_scale 2.5 -> 10.0 — command following capped at
+#      0.05/step against alive's 0.40/step, 8x smaller, so "go where the
+#      joystick says" was nearly invisible in the objective. This is the whole
+#      point of the task; it should not be the smallest term.
+@configclass
+class JoystickEnvCfg_Walk(JoystickEnvCfg_A20J5_Bounded):
+    imitation_swing_only_contact = True
+    alive_scale = 10.0
+    tracking_lin_vel_scale = 10.0
+    # Legs-only learning: freeze the head at READY and stop issuing random
+    # head-pose commands, so neither the action noise nor the command channel
+    # spends capacity on a subsystem the gait reward ignores anyway.
+    lock_head_joints = True
+    neck_pitch_range = (0.0, 0.0)
+    head_pitch_range = (0.0, 0.0)
+    head_yaw_range = (0.0, 0.0)
+    head_roll_range = (0.0, 0.0)
 
 
 @configclass

@@ -134,6 +134,12 @@ class JoystickEnv(DirectRLEnv):
             preserve_order=True,
         )
 
+        # actuator-order indices of the 4 head DOFs (see joint_order.py)
+        self._head_act_idx = [
+            i for i, nm in enumerate(ACTUATOR_JOINT_NAMES)
+            if nm in ("neck_pitch", "head_pitch", "head_yaw", "head_roll")
+        ]
+
         n = self.num_envs
         nj = len(ACTUATOR_JOINT_NAMES)
         dev = self.device
@@ -228,6 +234,15 @@ class JoystickEnv(DirectRLEnv):
         self._actions = actions.clone()
         self._action_delay_buf.push(self._actions)
         action_w_delay = self._action_delay_buf.sample(self.cfg.action_min_delay, self.cfg.action_max_delay)
+
+        if self.cfg.lock_head_joints:
+            # Hold the head at its READY pose and let the policy shape only the
+            # legs. The head joints are already excluded from the imitation
+            # reward, and their commands are random targets the gait has no
+            # opinion about, so leaving them actuated only spends exploration
+            # noise on 4 of 14 action dims without informing locomotion.
+            action_w_delay = action_w_delay.clone()
+            action_w_delay[:, self._head_act_idx] = 0.0
 
         default_pos = self._robot.data.default_joint_pos[:, self._joint_ids]
         target = default_pos + action_w_delay * self.cfg.action_scale
@@ -342,6 +357,7 @@ class JoystickEnv(DirectRLEnv):
                     self._command,
                     w_joint_pos=cfg.imitation_w_joint_pos,
                     bounded_joint_pos=cfg.imitation_bounded_joint_pos,
+                    swing_only_contact=cfg.imitation_swing_only_contact,
                 )
                 * cfg.imitation_scale
             )

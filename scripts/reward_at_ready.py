@@ -27,7 +27,8 @@ from open_duck_mini_isaaclab.tasks.velocity.rewards import (  # noqa: E402
     cost_action_rate, reward_alive, cost_stand_still, reward_imitation)
 
 _MAP = {"Isaac-OpenDuckMini-Joystick-A20J5Bounded-v0": "JoystickEnvCfg_A20J5_Bounded",
-        "Isaac-OpenDuckMini-Joystick-A20J5NoRSI-v0": "JoystickEnvCfg_A20J5_NoRSI"}
+        "Isaac-OpenDuckMini-Joystick-A20J5NoRSI-v0": "JoystickEnvCfg_A20J5_NoRSI",
+        "Isaac-OpenDuckMini-Joystick-Walk-v0": "JoystickEnvCfg_Walk"}
 cfg = getattr(_cm, _MAP[args_cli.task])()
 cfg.scene.num_envs = args_cli.num_envs
 env = gym.make(args_cli.task, cfg=cfg)

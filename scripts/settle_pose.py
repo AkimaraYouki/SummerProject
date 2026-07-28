@@ -18,13 +18,13 @@ simulation_app = app_launcher.app
 
 import torch, gymnasium as gym  # noqa: E402
 import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
-from open_duck_mini_isaaclab.tasks.velocity.joystick_env_cfg import JoystickEnvCfg_A20J5_Bounded  # noqa: E402
+from open_duck_mini_isaaclab.tasks.velocity.joystick_env_cfg import JoystickEnvCfg_Walk  # noqa: E402
 from open_duck_mini_isaaclab.joint_order import HOME_BASE_HEIGHT  # noqa: E402
 
-cfg = JoystickEnvCfg_A20J5_Bounded()
+cfg = JoystickEnvCfg_Walk()
 cfg.scene.num_envs = args_cli.num_envs
 cfg.min_base_height_ratio = 0.0   # don't terminate while we measure the settle
-env = gym.make("Isaac-OpenDuckMini-Joystick-A20J5Bounded-v0", cfg=cfg)
+env = gym.make("Isaac-OpenDuckMini-Joystick-Walk-v0", cfg=cfg)
 u = env.unwrapped
 u.reset()
 zero = torch.zeros(args_cli.num_envs, len(u._joint_ids), device=u.device)
