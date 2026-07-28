@@ -598,3 +598,35 @@ class JoystickEnvCfg_Walk2(JoystickEnvCfg_Walk):
 @configclass
 class JoystickEnvCfg_Walk3(JoystickEnvCfg_Walk2):
     imitation_w_stance_violation = 1.0
+
+
+# Upstream / imitation_v14 (2026-07-28). Open_Duck_Playground's joystick.py
+# default_config() reward scales, verbatim, on top of the READY-pose fix.
+#
+# This combination has never actually been run. v1-v9 used upstream's rewards
+# but could not reach the reference pose at all (the 8-sigma action-space bug),
+# so their failure said nothing about the rewards; v10-v13 fixed the pose but
+# each carried an accumulating stack of my own reward modifications (bounded
+# joint_pos, swing-only contact, stance penalty, sharpened k, cut alive, ...),
+# so none of them isolate upstream's recipe on a robot that can physically hold
+# the gait. User's instruction was to work the way Disney / the Open Duck repo
+# do rather than keep layering custom terms.
+#
+# Verbatim from playground/open_duck_mini_v2/joystick.py:
+#   tracking_lin_vel=2.5  tracking_ang_vel=6.0  torques=-1.0e-3
+#   action_rate=-0.5  stand_still=-0.2  alive=20.0  imitation=1.0
+# and reward_imitation's own internal defaults (w_joint_pos=15 unbounded,
+# k_lin_vel_xy=8, w_lin_vel_z=1.0, w_ang_vel_xy=0.5, plain contact agreement).
+#
+# Two deliberate non-upstream keeps, both justified independently of reward
+# shaping: READY as default_joint_pos (without it the task is impossible), and
+# lock_head_joints (the user's own request -- head held level in the trunk
+# frame, legs-only learning). RSI off, matching upstream.
+@configclass
+class JoystickEnvCfg_Upstream(JoystickEnvCfg):
+    use_rsi = False
+    lock_head_joints = True
+    neck_pitch_range = (0.0, 0.0)
+    head_pitch_range = (0.0, 0.0)
+    head_yaw_range = (0.0, 0.0)
+    head_roll_range = (0.0, 0.0)
