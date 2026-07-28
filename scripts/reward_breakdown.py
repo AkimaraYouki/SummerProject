@@ -27,6 +27,7 @@ from rsl_rl.runners import OnPolicyRunner  # noqa: E402
 
 import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
 from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import JoystickPPORunnerCfg  # noqa: E402
+from open_duck_mini_isaaclab.tasks.velocity import joystick_env_cfg as _cfg_module  # noqa: E402
 from open_duck_mini_isaaclab.tasks.velocity.rewards import (  # noqa: E402
     reward_tracking_lin_vel,
     reward_tracking_ang_vel,
@@ -37,13 +38,32 @@ from open_duck_mini_isaaclab.tasks.velocity.rewards import (  # noqa: E402
     reward_imitation,
 )
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
-from isaaclab_tasks.utils import parse_env_cfg  # noqa: E402
 
-# Resolve the cfg class from --task's own gym registration instead of
-# hardcoding JoystickEnvCfg_A20J5 -- that hardcoding silently used the
-# WRONG alive_scale/imitation_w_joint_pos (20/5 instead of the checkpoint's
-# actual 30/25) the first time this ran against an A30J25 checkpoint.
-env_cfg = parse_env_cfg(args_cli.task, num_envs=args_cli.num_envs)
+# Resolve the cfg class from --task by directly instantiating the matching
+# JoystickEnvCfg_* class (matches contact_diagnostic.py's proven-stable
+# pattern) instead of isaaclab_tasks.utils.parse_env_cfg -- parse_env_cfg
+# was tried here first (to fix a real bug: hardcoding JoystickEnvCfg_A20J5
+# silently used the WRONG alive_scale/imitation_w_joint_pos for any other
+# checkpoint) but every run using it crashed silently with no traceback,
+# while contact_diagnostic.py's direct-instantiation pattern never has --
+# suspect parse_env_cfg's extra registry/hydra-config machinery introduces
+# instability. This keeps the correctness fix (right weights per --task)
+# without parse_env_cfg.
+_TASK_TO_CFG_CLASS = {
+    "Isaac-OpenDuckMini-Joystick-v0": "JoystickEnvCfg",
+    "Isaac-OpenDuckMini-Joystick-Alive5-v0": "JoystickEnvCfg_Alive5",
+    "Isaac-OpenDuckMini-Joystick-Alive10-v0": "JoystickEnvCfg_Alive10",
+    "Isaac-OpenDuckMini-Joystick-A10J10-v0": "JoystickEnvCfg_A10J10",
+    "Isaac-OpenDuckMini-Joystick-A5J15-v0": "JoystickEnvCfg_A5J15",
+    "Isaac-OpenDuckMini-Joystick-A20J5-v0": "JoystickEnvCfg_A20J5",
+    "Isaac-OpenDuckMini-Joystick-A5J5-v0": "JoystickEnvCfg_A5J5",
+    "Isaac-OpenDuckMini-Joystick-A30J25-v0": "JoystickEnvCfg_A30J25",
+    "Isaac-OpenDuckMini-Joystick-A20J5NoRSI-v0": "JoystickEnvCfg_A20J5_NoRSI",
+    "Isaac-OpenDuckMini-Joystick-A30J25Im2N2-v0": "JoystickEnvCfg_A30J25Im2",
+}
+_cfg_cls_name = _TASK_TO_CFG_CLASS[args_cli.task]
+env_cfg = getattr(_cfg_module, _cfg_cls_name)()
+env_cfg.scene.num_envs = args_cli.num_envs
 env = gym.make(args_cli.task, cfg=env_cfg)
 agent_cfg = JoystickPPORunnerCfg()
 env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
