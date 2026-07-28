@@ -724,3 +724,33 @@ class JoystickEnvCfg_Walk6(JoystickEnvCfg_Walk5):
 class JoystickEnvCfg_Walk7(JoystickEnvCfg_Walk6):
     imitation_w_joint_pos_amp = 1.0
     imitation_w_contact = 4.0
+    # Restores what v12 wrongly removed. ang_vel_xy is
+    #   exp(-2 * ||trunk roll/pitch rate - reference||^2) * w
+    # and the reference's roll/pitch rate is ~0, so the term is really "keep the
+    # trunk from rocking". v12 cut w 0.5 -> 0.1 on the grounds that the
+    # reference's own spread measured 0.0000 and therefore carried no
+    # information -- but zero spread only means it cannot tell one GAIT from
+    # another; it still cleanly separates a steady execution from a lurching
+    # one, which is exactly the axis that matters here. imit_internals2 on v16
+    # measured 0.0137 against the 0.1 ceiling (14%), i.e. the trunk really was
+    # rotating hard and the weight was too small for the policy to care. The
+    # user watching v17 over WebRTC: "앞으로 뒤뚱뒤뚱 걷는데, 몸체 흔들림이 큼."
+    imitation_w_ang_vel_xy = 0.5
+
+
+# Walk8 / imitation_v19 (2026-07-29). User watched v13 / v16 / v17 / v18 back to
+# back over WebRTC with the command pinned forward and judged v17 the best
+# walker ("17이 실제로 제일 잘 걷는거같음"), then asked to push imitation
+# harder from there. v13 span in place and fell; v16 minced; v17 waddles
+# forward with trunk sway.
+#
+# So this is v17 (Walk6) with imitation_scale 4.0 -> 8.0 and nothing else.
+# imitation_scale multiplies the WHOLE imitation term against alive (3.0) and
+# the tracking terms, which is the right knob here: the audit put walking ahead
+# of standing by only ~+0.10 raw *inside* imitation, and scaling the term
+# amplifies exactly that margin while alive stays put. Contrast with
+# w_joint_pos_amp, which scales only the pose sub-term and therefore favors
+# holding READY -- the mistake v16 made.
+@configclass
+class JoystickEnvCfg_Walk8(JoystickEnvCfg_Walk6):
+    imitation_scale = 8.0

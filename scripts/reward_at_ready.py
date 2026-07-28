@@ -35,6 +35,7 @@ _MAP = {"Isaac-OpenDuckMini-Joystick-A20J5Bounded-v0": "JoystickEnvCfg_A20J5_Bou
         "Isaac-OpenDuckMini-Joystick-Walk5-v0": "JoystickEnvCfg_Walk5",
     "Isaac-OpenDuckMini-Joystick-Walk6-v0": "JoystickEnvCfg_Walk6",
     "Isaac-OpenDuckMini-Joystick-Walk7-v0": "JoystickEnvCfg_Walk7",
+    "Isaac-OpenDuckMini-Joystick-Walk8-v0": "JoystickEnvCfg_Walk8",
         "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream"}
 cfg = getattr(_cm, _MAP[args_cli.task])()
 cfg.scene.num_envs = args_cli.num_envs
