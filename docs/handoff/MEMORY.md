@@ -1,0 +1,11 @@
+- [No local training runs](feedback_no_local_training_runs.md) — don't launch training on the local Mac; direction/commands only there
+- [Lab PC: no deletion](feedback_labpc_no_deletion.md) — SSH lab machine is shared, not user's own; never rm/rmdir, only add files under /home/do/Pictures/Claude/
+- [Autonomous experiment branching](project_autonomous_experiment_branching.md) — user stepped away; read lab-PC experiment_ledger.json first, keep evolving top performers
+- [Verify tool source before dead end](feedback_verify_tool_source_before_dead_end.md) — read a tool's actual source (to_*/convert_* methods), not just output fields, before saying it can't answer
+- [OpenDuck autonomous training](project_openduck_autonomous_training.md) — v1~v9 실패의 진짜 원인은 액션이 레퍼런스 자세에 8σ 못 닿던 것(HOME/READY 분리로 해결); v10/v11은 별개 원인(lin_vel_xy 민감도)으로 실패; v12 시각화 학습 중 (~19:10 07-28)
+- [Fix value estimation before reward](feedback_fix_value_estimation_before_reward.md) — 리워드 튜닝이 계속 국소 개선만 낸다면 크리틱을 의심; 비대칭 크리틱과 gamma가 리워드 11회 조정보다 컸음
+- [Check action reachability first](feedback_check_action_reachability_first.md) — 리워드 가중치 만지기 전에 타깃이 액션 분포 안에 있는지부터 확인; 9번 헛튜닝한 전례
+- [Measure reward discrimination](feedback_measure_reward_discrimination.md) — "아무것도 안 할 때" 점수를 실측할 것; exp(-k·err²)의 k가 작으면 조용히 변별력을 잃음
+- [OpenDuck BAM/PD gains](project_openduck_bam_pd_gains.md) — XM430 stiffness/damping re-measurement TODO; current values, formula, and web research on comparable sim2real XM430 setups
+- [Graph-based verification](feedback_graph_based_verification.md) — 자리 비우면 WebRTC 불가; 고정 5방향 조건으로 그래프 뽑아 v12 iter400 기준선과 비교
+- [Verify RL training visually](feedback_verify_training_visually.md) — never call a run "healthy" from reward/eval numbers alone; confirm via WebRTC/play.py first

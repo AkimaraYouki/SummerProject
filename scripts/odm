@@ -1,0 +1,143 @@
+#!/bin/bash
+# OpenDuck Mini 원스톱 — 학습 / 재생 / 측정을 명령 하나로.
+#
+# 그동안 랩PC에서 매번 ~/lt25.sh 같은 일회용 런처를 만들어 쓰다 보니
+# 어떤 체크포인트를 어떤 태스크로 열어야 하는지가 매번 헷갈렸다.
+# (러너 설정이 안 맞아 512 네트워크 체크포인트를 256으로 로드하려다
+#  터진 적도 있다.) 여기서는 버전 이름만 대면 태스크가 자동으로 붙는다.
+set -euo pipefail
+
+PROJ="/media/parksuho/Extreme SSD/parksuho/open_duck_mini_isaaclab"
+IL="$HOME/Desktop/IsaacLab/isaaclab.sh"
+LOGROOT="$PROJ/logs/rsl_rl/open_duck_mini_v2_joystick"
+RUNLOG="$HOME/odm_logs"; mkdir -p "$RUNLOG"
+
+# 버전 -> 태스크. 체크포인트를 학습시킨 설정과 다르면 관측 차원이나
+# 네트워크 크기가 어긋나 로드가 실패한다.
+task_of() {
+  case "$1" in
+    v13) echo "Isaac-OpenDuckMini-Joystick-Walk3-v0" ;;
+    v17) echo "Isaac-OpenDuckMini-Joystick-Walk6-v0" ;;
+    v20*|v24) echo "Isaac-OpenDuckMini-Joystick-Walk9G97-v0" ;;
+    v25|v26|path) echo "Isaac-OpenDuckMini-Joystick-Path-v0" ;;
+    *) echo "" ;;
+  esac
+}
+latest_run() { ls -dt "$LOGROOT"/*"$1"* 2>/dev/null | head -1; }
+latest_ckpt() { ls -t "$(latest_run "$1")"/model_*.pt 2>/dev/null | head -1; }
+
+gpu_busy() { [ "$(ps aux | grep -c '[t]rain.py')" -gt 0 ] || [ "$(ps aux | grep -c '[p]lay_fixed')" -gt 0 ]; }
+require_free_gpu() {
+  if gpu_busy; then
+    echo "!! GPU에 Isaac Sim이 이미 떠 있습니다. 두 개를 동시에 띄우면 한쪽이 조용히 죽습니다." >&2
+    echo "   'odm stop' 으로 정리한 뒤 다시 실행하세요." >&2
+    exit 1
+  fi
+}
+
+cmd="${1:-help}"; shift || true
+
+case "$cmd" in
+train)
+  ver="${1:-v26}"; iters="${2:-3000}"; envs="${3:-4096}"
+  task="$(task_of "$ver")"; [ -z "$task" ] && { echo "알 수 없는 버전 $ver" >&2; exit 1; }
+  require_free_gpu
+  cd "$PROJ"
+  setsid nohup "$IL" -p scripts/_isaaclab_launch.py \
+    "$HOME/Desktop/IsaacLab/scripts/reinforcement_learning/rsl_rl/train.py" \
+    --task "$task" --num_envs "$envs" --max_iterations "$iters" \
+    --headless --run_name "imitation_$ver" \
+    > "$RUNLOG/train_$ver.log" 2>&1 < /dev/null &
+  echo "학습 시작: $ver ($task, envs=$envs, iters=$iters)"
+  echo "로그: $RUNLOG/train_$ver.log     진행: odm watch $ver"
+  ;;
+
+play)
+  ver="${1:-v25}"; shift || true
+  task="$(task_of "$ver")"; ck="$(latest_ckpt "$ver")"
+  [ -z "$task" ] && { echo "알 수 없는 버전 $ver" >&2; exit 1; }
+  [ -z "$ck" ] && { echo "체크포인트 없음: $ver" >&2; exit 1; }
+  require_free_gpu
+  cd "$PROJ"
+  setsid nohup "$IL" -p scripts/_isaaclab_launch.py scripts/play_fixed_cmd.py \
+    --task "$task" --checkpoint "$ck" --num_envs 1 \
+    --cycle --hold 8 --overlay --hud --livestream 2 "$@" \
+    > "$RUNLOG/play_$ver.log" 2>&1 < /dev/null &
+  echo "재생 시작: $ver  $(basename "$ck")"
+  echo "  http://$(hostname -I | awk '{print $1}'):8011/streaming/webrtc-client"
+  echo "  (정지/전진/후진/좌/우/회전 8초씩 순환, 외란 없음)"
+  ;;
+
+measure)
+  ver="${1:-v25}"; task="$(task_of "$ver")"; ck="$(latest_ckpt "$ver")"
+  [ -z "$ck" ] && { echo "체크포인트 없음: $ver" >&2; exit 1; }
+  require_free_gpu
+  cd "$PROJ"
+  echo "측정: $ver  $(basename "$ck")  (약 7분)"
+  "$IL" -p scripts/_isaaclab_launch.py scripts/gait_compare.py --task "$task" \
+    --checkpoint "$ck" --num_envs 4 --num_steps 500 \
+    --out "$HOME/odm_out/gait_$ver.npz" --headless 2>/dev/null | grep -E '^\[ok\]'
+  "$IL" -p scripts/_isaaclab_launch.py scripts/joint_periodicity.py --task "$task" \
+    --checkpoint "$ck" --num_envs 4 --num_steps 600 \
+    --out "$HOME/odm_out/joint_$ver.npz" --headless 2>/dev/null | grep -E '^\[ok\]'
+  "$IL" -p scripts/_isaaclab_launch.py scripts/imit_internals2.py --task "$task" \
+    --checkpoint "$ck" --num_envs 16 --num_steps 200 --headless 2>/dev/null \
+    | grep -E 'joint_pos sum|_rew|IMITATION|feet on|toggles|base speed'
+  echo "npz: $HOME/odm_out/"
+  ;;
+
+watch)
+  ver="${1:-v26}"; L="$RUNLOG/train_$ver.log"
+  [ -f "$L" ] || { echo "로그 없음: $L" >&2; exit 1; }
+  it=$(grep -a "Learning iteration" "$L" | tail -1 | sed 's/.*iteration //;s/ .*//;s/\x1b\[[0-9;]*m//g')
+  r=$(grep -a "Mean reward:" "$L" | tail -1 | sed 's/.*: //')
+  e=$(grep -a "Mean episode length:" "$L" | tail -1 | sed 's/.*: //')
+  s=$(grep -a "action noise std:" "$L" | tail -1 | sed 's/.*: //')
+  eta=$(grep -a "ETA" "$L" | tail -1 | sed 's/.*: //')
+  c=$(grep -acE "Traceback|illegal memory|RuntimeError" "$L")
+  ps_=$(awk -v r="$r" -v e="$e" 'BEGIN{if(e>0) printf "%.4f", r/e; else print "-"}')
+  echo "$ver  iter $it | 스텝당 $ps_ (R $r / 에피 $e) | std $s | ETA $eta | 크래시 $c"
+  ;;
+
+tb)
+  pkill -9 -f tensorboard 2>/dev/null || true; sleep 2
+  mkdir -p /tmp/tb; rm -f /tmp/tb/*
+  for d in "$LOGROOT"/*imitation_*; do [ -d "$d" ] && ln -sfn "$d" "/tmp/tb/$(basename "$d" | sed 's/.*_imitation/imitation/')"; done
+  setsid nohup "$IL" -p -m tensorboard.main --logdir /tmp/tb --bind_all --port 6006 \
+    > "$RUNLOG/tb.log" 2>&1 < /dev/null &
+  echo "텐서보드: http://$(hostname -I | awk '{print $1}'):6006   ($(ls /tmp/tb | wc -l)개 런)"
+  ;;
+
+stop)
+  pkill -9 -f "train.py" 2>/dev/null || true
+  pkill -9 -f "play_fixed" 2>/dev/null || true
+  sleep 3
+  echo "정리 완료  (train $(ps aux|grep -c '[t]rain.py')  play $(ps aux|grep -c '[p]lay_fixed'))"
+  ;;
+
+list)
+  printf "%-28s %-10s %s\n" "런" "최신 ckpt" "크기"
+  # 경로에 공백이 있어 $(ls ...)를 for에 쓰면 단어 분리된다. glob을 직접 쓴다.
+  ls -dt "$LOGROOT"/*imitation_* 2>/dev/null | head -12 | while IFS= read -r d; do
+    ck=$(ls -t "$d"/model_*.pt 2>/dev/null | head -1)
+    printf "%-28s %-10s %s\n" "$(basename "$d")" "$([ -n "$ck" ] && basename "$ck" || echo -)" "$(du -sh "$d" 2>/dev/null|cut -f1)"
+  done
+  ;;
+
+*)
+  cat <<'EOF'
+odm — OpenDuck Mini 원스톱
+
+  odm train  [ver] [iters] [envs]   학습 시작   (기본 v26 3000 4096)
+  odm watch  [ver]                  진행 상황 한 줄
+  odm play   [ver] [추가인자...]     재생 + WebRTC (명령 순환, 오버레이, HUD)
+  odm measure[ver]                  6방향·주기성·리워드 성분 측정
+  odm tb                            텐서보드 (전체 런 겹쳐보기)
+  odm stop                          학습/재생 정리
+  odm list                          런과 체크포인트 목록
+
+버전은 v13 v17 v24 v25 v26 처럼 주면 태스크가 자동으로 붙습니다.
+GPU에 Isaac Sim 두 개가 동시에 뜨면 한쪽이 조용히 죽으므로 자동으로 막습니다.
+EOF
+  ;;
+esac
