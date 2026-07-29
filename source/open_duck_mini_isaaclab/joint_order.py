@@ -188,3 +188,14 @@ HOME_BASE_HEIGHT = 0.193  # m
 # HOME_BASE_HEIGHT -- is what the spawn height and the `collapsed` termination
 # threshold (READY_BASE_HEIGHT * cfg.min_base_height_ratio) must use.
 READY_BASE_HEIGHT = 0.121  # m
+
+# 스폰 전용 높이 (2026-07-29). READY_BASE_HEIGHT(0.121)는 READY 자세에서
+# 로봇이 실제로 안착하는 높이라 종료 판정 기준으로는 맞지만, 스폰 높이로
+# 쓰면 RSI와 충돌한다: _reset_idx는 루트 z를 항상 이 값으로 두는데 RSI는
+# 다리 관절만 랜덤 위상의 레퍼런스 자세로 덮어쓰기 때문이다. pinocchio 순
+# 기구학으로 위상별 필요 높이를 재보니 116.7~126.4 mm로 9.7 mm 변동하고,
+# 발이 가장 낮은 위상에서는 지면을 5.4 mm 파고든다. PhysX가 그 관통을
+# 해소하며 로봇을 튕겨내는 게 사용자가 관찰한 "처음에 뿅하고 튀어오름"이다.
+# 130 mm면 어떤 위상에서도 관통이 없다(최대 13 mm 낙하는 튕김보다 훨씬
+# 덜 교란적이다).
+SPAWN_BASE_HEIGHT = 0.130

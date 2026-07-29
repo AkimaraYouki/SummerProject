@@ -81,7 +81,7 @@ from isaaclab.assets.articulation import ArticulationCfg
 
 from .joint_order import (
     ACTUATOR_JOINT_NAMES,
-    READY_BASE_HEIGHT,
+    SPAWN_BASE_HEIGHT,
     READY_JOINT_POS,
 )
 
@@ -150,7 +150,7 @@ OPEN_DUCK_MINI_V2_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, READY_BASE_HEIGHT),
+        pos=(0.0, 0.0, SPAWN_BASE_HEIGHT),
         joint_pos=dict(READY_JOINT_POS),
         joint_vel={".*": 0.0},
     ),

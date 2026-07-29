@@ -73,7 +73,19 @@ import gymnasium as gym  # noqa: E402
 from rsl_rl.runners import OnPolicyRunner  # noqa: E402
 
 import open_duck_mini_isaaclab.tasks  # noqa: E402, F401 - side effect: gym.register()
-from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import JoystickPPORunnerCfg  # noqa: E402
+from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import (  # noqa: E402
+    JoystickPPORunnerCfg,
+    JoystickPPORunnerCfg_Upstream,
+)
+
+# The runner cfg must match the one the checkpoint was TRAINED with, not just
+# the env cfg: Walk9 trains with the upstream network (512,256,128) while every
+# other variant uses (256,128,64), and loading across them fails with a bare
+# size-mismatch on actor.0.weight.
+_TASK_TO_RUNNER = {
+    "Isaac-OpenDuckMini-Joystick-Walk9-v0": JoystickPPORunnerCfg_Upstream,
+}
+
 from open_duck_mini_isaaclab.joint_order import ACT_LEG_JOINT_IDX  # noqa: E402
 from open_duck_mini_isaaclab.tasks.velocity.joystick_env import FOOT_CONTACT_FORCE_THRESHOLD  # noqa: E402
 from open_duck_mini_isaaclab.tasks.velocity import joystick_env_cfg as _cfg_module  # noqa: E402
@@ -99,7 +111,7 @@ env_cfg.scene.num_envs = args_cli.num_envs
 print(f"[info] task={args_cli.task} cfg={_TASK_TO_CFG_CLASS[args_cli.task]}", flush=True)
 
 env = gym.make(args_cli.task, cfg=env_cfg)
-agent_cfg = JoystickPPORunnerCfg()
+agent_cfg = _TASK_TO_RUNNER.get(args_cli.task, JoystickPPORunnerCfg)()
 env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
 print(f"[info] loading checkpoint: {args_cli.checkpoint}", flush=True)
