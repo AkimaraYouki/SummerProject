@@ -25,30 +25,17 @@ try:
         },
     )
 
-    # alive_scale sweep variants — see joystick_env_cfg.py's comment above
-    # JoystickEnvCfg_Alive5/_Alive10 for why. The base task above now runs
-    # with alive_scale=2.0.
+    # 살아있는 변형만 등록한다 (2026-07-29 정리). 실패로 판정된 16개 설정은
+    # joystick_env_cfg.py에서 삭제했고, 값과 실패 이유는 git 이력과
+    # docs/training_log.md에 남아 있다.
+    #
+    #   Walk3    imitation_v13 — 명령 추종 최고 (전진 0.117 m/s)
+    #   Walk6    imitation_v17 — 육안 판정 최고 보행
+    #   Upstream imitation_v14 — Open_Duck_Playground 리워드 기준선
     for _variant_suffix, _variant_cfg_cls in [
-        ("Alive5", "JoystickEnvCfg_Alive5"),
-        ("Alive10", "JoystickEnvCfg_Alive10"),
-        # alive_scale x w_joint_pos sweep (2026-07-27) — see
-        # joystick_env_cfg.py's comment above JoystickEnvCfg_A10J10 for why.
-        ("A10J10", "JoystickEnvCfg_A10J10"),
-        ("A5J15", "JoystickEnvCfg_A5J15"),
-        ("A20J5", "JoystickEnvCfg_A20J5"),
-        ("A5J5", "JoystickEnvCfg_A5J5"),
-        ("A30J25", "JoystickEnvCfg_A30J25"),
-        ("A20J5NoRSI", "JoystickEnvCfg_A20J5_NoRSI"),
-        ("A20J5Bounded", "JoystickEnvCfg_A20J5_Bounded"),
-        ("Walk", "JoystickEnvCfg_Walk"),
-        ("Walk2", "JoystickEnvCfg_Walk2"),
         ("Walk3", "JoystickEnvCfg_Walk3"),
-        ("Upstream", "JoystickEnvCfg_Upstream"),
-        ("Walk4", "JoystickEnvCfg_Walk4"),
-        ("Walk5", "JoystickEnvCfg_Walk5"),
         ("Walk6", "JoystickEnvCfg_Walk6"),
-        ("Walk7", "JoystickEnvCfg_Walk7"),
-        ("Walk8", "JoystickEnvCfg_Walk8"),
+        ("Upstream", "JoystickEnvCfg_Upstream"),
     ]:
         gym.register(
             id=f"Isaac-OpenDuckMini-Joystick-{_variant_suffix}-v0",
@@ -60,13 +47,8 @@ try:
             },
         )
 
-    # imitation_v6 pre-approved fallback (only if imitation_v5/A30J25 also
-    # fails) — see joystick_env_cfg.py::JoystickEnvCfg_A30J25Im2 and
-    # rsl_rl_ppo_cfg.py::JoystickPPORunnerCfg_N2 for why. Registered
-    # separately since it also swaps the PPO runner cfg, not just the env.
-    # imitation_v20 — upstream-aligned learning setup (asymmetric critic +
-    # upstream network/PPO params) on v17's reward config. Separate register
-    # because it swaps the runner cfg, not just the env cfg.
+    # imitation_v20 — 비대칭 크리틱 + upstream 네트워크/PPO. 러너 설정까지
+    # 바꾸므로 따로 등록한다.
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-Walk9-v0",
         entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
@@ -77,14 +59,5 @@ try:
         },
     )
 
-    gym.register(
-        id="Isaac-OpenDuckMini-Joystick-A30J25Im2N2-v0",
-        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
-        disable_env_checker=True,
-        kwargs={
-            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_A30J25Im2",
-            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_N2",
-        },
-    )
 except ImportError:
     pass

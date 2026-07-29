@@ -37,15 +37,9 @@ from open_duck_mini_isaaclab.joint_order import (  # noqa: E402
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
 
 _MAP = {
-    "Isaac-OpenDuckMini-Joystick-A20J5Bounded-v0": "JoystickEnvCfg_A20J5_Bounded",
-    "Isaac-OpenDuckMini-Joystick-Walk-v0": "JoystickEnvCfg_Walk",
-    "Isaac-OpenDuckMini-Joystick-Walk2-v0": "JoystickEnvCfg_Walk2",
+    "Isaac-OpenDuckMini-Joystick-v0": "JoystickEnvCfg",
     "Isaac-OpenDuckMini-Joystick-Walk3-v0": "JoystickEnvCfg_Walk3",
-    "Isaac-OpenDuckMini-Joystick-Walk4-v0": "JoystickEnvCfg_Walk4",
-    "Isaac-OpenDuckMini-Joystick-Walk5-v0": "JoystickEnvCfg_Walk5",
     "Isaac-OpenDuckMini-Joystick-Walk6-v0": "JoystickEnvCfg_Walk6",
-    "Isaac-OpenDuckMini-Joystick-Walk7-v0": "JoystickEnvCfg_Walk7",
-    "Isaac-OpenDuckMini-Joystick-Walk8-v0": "JoystickEnvCfg_Walk8",
     "Isaac-OpenDuckMini-Joystick-Walk9-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
 }

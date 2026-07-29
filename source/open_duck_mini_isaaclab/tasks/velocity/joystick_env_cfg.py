@@ -389,134 +389,29 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     gait_period_steps: int = 50
 
 
-# ── alive_scale sweep variants (2026-07-26) ─────────────────────────────
-# See the base class's alive_scale comment: 20.0 (Playground's original,
-# imitation-counterbalanced value) reward-hacked into a not-quite-fallen
-# contortion instead of walking once ported to Stage 1 (no imitation). The
-# base class above now defaults to 2.0 (a 10x cut); these two add more
-# points along the same axis so the sweep can compare 2 / 5 / 10 (20 already
-# has a completed data point from the pre-sweep run at
-# logs/rsl_rl/open_duck_mini_v2_joystick/2026-07-26_03-50-34) rather than
-# guessing a single value. Registered as separate gym tasks in __init__.py
-# so all three can train concurrently on one GPU.
-@configclass
-class JoystickEnvCfg_Alive5(JoystickEnvCfg):
-    alive_scale = 5.0
+# ── 변형 설정 ────────────────────────────────────────────────────────────
+# 2026-07-29 정리. imitation_v1~v20을 거치며 21개까지 늘어난 설정 클래스를
+# 살아있는 4개로 줄였다. 삭제한 것들(Alive5/Alive10/A10J10/A5J15/A5J5/A30J25/
+# A30J25Im2/A20J5/A20J5_NoRSI/A20J5_Bounded/Walk/Walk2/Walk4/Walk5/Walk7/Walk8)
+# 은 전부 실패로 판정된 경로이고, 값과 실패 이유는 git 이력과
+# docs/training_log.md에 남아 있다.
+#
+# 남긴 것들은 상속 사슬을 풀어 값을 직접 적었다. 예전에는 Walk6가
+# Walk5←Walk4←Walk3←Walk2←Walk←A20J5_Bounded←A20J5_NoRSI←A20J5←base로
+# 8단계를 타고 올라가야 실제 값을 알 수 있었다. 평탄화 전후로 모든 필드의
+# 해석값이 동일함을 정적 분석으로 확인했다.
 
 
 @configclass
-class JoystickEnvCfg_Alive10(JoystickEnvCfg):
-    alive_scale = 10.0
+class JoystickEnvCfg_LegsOnly(JoystickEnvCfg):
+    """머리 4관절을 READY 자세에 고정하고 다리 10개만 학습한다.
 
+    사용자 제안으로 도입. 머리에는 IMU가 없어 수평 유지를 측정할 수 없으니,
+    목을 Z자로 접은 READY 자세(neck +45°, head +45° — 이 URDF에서는 같은
+    부호가 상쇄 조합)에 고정하고 명령도 0으로 묶는다. 그래야 액션 노이즈와
+    명령 채널이 보행 리워드가 무시하는 자유도에 낭비되지 않는다.
+    """
 
-# ── alive_scale x w_joint_pos sweep (2026-07-27) ────────────────────────
-# imitation_v2 (alive_scale=20, w_joint_pos=15 — Playground's original
-# combo) FAILED with MORE violent twitching than imitation_v1 (43.4
-# foot-contact toggles/10s vs 11.7), even though the reference-motion data
-# itself was fully fixed by then (knee ROM, symmetry, joint limits, drift
-# bias) — see docs/training_log.md Run 7. That rules the data out, leaving
-# these two reward weights as the remaining suspects: alive_scale may still
-# dominate the per-step reward ceiling enough to make "twitch but don't
-# fall" cheap, and/or w_joint_pos=15 may be too harsh against the new
-# reference's wider knee ROM (up to 120 deg), pushing the policy into
-# high-frequency chatter instead of smooth tracking. Four combos, chosen to
-# isolate each factor plus a jointly-reduced point, rather than the full
-# 4x3 cross product (too many runs for one GPU in reasonable time):
-#   A10J10 — both moderately cut, the "compromise" guess
-#   A5J15  — alive cut hard, w_joint_pos untouched (isolates alive_scale)
-#   A20J5  — alive untouched, w_joint_pos cut hard (isolates w_joint_pos)
-#   A5J5   — both cut hard
-@configclass
-class JoystickEnvCfg_A10J10(JoystickEnvCfg):
-    alive_scale = 10.0
-    imitation_w_joint_pos = 10.0
-
-
-@configclass
-class JoystickEnvCfg_A5J15(JoystickEnvCfg):
-    alive_scale = 5.0
-    imitation_w_joint_pos = 15.0
-
-
-@configclass
-class JoystickEnvCfg_A20J5(JoystickEnvCfg):
-    alive_scale = 20.0
-    imitation_w_joint_pos = 5.0
-
-
-# Disney's BD-X paper doesn't use RSI (confirmed 2026-07-28 against the
-# actual paper — see joystick_env_cfg.py's use_rsi docstring). This variant
-# is A20J5 (already Disney's own alive_scale=20) with RSI turned off, for a
-# direct on/off comparison against imitation_v6/v7 on identical everything
-# else (contact-termination + crouch-fix stay on — those match/extend
-# Disney's own paper's contact-based termination, not a deviation from it).
-@configclass
-class JoystickEnvCfg_A20J5_NoRSI(JoystickEnvCfg_A20J5):
-    use_rsi = False
-
-
-# Bounded (2026-07-28) — the reward-shaping fix derived from
-# reward_breakdown_v2.py's measurement on imitation_v8 (imitation -1.01/step
-# vs alive +0.40/step => 81.6% of steps clamped to 0, no gradient). Three
-# coupled changes, all following from that one measurement:
-#   1. imitation_bounded_joint_pos=True — joint_pos becomes exp(-w*err^2),
-#      bounded [0,1] like every other tracking term, so it can no longer
-#      drive the sum negative on its own.
-#   2. imitation_w_joint_pos 5.0 -> 0.25 — under exp(), w is a *sharpness*,
-#      not a linear weight. At v8's measured error (sum err^2 ~ 10.6 rad^2)
-#      w=5 would saturate exp() to ~0.0000 and hand back a flat gradient,
-#      which is a different way of learning nothing. w=0.25 gives 0.07 there
-#      and rises smoothly as tracking improves (0.61 at err^2=2, 0.88 at 0.5).
-#   3. imitation_scale 1.0 -> 4.0 — bounding joint_pos caps the whole
-#      imitation term near 6 raw, against alive's 20, which would re-create
-#      the alive-dominated stand-still reward hacking that killed v1-v5.
-#      x4 puts imitation's ceiling (~24) back on par with alive.
-# RSI stays off (v7 vs v8 showed no real difference; user wants Disney's
-# simpler recipe), so this isolates the reward-shaping change alone.
-@configclass
-class JoystickEnvCfg_A20J5_Bounded(JoystickEnvCfg_A20J5_NoRSI):
-    imitation_bounded_joint_pos = True
-    # 0.25 (what imitation_v9 ran with) was derived from imitation_v8's error
-    # scale, back when the robot initialized straight-legged and sat ~79 deg
-    # per joint from the reference. Now that it initializes into READY the
-    # error is ~8.7 deg, and scripts/reward_at_ready.py measured joint_pos_rew
-    # pinned at 0.944/1.0 there -- near-maximum for simply holding the neutral
-    # pose, so the term barely discriminates and gives little reason to
-    # actually step. scripts/ref_stats.py puts the reference's own joint_pos
-    # spread at 0.234 rad^2, so k=1/0.234=4.28 is the value that lands a
-    # typical error near exp(-1)~0.37, i.e. in the responsive middle of the
-    # curve. Rounded to 4.0: holding READY now scores ~0.40 while tracking the
-    # gait properly scores ~1.0.
-    imitation_w_joint_pos = 4.0
-    imitation_scale = 4.0
-
-
-# Walk-incentive fix (2026-07-28). imitation_v10 reproduced the reward hack
-# predicted from the term-by-term audit: the policy stood at READY, kept both
-# feet planted, and trembled just enough not to fall. Measured freebies for
-# doing exactly that: alive 100%, contact 67%, joint_pos 51%, lin_vel_z 82%,
-# ang_vel_xy 100% -- while action_rate/torques/joint_vel all actively punish
-# moving. Standing collected 0.734/step against a perfect walk's 1.050, i.e.
-# 70%, for none of the risk. Three coupled changes, each aimed at one measured
-# cause:
-#   1. swing_only_contact — standing scores 0 on the contact term instead of
-#      1.34/2.0, so the term can only be earned by actually lifting feet.
-#   2. alive_scale 20 -> 10 — this is the single largest term and it is
-#      identical whether the robot walks or stands, so it dilutes every signal
-#      that does discriminate. (The earlier sweep showed 5 collapses training
-#      and 10 trains stably, so 10 is the safe floor.)
-#   3. tracking_lin_vel_scale 2.5 -> 10.0 — command following capped at
-#      0.05/step against alive's 0.40/step, 8x smaller, so "go where the
-#      joystick says" was nearly invisible in the objective. This is the whole
-#      point of the task; it should not be the smallest term.
-@configclass
-class JoystickEnvCfg_Walk(JoystickEnvCfg_A20J5_Bounded):
-    imitation_swing_only_contact = True
-    alive_scale = 10.0
-    tracking_lin_vel_scale = 10.0
-    # Legs-only learning: freeze the head at READY and stop issuing random
-    # head-pose commands, so neither the action noise nor the command channel
-    # spends capacity on a subsystem the gait reward ignores anyway.
     lock_head_joints = True
     neck_pitch_range = (0.0, 0.0)
     head_pitch_range = (0.0, 0.0)
@@ -525,282 +420,79 @@ class JoystickEnvCfg_Walk(JoystickEnvCfg_A20J5_Bounded):
 
 
 @configclass
-class JoystickEnvCfg_A5J5(JoystickEnvCfg):
-    alive_scale = 5.0
-    imitation_w_joint_pos = 5.0
+class JoystickEnvCfg_Walk3(JoystickEnvCfg_LegsOnly):
+    """imitation_v13 — 명령 추종이 가장 좋았던 설정 (전진 0.117 m/s).
 
+    스탠스 위반 페널티가 들어간 첫 버전. 그 전(v12)은 스윙 크레딧만 있어
+    발을 빠르게 깜빡일수록 스윙 구간과 우연히 겹쳐 점수를 벌 수 있었고,
+    실제로 접지가 진동하듯 떨렸다(토글 144~319/10s → 122~134로 감소).
+    육안으로는 걷긴 하지만 제자리 회전과 낙상이 관찰됐다.
+    """
 
-# A30J25 — 2026-07-27, user-directed reversal of the A20J5 direction after
-# imitation_v3 (A20J5 full run) came back WORSE than imitation_v2 (foot
-# toggle 79.1 vs 43.4). User's read: both alive_scale and w_joint_pos
-# should go UP, not down — opposite of what the sweep evidence pointed to
-# (alive_scale=5 collapsed training; w_joint_pos=15 was imitation_v2's
-# suspected culprit). Untested territory above alive_scale=20 — logged
-# here, not silently assumed correct.
-@configclass
-class JoystickEnvCfg_A30J25(JoystickEnvCfg):
-    alive_scale = 30.0
-    imitation_w_joint_pos = 25.0
-
-
-# A30J25Im2 — pre-approved fallback (imitation_v6) if imitation_v5 (A30J25)
-# also fails. User's next lever, in order: raise imitation-related weights
-# further (imitation_scale 1.0->2.0, doubling reward_imitation()'s overall
-# contribution on top of A30J25's already-raised w_joint_pos) and raise PPO
-# initial exploration noise (see rsl_rl_ppo_cfg.py's JoystickPPORunnerCfg_N2,
-# init_noise_std 1.0->2.0) to try to escape the observed local-minimum
-# ("joint locks near a limit angle then pops/flings outward") failure mode.
-@configclass
-class JoystickEnvCfg_A30J25Im2(JoystickEnvCfg_A30J25):
-    imitation_scale = 2.0
-
-
-# Walk2 / imitation_v12 (2026-07-28). imitation_v11 failed identically to
-# v10 -- user watched it over WebRTC: "또 부들부들거림 발 안뜸... 걸을려고 안함".
-# scripts/imit_internals2.py on v11's model_300 measured WHY, and it was not
-# where the v11 changes had aimed:
-#
-#   base speed 0.064 m/s   (reference: 0.265 m/s)  <- barely moving
-#   lin_vel_z  +0.954/1.0    ang_vel_xy +0.220/0.5   lin_vel_xy +0.556/1.0
-#   joint_pos  +0.379/1.0    ang_vel_z  +0.258/0.5   contact    +0.205/~0.63
-#   joint_vel  -0.056        (the term I had suspected -- 2% of the total)
-#
-# ~92% of the raw imitation reward was collectable while standing still. The
-# decisive one is lin_vel_xy, the term whose entire job is to price walking:
-# at sharpness k=8, missing the reference speed by 100% (err^2 = 0.265^2 =
-# 0.070) still pays exp(-0.56) = 0.57. Standing and walking were nearly
-# indistinguishable to the reward.
-#
-# Changes, each tied to one measured number above:
-#   1. k_lin_vel_xy 8 -> 20 — standing now scores exp(-20*0.070) = 0.25
-#      instead of 0.56, while walking at the reference speed still scores
-#      ~1.0. (Not the "exact" k~43 that would drive standing to 0.05: that
-#      also flattens the gradient everywhere below half speed, which is the
-#      failure mode the w_joint_pos=5 experiment already demonstrated.)
-#   2. w_lin_vel_z 1.0 -> 0.1 — 0.954/1.0 free, the single largest freebie,
-#      and vertical velocity carries almost no gait information anyway.
-#   3. w_ang_vel_xy 0.5 -> 0.1 — scripts/ref_stats.py puts the reference's
-#      own roll/pitch-rate spread at 0.0000, i.e. the term has no
-#      discriminating power by construction.
-#   4. w_contact 1.0 -> 2.0 — with swing_only_contact this is now the ONLY
-#      term that standing cannot earn, so it should not also be the smallest.
-#   5. alive_scale 10 -> 3 — same reasoning as v11's 20->10, one step
-#      further now that termination (not alive reward) is what prevents
-#      falling.
-#   6. use_rsi back ON — the v7-vs-v8 RSI comparison that concluded "no real
-#      difference" ran while default_joint_pos was still HOME, i.e. while the
-#      reference pose sat 8 sigma outside the policy's action distribution;
-#      RSI was initializing into poses the policy could not hold under ANY
-#      action, so that test measured nothing. Now that READY makes the
-#      reference reachable, RSI does what it is for: starting episodes
-#      mid-stride is the standard escape from exactly the local optimum
-#      observed here (sitting at the gait's mean pose, which is what READY
-#      is, because partial out-of-phase tracking scores worse than not
-#      moving at all).
-#
-# Predicted effect, applying the new coefficients to v11's measured behavior:
-# standing 2.52 -> 1.38 raw, perfect walk 4.58 -> 3.90, so the standing-to-
-# walking ratio drops 55% -> 35%. Verify with reward_at_ready.py before
-# trusting the run.
-@configclass
-class JoystickEnvCfg_Walk2(JoystickEnvCfg_Walk):
+    alive_scale = 3.0
+    tracking_lin_vel_scale = 10.0
+    imitation_scale = 4.0
+    imitation_bounded_joint_pos = True
+    imitation_w_joint_pos = 4.0
     imitation_k_lin_vel_xy = 20.0
     imitation_w_lin_vel_z = 0.1
     imitation_w_ang_vel_xy = 0.1
     imitation_w_contact = 2.0
-    alive_scale = 3.0
-    use_rsi = True
-
-
-# Walk3 / imitation_v13 (2026-07-28). v12 plateaued from iter ~350 to ~1066
-# (per-step 0.117 -> 0.112, episode length 214 -> 219, both flat) and the user
-# watched it: forward motion too slow, feet chattering against the ground.
-# Measured at iter 400: forward 0.097 m/s against a 0.15 command (65%), contact
-# toggles 144-319/10s against v6's 29.4 best. The chatter traces to a flaw in
-# v11's own swing_only_contact: it pays for lifting a foot the reference wants
-# lifted but costs nothing for lifting one it wants planted, so flickering both
-# feet buys overlap with the swing phase. w_stance_violation closes that.
-@configclass
-class JoystickEnvCfg_Walk3(JoystickEnvCfg_Walk2):
+    imitation_swing_only_contact = True
     imitation_w_stance_violation = 1.0
 
 
-# Upstream / imitation_v14 (2026-07-28). Open_Duck_Playground's joystick.py
-# default_config() reward scales, verbatim, on top of the READY-pose fix.
-#
-# This combination has never actually been run. v1-v9 used upstream's rewards
-# but could not reach the reference pose at all (the 8-sigma action-space bug),
-# so their failure said nothing about the rewards; v10-v13 fixed the pose but
-# each carried an accumulating stack of my own reward modifications (bounded
-# joint_pos, swing-only contact, stance penalty, sharpened k, cut alive, ...),
-# so none of them isolate upstream's recipe on a robot that can physically hold
-# the gait. User's instruction was to work the way Disney / the Open Duck repo
-# do rather than keep layering custom terms.
-#
-# Verbatim from playground/open_duck_mini_v2/joystick.py:
-#   tracking_lin_vel=2.5  tracking_ang_vel=6.0  torques=-1.0e-3
-#   action_rate=-0.5  stand_still=-0.2  alive=20.0  imitation=1.0
-# and reward_imitation's own internal defaults (w_joint_pos=15 unbounded,
-# k_lin_vel_xy=8, w_lin_vel_z=1.0, w_ang_vel_xy=0.5, plain contact agreement).
-#
-# Two deliberate non-upstream keeps, both justified independently of reward
-# shaping: READY as default_joint_pos (without it the task is impossible), and
-# lock_head_joints (the user's own request -- head held level in the trunk
-# frame, legs-only learning). RSI off, matching upstream.
 @configclass
-class JoystickEnvCfg_Upstream(JoystickEnvCfg):
-    use_rsi = False
-    lock_head_joints = True
-    neck_pitch_range = (0.0, 0.0)
-    head_pitch_range = (0.0, 0.0)
-    head_yaw_range = (0.0, 0.0)
-    head_roll_range = (0.0, 0.0)
+class JoystickEnvCfg_Walk6(JoystickEnvCfg_LegsOnly):
+    """imitation_v17 — 육안 판정 최고 보행 ("실제로 제일 잘 걷는 것 같음").
 
+    Walk3 대비 자세 항의 예민도와 비중만 다르다. w_joint_pos는 정책이 실제로
+    내는 오차(0.684 rad²)에 맞춘 값이고(레퍼런스 자체 분산에서 유도한 4.0은
+    포화 상태였다), amp 2.0은 1.0(v13)과 3.0(v16) 사이 절충이다. amp 3.0은
+    관절 오차를 14.4°→9.3°로 줄였지만 전진이 0.117→0.059로 반토막 났는데,
+    READY가 곧 보행의 평균 자세라 자세 비중을 올릴수록 "가만히 서있기"가
+    유리해지기 때문이다. 남은 증상은 몸통 흔들림(뒤뚱거림)이다.
+    """
 
-# Walk4 / imitation_v15 (2026-07-29). Two measurements drive this.
-#
-# 1. imitation_v14 (upstream-exact rewards) was stopped at iter ~900 after its
-#    curve turned out to overlay imitation_v11's almost exactly -- the user
-#    spotted it. reward_at_ready.py on all three configs at the READY pose
-#    explains why: upstream's imitation term nets +0.004/step against alive's
-#    +0.400, i.e. 1%. The unbounded joint-position penalty (-0.2023 * 15 =
-#    -3.03 raw) cancels the positive tracking terms (~+3.2 raw) almost exactly,
-#    so imitation collapses to ~0 and the policy trains on `alive` alone. That
-#    is the reward-hack regime by construction, and it means upstream's recipe
-#    cannot work in this setup regardless of the pose fix -- a second,
-#    independent reason v1-v9 failed.
-#
-# 2. v13's own joint_pos sensitivity is now too SHARP, in the mirror-image of
-#    the mistake that produced it. k=4.0 was derived from the reference's
-#    intrinsic spread (0.234 rad^2) measured while the robot was standing. The
-#    trained policy's actual in-motion error is 0.684 rad^2 (imit_internals2 on
-#    model_2999), where exp(-4 * 0.684) = 0.065 -- saturated near zero with a
-#    flat gradient, so the term cannot pull the pose back. Matching k to the
-#    error that actually occurs, 1/0.684 = 1.46, puts a typical error at
-#    exp(-1) ~ 0.37, in the responsive part of the curve. Rounded to 1.5.
-#    Consistent with v13's other symptoms: joint RMS rose 9.9deg -> 16.5deg and
-#    the joint amplitude ratio overshot to 1.31x the reference.
-@configclass
-class JoystickEnvCfg_Walk4(JoystickEnvCfg_Walk3):
+    alive_scale = 3.0
+    tracking_lin_vel_scale = 10.0
+    imitation_scale = 4.0
+    imitation_bounded_joint_pos = True
     imitation_w_joint_pos = 1.5
-
-
-# Walk5 / imitation_v16 (2026-07-29). v15's negative result, measured at
-# matched model_900 checkpoints against v13:
-#   actual joint error  14.0deg (v13) -> 14.3deg (v15)   [unchanged]
-#   joint_pos_rew        0.148  -> 0.425                 [pure exp() rescaling]
-# So sharpness alone cannot move behavior. joint_pos is one of seven roughly
-# equal terms inside imitation and is bounded to [0,1], so halving the pose
-# error buys only ~+0.02/step -- less than the fall risk of moving precisely.
-# Pose tracking is underpriced, not mis-scaled. w_joint_pos_amp=3.0 makes it
-# worth ~3x any other imitation term; sharpness stays at v15's measurement-
-# matched 1.5. w_lin_vel_z drops to 0 because it measured 0.86/1.0 across every
-# checkpoint of every run -- constant income carrying no gait information.
-@configclass
-class JoystickEnvCfg_Walk5(JoystickEnvCfg_Walk4):
-    imitation_w_joint_pos_amp = 3.0
-    imitation_w_lin_vel_z = 0.0
-
-
-# Walk6 / imitation_v17 (2026-07-29). amp=3.0 (v16) overshot: measured at
-# model_3100 against v13's model_2999,
-#   joint RMS      13.0-16.5deg -> 8.2-10.4deg   (won)
-#   forward        0.117 -> 0.059 m/s            (lost, halved)
-#   backward       -0.066 -> -0.029              (lost)
-#   left / right   0.091/-0.061 -> 0.066/-0.038  (lost)
-# and the periodicity check found the policy's dominant frequency at 3.70 Hz,
-# exactly 2x the 1.85 Hz gait fundamental -- mincing at double cadence with
-# half the stride rather than reproducing the reference gait. Consistent with
-# the slower travel: with pose tracking worth 3x every other imitation term,
-# hovering near the reference pose beats actually covering ground.
-# amp=2.0 splits v13 (1.0, good command tracking / poor pose) and v16 (3.0,
-# good pose / poor command tracking).
-@configclass
-class JoystickEnvCfg_Walk6(JoystickEnvCfg_Walk5):
     imitation_w_joint_pos_amp = 2.0
+    imitation_k_lin_vel_xy = 20.0
+    imitation_w_lin_vel_z = 0.0
+    imitation_w_ang_vel_xy = 0.1
+    imitation_w_contact = 2.0
+    imitation_swing_only_contact = True
+    imitation_w_stance_violation = 1.0
 
 
-# Walk7 / imitation_v18 (2026-07-29). Term-by-term audit of what standing at
-# READY earns versus what the trained policy earns, using measured values
-# (READY joint error 0.186 rad^2 from reward_at_ready; v16's in-motion error
-# 0.3099 rad^2 from imit_internals2 at model_3100):
-#
-#   term          standing            walking (v16)      winner
-#   joint_pos     exp(-1.5*.186)*A    exp(-1.5*.310)*A   STANDING
-#   contact       0.000               +0.305             walking
-#   lin_vel_xy    ~0.247              +0.300             walking
-#
-# READY *is* the reference gait's mean pose, so holding it scores a LOWER
-# average pose error than actually traversing the gait. joint_pos therefore
-# pays the policy to stand at the mean, and raising w_joint_pos_amp widens that
-# gap rather than closing it -- which is why v16 (amp=3) walked worse than v13
-# (amp=1), the opposite of what I intended when I raised it. At amp=2 the net
-# margin for walking is only ~+0.10 raw (~0.008/step): the policy is nearly
-# indifferent between walking and standing.
-#
-# w_contact is the one term standing cannot earn by construction (swing-only
-# credit plus a stance-violation penalty, both zero when both feet stay
-# planted). Doubling it 2.0 -> 4.0 leaves standing's score untouched and widens
-# the walking margin from +0.305 to +0.610. amp goes back to 1.0 (v13's value,
-# the best command tracking measured so far) since the amp sweep showed higher
-# values actively favor standing.
-@configclass
-class JoystickEnvCfg_Walk7(JoystickEnvCfg_Walk6):
-    imitation_w_joint_pos_amp = 1.0
-    imitation_w_contact = 4.0
-    # Restores what v12 wrongly removed. ang_vel_xy is
-    #   exp(-2 * ||trunk roll/pitch rate - reference||^2) * w
-    # and the reference's roll/pitch rate is ~0, so the term is really "keep the
-    # trunk from rocking". v12 cut w 0.5 -> 0.1 on the grounds that the
-    # reference's own spread measured 0.0000 and therefore carried no
-    # information -- but zero spread only means it cannot tell one GAIT from
-    # another; it still cleanly separates a steady execution from a lurching
-    # one, which is exactly the axis that matters here. imit_internals2 on v16
-    # measured 0.0137 against the 0.1 ceiling (14%), i.e. the trunk really was
-    # rotating hard and the weight was too small for the policy to care. The
-    # user watching v17 over WebRTC: "앞으로 뒤뚱뒤뚱 걷는데, 몸체 흔들림이 큼."
-    imitation_w_ang_vel_xy = 0.5
-
-
-# Walk8 / imitation_v19 (2026-07-29). User watched v13 / v16 / v17 / v18 back to
-# back over WebRTC with the command pinned forward and judged v17 the best
-# walker ("17이 실제로 제일 잘 걷는거같음"), then asked to push imitation
-# harder from there. v13 span in place and fell; v16 minced; v17 waddles
-# forward with trunk sway.
-#
-# So this is v17 (Walk6) with imitation_scale 4.0 -> 8.0 and nothing else.
-# imitation_scale multiplies the WHOLE imitation term against alive (3.0) and
-# the tracking terms, which is the right knob here: the audit put walking ahead
-# of standing by only ~+0.10 raw *inside* imitation, and scaling the term
-# amplifies exactly that margin while alive stays put. Contrast with
-# w_joint_pos_amp, which scales only the pose sub-term and therefore favors
-# holding READY -- the mistake v16 made.
-@configclass
-class JoystickEnvCfg_Walk8(JoystickEnvCfg_Walk6):
-    imitation_scale = 8.0
-
-
-# Walk9 / imitation_v20 (2026-07-29). "일단 rl 라이브러리 빼고 다 똑같이 해보자."
-#
-# Everything about the LEARNING SETUP aligned to upstream Open_Duck_Playground,
-# leaving the reward config at v17's values (the best walker so far by visual
-# judgement) so this run isolates the learning-side changes:
-#
-#   1. Asymmetric critic ON (state_space = OBS_CRITIC_DIM). Upstream feeds the
-#      value network a `privileged_state`; this port had state_space=0, so our
-#      critic saw the same noisy 101-dim view as the policy. That is upstream of
-#      every reward change we have made -- a bad value estimate corrupts the
-#      advantages that all the shaping is filtered through.
-#   2. Network (256,128,64) -> (512,256,128), matching what upstream actually
-#      runs. Caveat worth recording: upstream does not tune this itself -- it
-#      calls brax_ppo_config("BerkeleyHumanoidJoystickFlatTerrain") with a
-#      literal `# TODO`, i.e. borrows Berkeley Humanoid's hyperparameters
-#      wholesale. So "matching upstream" here means matching an untuned
-#      borrowed config, not a validated one. Paired with JoystickPPORunnerCfg_Upstream.
-#
-# Not matched (deliberate, per the user): the RL library stays rsl_rl rather
-# than brax/MJX, and the observation keeps our 14 actuated joints + 7 commands
-# (upstream's stale "# 10" comments notwithstanding, its real width is also 14).
 @configclass
 class JoystickEnvCfg_Walk9(JoystickEnvCfg_Walk6):
+    """imitation_v20 — Walk6의 리워드 그대로, 학습 설정만 upstream 정렬.
+
+    비대칭 크리틱을 켠다. upstream은 가치 네트워크에 privileged_state를 주는데
+    (mujoco_playground가 value_obs_key="privileged_state"로 설정) 이 포팅은
+    state_space=0이라 크리틱이 정책과 똑같은 노이즈 섞인 101차원만 봤다.
+    가치 추정이 나쁘면 어드밴티지가 오염되고, 그건 지금까지 만진 모든 리워드
+    수정보다 상류에 있다. 네트워크/PPO 파라미터는
+    agents/rsl_rl_ppo_cfg.py::JoystickPPORunnerCfg_Upstream 참고.
+    """
+
     state_space = OBS_CRITIC_DIM
+
+
+@configclass
+class JoystickEnvCfg_Upstream(JoystickEnvCfg_LegsOnly):
+    """imitation_v14 — Open_Duck_Playground의 리워드 계수 그대로 (기준선).
+
+    베이스 클래스의 값이 이미 upstream과 동일하므로 여기서는 RSI만 끈다
+    (upstream은 RSI를 쓰지 않는다). 이 조합은 iter ~900에서 중단했다 —
+    reward_at_ready 실측으로 imitation이 스텝당 +0.004, alive(+0.400)의 1%밖에
+    안 됐기 때문이다. 상한 없는 관절각 페널티(−0.2023 × 15 = −3.03)가 양의
+    추종 항들(~+3.2)을 거의 정확히 상쇄해 imitation이 0으로 붕괴한다.
+    사실상 alive 하나로 학습되는 상태라 구조적으로 리워드 해킹이다.
+    """
+
+    use_rsi = False

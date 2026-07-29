@@ -85,17 +85,10 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
 # explicit-dict version worked first try. Keep it explicit.
 _TASK_TO_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-v0": "JoystickEnvCfg",
-    "Isaac-OpenDuckMini-Joystick-Alive5-v0": "JoystickEnvCfg_Alive5",
-    "Isaac-OpenDuckMini-Joystick-Alive10-v0": "JoystickEnvCfg_Alive10",
-    "Isaac-OpenDuckMini-Joystick-A10J10-v0": "JoystickEnvCfg_A10J10",
-    "Isaac-OpenDuckMini-Joystick-A5J15-v0": "JoystickEnvCfg_A5J15",
-    "Isaac-OpenDuckMini-Joystick-A20J5-v0": "JoystickEnvCfg_A20J5",
-    "Isaac-OpenDuckMini-Joystick-A5J5-v0": "JoystickEnvCfg_A5J5",
-    "Isaac-OpenDuckMini-Joystick-A30J25-v0": "JoystickEnvCfg_A30J25",
-    "Isaac-OpenDuckMini-Joystick-A20J5NoRSI-v0": "JoystickEnvCfg_A20J5_NoRSI",
-    "Isaac-OpenDuckMini-Joystick-A20J5Bounded-v0": "JoystickEnvCfg_A20J5_Bounded",
-    "Isaac-OpenDuckMini-Joystick-Walk-v0": "JoystickEnvCfg_Walk",
-    "Isaac-OpenDuckMini-Joystick-Walk2-v0": "JoystickEnvCfg_Walk2",
+    "Isaac-OpenDuckMini-Joystick-Walk3-v0": "JoystickEnvCfg_Walk3",
+    "Isaac-OpenDuckMini-Joystick-Walk6-v0": "JoystickEnvCfg_Walk6",
+    "Isaac-OpenDuckMini-Joystick-Walk9-v0": "JoystickEnvCfg_Walk9",
+    "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
 }
 if args_cli.task not in _TASK_TO_CFG_CLASS:
     raise SystemExit(
