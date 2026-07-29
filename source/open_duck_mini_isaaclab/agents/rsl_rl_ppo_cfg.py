@@ -114,3 +114,37 @@ class JoystickPPORunnerCfg_Upstream(JoystickPPORunnerCfg):
         self.algorithm.num_mini_batches = 32
         self.algorithm.num_learning_epochs = 4
         self.algorithm.gamma = 0.97
+
+
+@configclass
+class JoystickPPORunnerCfg_BigNet(JoystickPPORunnerCfg):
+    """imitation_v21 — 비대칭 크리틱의 이득만 남기고 나머지는 v17로 복귀.
+
+    v20에서 upstream 하이퍼파라미터를 통째로 옮긴 결과를 분리해보면:
+
+      효과 있었음  네트워크 (512,256,128) + 비대칭 크리틱
+                   → 리워드 동일 조건에서 스텝당 3배, 에피소드 2.6배
+      역효과       num_mini_batches 32 (= 32x4 = iteration당 128 업데이트,
+                   v17은 4x5 = 20). 정책이 6.4배 크게 움직여 KL이 초과하고,
+                   rsl_rl의 adaptive 스케줄이 lr을 최저 한계 1e-5까지 깎아
+                   iter 200부터 학습이 사실상 동결됐다.
+      역효과       entropy_coef 0.005 → mean_noise_std가 0.99에서 0.27로 붕괴
+                   (v17은 0.8 유지). action_scale 0.25를 곱하면 탐색 폭이
+                   3.8도밖에 안 된다. 게다가 가우시안 KL은 sigma^2에 반비례해
+                   std가 줄수록 KL이 커지는 되먹임까지 걸린다.
+
+    brax의 num_minibatches는 데이터 분할 정의가 rsl_rl과 다르고 brax는 lr
+    고정에 KL 적응이 없다 — 숫자를 그대로 옮기면 의미가 달라진다는 게
+    이 런의 교훈이다.
+
+    그래서 여기서는 네트워크 크기만 유지하고 PPO 파라미터는 전부 상속받은
+    기본값(v17과 동일)을 쓴다. __post_init__ 대신 policy를 통째로 다시 적어
+    클래스 본문만 봐도 값이 보이게 했다.
+    """
+
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )

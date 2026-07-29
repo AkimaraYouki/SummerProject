@@ -59,5 +59,16 @@ try:
         },
     )
 
+    # imitation_v21 — 같은 환경(Walk9)에 PPO 파라미터만 v17 값으로 되돌린 러너.
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-Walk9Big-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_Walk9",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_BigNet",
+        },
+    )
+
 except ImportError:
     pass
