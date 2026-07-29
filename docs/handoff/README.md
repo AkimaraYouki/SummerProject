@@ -87,3 +87,43 @@ Claude 작업은 이제 이 PC에서 직접 한다. 맥·연구실 PC 경유는 
    (2번이 1번의 원인일 수도 있다. 2번부터 보는 게 순서다.)
 
 학습 경로(`odm train`)는 이 PC에서 아직 한 번도 안 돌려봤다.
+
+## 갱신 (2026-07-30, 위의 두 가지를 실제로 파본 결과)
+
+**2번은 해결됐다.** 원인은 저장된 `params/`가 아니라 **rsl-rl 자체가 세대를
+건너뛴 것**이었다. 랩PC는 isaaclab_rl 0.2.0 + rsl-rl 2.x, 이 PC는 0.5.1 +
+**rsl-rl 5.0.1**이다. SSD는 따라왔지만 IsaacLab은 각 기계 홈에 따로 깔려 있어
+따라오지 않았다. 끊긴 곳은 세 군데:
+
+- 설정 스키마: `policy` 하나 -> `actor`/`critic` + `obs_groups`
+- 체크포인트: `model_state_dict` 한 덩어리(정규화기는 러너 밖)
+  -> `actor_state_dict`/`critic_state_dict`(정규화기는 모델 안)
+- wrapper의 `get_observations()`가 튜플이 아니라 TensorDict를 돌려준다
+
+`source/.../agents/rsl_rl_compat.py`가 셋을 다 흡수한다. 설정은 계속 `policy`로
+적고 상류의 `handle_deprecated_rsl_rl_cfg`에 변환을 맡기므로, 두 세대의 rsl-rl
+어디서든 뜬다. 체크포인트 변환은 Isaac 없이 도는 테스트로 덮여 있다
+(`tests/test_rsl_rl_checkpoint_conversion.py`).
+
+확인된 것: `odm measure v25`가 위 표의 수치를 재현하고(전진만 0.138~0.159로
+흔들리는데 두 번 재보니 런간 편차 범위다), `odm train`도 이 PC에서 돈다 —
+액터 104->512, **크리틱 208**->512로 비대칭 크리틱이 그대로다.
+
+**1번은 이 프로젝트 문제가 아니다.** "2번이 1번의 원인"이라는 위의 추정은
+틀렸다. 프로젝트 코드를 한 줄도 안 쓰는 `AppLauncher(headless=False)` 세 줄로도
+똑같이 죽고, 자리도 매번 같다 (`omni.usd.create_hydra_engine` ->
+`librtx.scenedb.plugin.so`). 제외한 것: 샌드박스, ROS `LD_LIBRARY_PATH`,
+셰이더 캐시, 드라이버 미지원 범위, 그리고 **창 자체** — `headless=True,
+enable_cameras=True`로 창 없이 RTX만 켜도 같은 자리에서 죽는다. 즉 WebRTC로도
+우회되지 않는다. 이 PC의 Isaac Sim 설치(소스 빌드
+`~/Desktop/issacsimfolder/isaacsim/_build/...`, IsaacLab의 `_isaac_sim`이 그리로
+심링크) 쪽을 봐야 한다. 재현용 최소 스크립트를 먼저 쓸 것 — 부팅이 2.5초라
+반복이 싸다.
+
+    from isaaclab.app import AppLauncher
+    app = AppLauncher(headless=True, enable_cameras=True).app
+
+**학습은 막혀 있지 않다.** 학습은 원래 `--headless`라 렌더러를 안 쓴다.
+1번이 막는 것은 눈으로 보는 것(`odm play`)뿐이고, 측정(`odm measure`)은 된다.
+다만 이 프로젝트의 결정적 단서는 매번 육안 관찰에서 나왔으므로, v25를 3000까지
+미는 것과 1번을 고치는 것 중 무엇을 먼저 할지는 그 점을 감안해서 정할 것.
