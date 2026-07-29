@@ -23,8 +23,26 @@ task_of() {
     *) echo "" ;;
   esac
 }
-latest_run() { ls -dt "$LOGROOT"/*"$1"* 2>/dev/null | head -1; }
-latest_ckpt() { ls -t "$(latest_run "$1")"/model_*.pt 2>/dev/null | head -1; }
+# pipefail 탓에, 런이 없어 ls가 실패하면 파이프라인 전체가 실패로 잡히고
+# set -e가 "체크포인트 없음" 안내에 닿기도 전에 스크립트를 조용히 죽인다.
+# 없으면 빈 문자열을 정상 결과로 돌려주고, 판단은 호출부에 맡긴다.
+latest_run() { ls -dt "$LOGROOT"/*"$1"* 2>/dev/null | head -1 || true; }
+latest_ckpt() {
+  local r; r="$(latest_run "$1")"
+  [ -n "$r" ] || return 0
+  ls -t "$r"/model_*.pt 2>/dev/null | head -1 || true
+}
+
+# WebRTC는 접속자가 실제로 쓰는 주소를 publicEndpointAddress로 알려줘야 붙는다.
+# 이 PC는 유선(192.168.55.x, 기본 경로)과 무선(192.168.137.x, 맥 쪽) 둘 다 있고
+# 시청은 무선 쪽에서 하므로 기본 경로 기준으로 고르면 틀린다. 무선을 우선하되
+# 다른 데서 볼 때는 ODM_HOST_IP로 덮어쓴다.
+host_ip() {
+  if [ -n "${ODM_HOST_IP:-}" ]; then echo "$ODM_HOST_IP"; return; fi
+  local ips; ips="$(hostname -I)"
+  for ip in $ips; do case "$ip" in 192.168.137.*) echo "$ip"; return ;; esac; done
+  echo "$ips" | awk '{print $1}'
+}
 
 gpu_busy() { [ "$(ps aux | grep -c '[t]rain.py')" -gt 0 ] || [ "$(ps aux | grep -c '[p]lay_fixed')" -gt 0 ]; }
 require_free_gpu() {
@@ -58,18 +76,36 @@ play)
   [ -z "$task" ] && { echo "알 수 없는 버전 $ver" >&2; exit 1; }
   [ -z "$ck" ] && { echo "체크포인트 없음: $ver" >&2; exit 1; }
   require_free_gpu
+  # 기본은 이 PC 모니터에 뜨는 네트워크 없는 네이티브 창. WebRTC는 랩PC 시절
+  # 화면이 없어서 쓰던 우회로였고, 지연·화질·publicEndpointAddress 문제를
+  # 전부 안고 있었다. 원격에서 띄워도 창은 로컬 X 세션(:0)에 뜬다.
+  mode=native
+  if [ "${1:-}" = "--stream" ]; then mode=stream; shift; fi
+
+  if [ "$mode" = native ]; then
+    render=(); export DISPLAY=:0
+  else
+    ip="$(host_ip)"
+    render=(--livestream 2 --kit_args "--/app/livestream/publicEndpointAddress=$ip")
+  fi
+
   cd "$PROJ"
   setsid nohup "$IL" -p scripts/_isaaclab_launch.py scripts/play_fixed_cmd.py \
     --task "$task" --checkpoint "$ck" --num_envs 1 \
-    --cycle --hold 8 --overlay --hud --livestream 2 "$@" \
+    --cycle --hold 8 --overlay --hud "${render[@]}" "$@" \
     > "$RUNLOG/play_$ver.log" 2>&1 < /dev/null &
   echo "재생 시작: $ver  $(basename "$ck")"
-  echo "  http://$(hostname -I | awk '{print $1}'):8011/streaming/webrtc-client"
+  if [ "$mode" = native ]; then
+    echo "  이 PC 모니터에 창이 뜹니다 (부팅 1~2분)."
+  else
+    echo "  http://$ip:8011/streaming/webrtc-client"
+  fi
   echo "  (정지/전진/후진/좌/우/회전 8초씩 순환, 외란 없음)"
   ;;
 
 measure)
   ver="${1:-v25}"; task="$(task_of "$ver")"; ck="$(latest_ckpt "$ver")"
+  [ -z "$task" ] && { echo "알 수 없는 버전 $ver" >&2; exit 1; }
   [ -z "$ck" ] && { echo "체크포인트 없음: $ver" >&2; exit 1; }
   require_free_gpu
   cd "$PROJ"
@@ -105,7 +141,7 @@ tb)
   for d in "$LOGROOT"/*imitation_*; do [ -d "$d" ] && ln -sfn "$d" "/tmp/tb/$(basename "$d" | sed 's/.*_imitation/imitation/')"; done
   setsid nohup "$IL" -p -m tensorboard.main --logdir /tmp/tb --bind_all --port 6006 \
     > "$RUNLOG/tb.log" 2>&1 < /dev/null &
-  echo "텐서보드: http://$(hostname -I | awk '{print $1}'):6006   ($(ls /tmp/tb | wc -l)개 런)"
+  echo "텐서보드: http://$(host_ip):6006   ($(ls /tmp/tb | wc -l)개 런)"
   ;;
 
 stop)
@@ -130,7 +166,8 @@ odm — OpenDuck Mini 원스톱
 
   odm train  [ver] [iters] [envs]   학습 시작   (기본 v26 3000 4096)
   odm watch  [ver]                  진행 상황 한 줄
-  odm play   [ver] [추가인자...]     재생 + WebRTC (명령 순환, 오버레이, HUD)
+  odm play   [ver] [추가인자...]     재생 — 네이티브 창 (명령 순환, 오버레이, HUD)
+  odm play   [ver] --stream         재생 — WebRTC (화면 없는 기계에서만)
   odm measure[ver]                  6방향·주기성·리워드 성분 측정
   odm tb                            텐서보드 (전체 런 겹쳐보기)
   odm stop                          학습/재생 정리
