@@ -223,3 +223,41 @@ class JoystickPPORunnerCfg_BigNetMB16(JoystickPPORunnerCfg_BigNetLowEnt):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
+
+
+@configclass
+class JoystickPPORunnerCfg_Gamma097(JoystickPPORunnerCfg_BigNetLowEnt):
+    """imitation_v24 — v22에서 gamma만 0.99 -> 0.97. 한 번에 하나만 바꾼다.
+
+    앞선 귀속이 틀렸다는 것을 v23이 드러냈다. v22와 v20b를 "minibatch 차이"로
+    설명했지만 실제로는 다섯 개가 함께 달랐다:
+
+               num_steps  minibatch  epochs  gamma   lr(init)
+      v20b        20         32         4     0.97    3e-4
+      v22/v23     24        4/16        5     0.99    1e-3
+
+    v23에서 minibatch를 4->16으로 네 배 올렸는데 곡선이 v22와 완전히 겹쳤다
+    (iter 160에서 둘 다 0.192, v20b는 0.268). minibatch는 이 태스크에서
+    사실상 무관하다.
+
+    남은 유력 후보가 gamma다. 0.97과 0.99는 유효 시간지평이 각각 약 33스텝과
+    100스텝으로 세 배 차이인데, 이 로봇의 보행 주기는 27스텝이다. 0.97은 대략
+    한 주기를 보고 0.99는 세 주기를 본다. 주기적 과제에서 크리틱이 추정해야 할
+    범위가 세 배 넓어지면 가치 추정이 어려워지고, 그것이 어드밴티지 품질로
+    이어진다 -- 비대칭 크리틱이 그렇게 크게 작용했던 것과 같은 축이다.
+    """
+
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.97,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    )
