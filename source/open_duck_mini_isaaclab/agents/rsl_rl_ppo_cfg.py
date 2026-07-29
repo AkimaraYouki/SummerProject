@@ -185,3 +185,41 @@ class JoystickPPORunnerCfg_BigNetLowEnt(JoystickPPORunnerCfg_BigNet):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
+
+
+@configclass
+class JoystickPPORunnerCfg_BigNetMB16(JoystickPPORunnerCfg_BigNetLowEnt):
+    """imitation_v23 — num_mini_batches 16. 업데이트 수와 lr 안정성 사이 절충.
+
+    v20b/v21/v22로 두 파라미터를 분리한 결과, 환경·리워드·네트워크가 전부
+    동일한 조건에서:
+
+      run   minibatch  entropy   업데이트/iter   스텝당   에피
+      v21       4       0.01          20        0.141   365
+      v22       4       0.005         20        0.222   466
+      v20b     32       0.005        128        0.342   498
+
+    entropy 0.01→0.005 (v21→v22)이 +57%, minibatch 4→32 (v22→v20b)가 +54%.
+    두 축 모두 유효하지만 minibatch 쪽이 더 크고, 무엇보다 v20b는 KL 초과로
+    lr이 iter 150에 1e-5 바닥에 붙은 상태에서도 이겼다. 즉 iteration당
+    업데이트 20회는 이 태스크에 부족하다 — 미니배치 24,576(4096x24÷4)은
+    지나치게 크다.
+
+    16이면 미니배치 6,144, 업데이트 80회로 v20b(128)와 v22(20) 사이다.
+    lr을 바닥까지 밀지 않으면서 업데이트 수를 확보하는 지점을 찾는 것이 목적.
+    """
+
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,
+        num_learning_epochs=5,
+        num_mini_batches=16,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    )

@@ -78,6 +78,7 @@ from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import (  # noqa: E402
     JoystickPPORunnerCfg_Upstream,
     JoystickPPORunnerCfg_BigNet,
     JoystickPPORunnerCfg_BigNetLowEnt,
+    JoystickPPORunnerCfg_BigNetMB16,
 )
 
 # The runner cfg must match the one the checkpoint was TRAINED with, not just
@@ -88,6 +89,7 @@ _TASK_TO_RUNNER = {
     "Isaac-OpenDuckMini-Joystick-Walk9-v0": JoystickPPORunnerCfg_Upstream,
     "Isaac-OpenDuckMini-Joystick-Walk9Big-v0": JoystickPPORunnerCfg_BigNet,
     "Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0": JoystickPPORunnerCfg_BigNetLowEnt,
+    "Isaac-OpenDuckMini-Joystick-Walk9MB16-v0": JoystickPPORunnerCfg_BigNetMB16,
 }
 
 from open_duck_mini_isaaclab.joint_order import ACT_LEG_JOINT_IDX  # noqa: E402
@@ -106,6 +108,7 @@ _TASK_TO_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-Walk9-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Walk9Big-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0": "JoystickEnvCfg_Walk9",
+    "Isaac-OpenDuckMini-Joystick-Walk9MB16-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
 }
 if args_cli.task not in _TASK_TO_CFG_CLASS:
