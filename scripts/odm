@@ -125,23 +125,40 @@ measure)
 watch)
   ver="${1:-v26}"; L="$RUNLOG/train_$ver.log"
   [ -f "$L" ] || { echo "로그 없음: $L" >&2; exit 1; }
-  it=$(grep -a "Learning iteration" "$L" | tail -1 | sed 's/.*iteration //;s/ .*//;s/\x1b\[[0-9;]*m//g')
-  r=$(grep -a "Mean reward:" "$L" | tail -1 | sed 's/.*: //')
-  e=$(grep -a "Mean episode length:" "$L" | tail -1 | sed 's/.*: //')
-  s=$(grep -a "action noise std:" "$L" | tail -1 | sed 's/.*: //')
-  eta=$(grep -a "ETA" "$L" | tail -1 | sed 's/.*: //')
-  c=$(grep -acE "Traceback|illegal memory|RuntimeError" "$L")
+  # 한 항목이라도 못 찾으면 grep 이 exit 1 을 내고 set -e 가 스크립트를 죽인다.
+  # 전부 || true 로 감싸서, 없는 항목은 빈칸으로 두고 나머지는 보여준다.
+  it=$(grep -a "Learning iteration" "$L" | tail -1 | sed 's/.*iteration //;s/ .*//;s/\x1b\[[0-9;]*m//g' || true)
+  r=$(grep -a "Mean reward:" "$L" | tail -1 | sed 's/.*: //' || true)
+  e=$(grep -a "Mean episode length:" "$L" | tail -1 | sed 's/.*: //' || true)
+  # rsl-rl 2.x 는 "Mean action noise std:", 5.0.1 은 "Mean action std:" 로 찍는다.
+  s=$(grep -aE "action (noise )?std:" "$L" | tail -1 | sed 's/.*: //' || true)
+  eta=$(grep -a "ETA" "$L" | tail -1 | sed 's/.*: //' || true)
+  # grep -c 는 0건일 때 exit 1 이라 set -e 가 스크립트를 죽인다. 즉 크래시가
+  # 하나도 없는 정상 상황에서만 watch 가 조용히 실패했다.
+  c=$(grep -acE "Traceback|illegal memory|RuntimeError" "$L" || true)
   ps_=$(awk -v r="$r" -v e="$e" 'BEGIN{if(e>0) printf "%.4f", r/e; else print "-"}')
   echo "$ver  iter $it | 스텝당 $ps_ (R $r / 에피 $e) | std $s | ETA $eta | 크래시 $c"
   ;;
 
 tb)
+  # v26부터만 겹친다. v25 이하는 rsl-rl 2.x에서 돌린 것이고 지금은 5.0.1이라
+  # PPO 구현이 세 세대 다르다 — 같은 그래프에 놓으면 구현 차이를 알고리즘
+  # 차이로 오독하게 된다 (인수인계 문서의 "스케일 착시"와 같은 함정).
+  # 옛 런까지 보고 싶으면 임계값을 낮춰서 부르면 된다:  odm tb 1
+  from="${1:-26}"
   pkill -9 -f tensorboard 2>/dev/null || true; sleep 2
   mkdir -p /tmp/tb; rm -f /tmp/tb/*
-  for d in "$LOGROOT"/*imitation_*; do [ -d "$d" ] && ln -sfn "$d" "/tmp/tb/$(basename "$d" | sed 's/.*_imitation/imitation/')"; done
+  for d in "$LOGROOT"/*imitation_v*; do
+    [ -d "$d" ] || continue
+    # 2026-07-30_02-35-26_imitation_v26 -> 26  (v20b 같은 접미사는 떼어낸다)
+    n="$(basename "$d" | sed 's/.*_imitation_v//; s/[^0-9].*//')"
+    [ -n "$n" ] || continue
+    [ "$n" -ge "$from" ] 2>/dev/null || continue
+    ln -sfn "$d" "/tmp/tb/$(basename "$d" | sed 's/.*_imitation/imitation/')"
+  done
   setsid nohup "$IL" -p -m tensorboard.main --logdir /tmp/tb --bind_all --port 6006 \
     > "$RUNLOG/tb.log" 2>&1 < /dev/null &
-  echo "텐서보드: http://$(host_ip):6006   ($(ls /tmp/tb | wc -l)개 런)"
+  echo "텐서보드: http://$(host_ip):6006   (v$from 이상 $(ls /tmp/tb | wc -l)개 런)"
   ;;
 
 stop)
