@@ -16,10 +16,10 @@
                "넘어지지만 않는" 정책일 수 있다. 이 프로젝트의 v4 "플랭크"가
                정확히 그것이었다 — 접촉력 0.000 N으로 모든 종료를 빠져나갔다.
 
-**중요한 한계**: 지금 환경은 리워드 총합만 기록하고 항목별 분해를 남기지 않는다
-(`_get_rewards`가 7~8개 항을 더해서 반환하고 끝난다). 리워드 해킹은 "어느 항만
-치솟고 나머지는 정체"로 나타나므로, 총합만으로는 확정할 수 없고 **의심 신호까지만**
-잡을 수 있다. 항목별 로깅이 붙으면 이 스크립트도 항별 비교로 올려야 한다.
+리워드 해킹은 v27부터 직접 본다. `_get_rewards`가 항목별 값을
+`extras["log"]` -> 텐서보드 `Episode_Reward/*` 로 올리므로(2026-07-30 추가),
+"어느 항만 오르고 명령 추종은 정체" 를 곡선으로 판정할 수 있다. v26 이전 런은
+총합만 있어서 이 부분이 건너뛰어진다.
 
 그리고 이 스크립트의 판정은 **곡선 기반이라 그 자체로 성공/실패 판정이 아니다**.
 경고가 없다고 "잘 학습됐다"고 말하면 안 된다 — 판정은 끝난 뒤 `odm measure`와
@@ -60,6 +60,16 @@ def _trend(series, frac=0.3):
     if a == 0:
         return None
     return (b - a) / abs(a)
+
+
+def _zip_terms(series, keep):
+    """선택한 항목들을 step 기준으로 묶어 [(step, [값...])] 로 돌려준다.
+    항목마다 기록 step 이 같다고 가정하지 않고 최소 길이에 맞춘다."""
+    chosen = [v for k, v in series.items() if keep(k)]
+    if not chosen:
+        return []
+    n = min(len(v) for v in chosen)
+    return [(chosen[0][i][0], [v[i][1] for v in chosen]) for i in range(n)]
 
 
 def main():
@@ -130,6 +140,41 @@ def main():
     if ps_trend is not None and ps_trend < -0.05:
         warn.append(f"스텝당 리워드가 최근 {ps_trend*100:+.1f}%로 하락 중이다.")
 
+    # ── 리워드 항목별 (v27~) ───────────────────────────────────────────
+    term_tags = [t for t in acc.Tags()["scalars"] if t.startswith("Episode_Reward/")]
+    if term_tags:
+        series = {t.split("/", 1)[1]: _scalars(acc, t) for t in term_tags}
+        latest = {k: _last(v, 0.0) for k, v in series.items()}
+        trends = {k: _trend(v) for k, v in series.items()}
+        print("\n[리워드 항목]  현재값 / 최근 추세")
+        for k in sorted(latest, key=lambda k: -abs(latest[k])):
+            tr = trends[k]
+            tr_s = f"{tr*100:+6.1f}%" if tr is not None else "   n/a"
+            print(f"  {k:<18} {latest[k]:+8.4f}   {tr_s}")
+
+        # 리워드 해킹 판정: 명령 추종은 제자리인데 다른 양의 항이 계속 오르는가.
+        # 이 프로젝트가 실제로 겪은 것 — v26 은 3000 iter 로 v25@1500 의 2배를
+        # 학습했는데 모방 리워드는 오르고(2.79 -> 2.85) 명령 추종은 내려갔다
+        # (전진 89% -> 81%). 총합만 보면 그때도 곡선은 예쁘게 올라갔다.
+        is_tracking = lambda k: k.startswith("tracking_")  # noqa: E731
+        track_now = sum(v for k, v in latest.items() if is_tracking(k))
+        track_series = [(s, sum(vals)) for s, vals in _zip_terms(series, is_tracking)]
+        track_trend = _trend(track_series)
+        # alive 는 상수라 추세 비교에서 빼고, 추종과 경쟁하는 항만 본다.
+        others = {k: v for k, v in latest.items() if v > 0 and not is_tracking(k) and k != "alive"}
+        if others:
+            top = max(others, key=others.get)
+            top_trend = trends.get(top)
+            trend_s = f" ({track_trend*100:+.1f}%)" if track_trend is not None else ""
+            print(f"\n  명령 추종 합계 {track_now:+.4f}{trend_s}")
+            if track_trend is not None and top_trend is not None:
+                if top_trend > 0.02 and track_trend < 0.01:
+                    warn.append(
+                        f"리워드 해킹 의심: '{top}' 는 최근 {top_trend*100:+.1f}% 오르는데 "
+                        f"명령 추종 합계는 {track_trend*100:+.1f}% 로 제자리다. v26 이 이 양상으로 "
+                        "총 리워드는 올리면서 실제 추종은 떨어뜨렸다."
+                    )
+
     print()
     if warn:
         print("  경고:")
@@ -137,10 +182,12 @@ def main():
             print(f"   - {w}")
     else:
         print("  경고 없음.")
-    print(
-        "\n  주의: 곡선만 본 판정이다. 리워드 항목별 분해가 기록되지 않아 리워드 해킹은 "
-        "의심까지만 잡힌다. 성공 판정은 학습 후 odm measure 와 odm play(눈)로 한다."
-    )
+    note = ("\n  주의: 곡선만 본 판정이다. 성공 판정은 학습 후 odm measure(행동 지표)와 "
+            "odm play(눈)로 한다 — 이 프로젝트의 결정적 단서는 매번 육안에서 나왔다.")
+    if not term_tags:
+        note += ("\n  이 런에는 리워드 항목별 기록이 없다(v26 이전). 리워드 해킹은 "
+                 "총합만으로는 의심조차 잡기 어렵다.")
+    print(note)
 
 
 if __name__ == "__main__":
