@@ -105,9 +105,19 @@ play)
   ;;
 
 measure)
-  ver="${1:-v25}"; task="$(task_of "$ver")"; ck="$(latest_ckpt "$ver")"
+  # 두 번째 인자로 iteration 을 주면 그 체크포인트를 잰다: odm measure v27 1500
+  # 왜 필요한가: v26 이 v25@1500 보다 두 배 학습하고도 추종이 나빠졌다. 학습량이
+  # 다르면 비교가 성립하지 않으므로, 같은 iteration 끼리 재야 한다.
+  ver="${1:-v25}"; iter="${2:-}"; task="$(task_of "$ver")"
   [ -z "$task" ] && { echo "알 수 없는 버전 $ver" >&2; exit 1; }
-  [ -z "$ck" ] && { echo "체크포인트 없음: $ver" >&2; exit 1; }
+  if [ -n "$iter" ]; then
+    run="$(latest_run "$ver")"
+    ck="$run/model_$iter.pt"
+    [ -f "$ck" ] || { echo "체크포인트 없음: $ck" >&2; exit 1; }
+  else
+    ck="$(latest_ckpt "$ver")"
+    [ -z "$ck" ] && { echo "체크포인트 없음: $ver" >&2; exit 1; }
+  fi
   require_free_gpu
   cd "$PROJ"
   echo "측정: $ver  $(basename "$ck")  (약 7분)"
@@ -207,7 +217,7 @@ odm — OpenDuck Mini 원스톱
   odm play   [ver] [추가인자...]     재생 — 네이티브 창 (명령 순환, 오버레이, HUD)
   odm play   [ver] --stream         재생 — WebRTC (화면 없는 기계에서만)
   odm play   [ver] --joystick       재생 — Xbox 패드로 실시간 조종 (시간초과 리셋 없음)
-  odm measure[ver]                  6방향·주기성·리워드 성분 측정
+  odm measure[ver] [iter]           6방향·주기성·리워드 성분 (iter 주면 그 체크포인트)
   odm tb                            텐서보드 (전체 런 겹쳐보기)
   odm stop                          학습/재생 정리
   odm list                          런과 체크포인트 목록
