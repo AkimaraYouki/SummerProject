@@ -31,10 +31,6 @@ from rsl_rl.runners import OnPolicyRunner  # noqa: E402
 import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
 from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import (  # noqa: E402
     JoystickPPORunnerCfg,
-    JoystickPPORunnerCfg_Upstream,
-    JoystickPPORunnerCfg_BigNet,
-    JoystickPPORunnerCfg_BigNetLowEnt,
-    JoystickPPORunnerCfg_BigNetMB16,
     JoystickPPORunnerCfg_Gamma097,
 )
 
@@ -43,10 +39,7 @@ from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import (  # noqa: E402
 # other variant uses (256,128,64), and loading across them fails with a bare
 # size-mismatch on actor.0.weight.
 _TASK_TO_RUNNER = {
-    "Isaac-OpenDuckMini-Joystick-Walk9-v0": JoystickPPORunnerCfg_Upstream,
-    "Isaac-OpenDuckMini-Joystick-Walk9Big-v0": JoystickPPORunnerCfg_BigNet,
-    "Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0": JoystickPPORunnerCfg_BigNetLowEnt,
-    "Isaac-OpenDuckMini-Joystick-Walk9MB16-v0": JoystickPPORunnerCfg_BigNetMB16,
+    "Isaac-OpenDuckMini-Joystick-Walk9-v0": JoystickPPORunnerCfg_Gamma097,
     "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": JoystickPPORunnerCfg_Gamma097,
     "Isaac-OpenDuckMini-Joystick-Path-v0": JoystickPPORunnerCfg_Gamma097,
 }
@@ -62,9 +55,6 @@ _MAP = {
     "Isaac-OpenDuckMini-Joystick-Walk3-v0": "JoystickEnvCfg_Walk3",
     "Isaac-OpenDuckMini-Joystick-Walk6-v0": "JoystickEnvCfg_Walk6",
     "Isaac-OpenDuckMini-Joystick-Walk9-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Walk9Big-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Walk9MB16-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Path-v0": "JoystickEnvCfg_Path",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
@@ -100,7 +90,7 @@ print(f"[info] gait_period_steps={u._gait_period_steps} dt={u.step_dt}", flush=T
 store = {}
 for name, cx, cy, cw in CONDS:
     obs, _ = env.reset()
-    q, qr, dq, dqr, vb, vw, vr, ft, wz, wr = [], [], [], [], [], [], [], [], [], []
+    q, qr, dq, dqr, vb, vw, vr, ft, wz, wr, pe = [], [], [], [], [], [], [], [], [], [], []
     for step in range(args_cli.num_steps):
         u._command[:, 0] = cx
         u._command[:, 1] = cy
@@ -114,6 +104,10 @@ for name, cx, cy, cw in CONDS:
         qr.append(rf[:, 0:14][:, REF_LEG_JOINT_IDX].cpu().numpy())
         dqr.append(rf[:, 14:28][:, REF_LEG_JOINT_IDX].cpu().numpy())
         ft.append(u._get_foot_contact().float().cpu().numpy())
+        # path frame 오차 (v25 이후). 순수 rate 명령에서는 "휘었다"는 사실이
+        # 어디에도 안 남으므로, 이 값이 직진성을 재는 유일한 직접 지표다.
+        if getattr(u.cfg, "use_path_frame", False):
+            pe.append(u._path_error().cpu().numpy())
         vb.append(u._robot.data.root_lin_vel_b[:, :2].cpu().numpy())   # command frame
         vw.append(u._robot.data.root_lin_vel_w[:, :2].cpu().numpy())   # reference frame
         vr.append(rf[:, 30:32].cpu().numpy())
@@ -124,6 +118,7 @@ for name, cx, cy, cw in CONDS:
         feet=np.asarray(ft), v_base=np.asarray(vb), v_world=np.asarray(vw),
         v_ref=np.asarray(vr), w_base=np.asarray(wz), w_ref=np.asarray(wr),
         cmd=np.array([cx, cy, cw]),
+        path_err=np.asarray(pe) if pe else np.zeros((0, 0, 3)),
     )
     err = np.linalg.norm(np.asarray(vb)[100:].mean(axis=(0, 1)) - np.array([cx, cy]))
     print(f"[ok] {name:9s} cmd=({cx:+.2f},{cy:+.2f},{cw:+.2f})  "

@@ -40,10 +40,6 @@ from rsl_rl.runners import OnPolicyRunner  # noqa: E402
 import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
 from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import (  # noqa: E402
     JoystickPPORunnerCfg,
-    JoystickPPORunnerCfg_Upstream,
-    JoystickPPORunnerCfg_BigNet,
-    JoystickPPORunnerCfg_BigNetLowEnt,
-    JoystickPPORunnerCfg_BigNetMB16,
     JoystickPPORunnerCfg_Gamma097,
 )
 
@@ -52,10 +48,7 @@ from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import (  # noqa: E402
 # other variant uses (256,128,64), and loading across them fails with a bare
 # size-mismatch on actor.0.weight.
 _TASK_TO_RUNNER = {
-    "Isaac-OpenDuckMini-Joystick-Walk9-v0": JoystickPPORunnerCfg_Upstream,
-    "Isaac-OpenDuckMini-Joystick-Walk9Big-v0": JoystickPPORunnerCfg_BigNet,
-    "Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0": JoystickPPORunnerCfg_BigNetLowEnt,
-    "Isaac-OpenDuckMini-Joystick-Walk9MB16-v0": JoystickPPORunnerCfg_BigNetMB16,
+    "Isaac-OpenDuckMini-Joystick-Walk9-v0": JoystickPPORunnerCfg_Gamma097,
     "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": JoystickPPORunnerCfg_Gamma097,
     "Isaac-OpenDuckMini-Joystick-Path-v0": JoystickPPORunnerCfg_Gamma097,
 }
@@ -74,9 +67,6 @@ _MAP = {
     "Isaac-OpenDuckMini-Joystick-Walk3-v0": "JoystickEnvCfg_Walk3",
     "Isaac-OpenDuckMini-Joystick-Walk6-v0": "JoystickEnvCfg_Walk6",
     "Isaac-OpenDuckMini-Joystick-Walk9-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Walk9Big-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Walk9MB16-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Path-v0": "JoystickEnvCfg_Path",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",

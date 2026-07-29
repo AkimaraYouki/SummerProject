@@ -76,70 +76,35 @@ class JoystickPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 # limit angle then pops/flings outward") behavior. Doubles the initial
 # action-noise std to widen early exploration.
 @configclass
-class JoystickPPORunnerCfg_N2(JoystickPPORunnerCfg):
-    policy = RslRlPpoActorCriticCfg(
-        init_noise_std=2.0,
-        actor_hidden_dims=[256, 128, 64],
-        critic_hidden_dims=[256, 128, 64],
-        activation="elu",
-    )
+class JoystickPPORunnerCfg_Gamma097(JoystickPPORunnerCfg):
+    """imitation_v24 이후의 표준 설정. 비대칭 크리틱과 함께 쓴다.
 
+    2026-07-29 정리. v20~v24를 거치며 러너 클래스가 7개까지 늘었는데
+    (N2 / Upstream / BigNet / BigNetLowEnt / BigNetMB16 / Gamma097) 대부분은
+    실패로 판정된 경로였다. 상속도 3단계라 실제 값을 알려면 사슬을 타야 했다.
+    여기서는 값을 직접 적고, 지운 것들의 결론만 남긴다:
 
-@configclass
-class JoystickPPORunnerCfg_Upstream(JoystickPPORunnerCfg):
-    """PPO hyperparameters aligned to what upstream actually runs.
+      N2          init_noise_std 2.0 — v6 시절 탐색 확대 시도, 이후 미사용
+      Upstream    brax 하이퍼파라미터 그대로 이식(minibatch 32, entropy 0.005,
+                  epochs 4, gamma 0.97, steps 20). num_minibatches 32는 rsl_rl
+                  에서 iteration당 128회 업데이트를 뜻해(v17은 20회) KL이 초과했고
+                  adaptive 스케줄이 lr을 최저 한계 1e-5까지 깎아 iter 150부터
+                  학습이 동결됐다. brax는 lr 고정에 KL 적응이 없다 —
+                  **하이퍼파라미터는 PPO 구현 간에 이식되지 않는다.**
+      BigNet      네트워크만 키우고 PPO는 v17 값. entropy 0.01이 노이즈 std를
+                  0.75로 밀어올려(액션 잡음 약 10°, 관절 추종 오차 7~8°보다 큼)
+                  iter 100부터 0.145에 정체.
+      BigNetLowEnt entropy 0.005로 되돌려 0.222까지 회복. Gamma097의 직전 단계.
+      BigNetMB16  minibatch 16. 4→16으로 네 배 올렸는데 곡선이 BigNetLowEnt와
+                  완전히 겹쳤다(iter 160에서 둘 다 0.192) — minibatch는 이
+                  태스크에서 무관하며, 앞서 이를 원인으로 지목했던 것은 오귀속이었다.
 
-    Upstream calls `locomotion_params.brax_ppo_config(
-    "BerkeleyHumanoidJoystickFlatTerrain")` -- with a literal `# TODO` -- so
-    these are Berkeley Humanoid's numbers, borrowed untuned. Recorded here so a
-    later reader does not mistake them for values validated on this robot.
-
-      network         (512, 256, 128)   was (256, 128, 64)
-      learning_rate   3e-4              was 1e-3
-      entropy_coef    0.005             was 0.01
-      num_mini_batches 32               was 4
-      gamma           0.97              was 0.99
-      num_updates     4                 was 5   (upstream num_updates_per_batch)
-      rollout         20                was 24  (upstream unroll_length)
-    """
-
-    num_steps_per_env = 20
-
-    def __post_init__(self):
-        super().__post_init__() if hasattr(super(), "__post_init__") else None
-        self.policy.actor_hidden_dims = [512, 256, 128]
-        self.policy.critic_hidden_dims = [512, 256, 128]
-        self.algorithm.learning_rate = 3.0e-4
-        self.algorithm.entropy_coef = 0.005
-        self.algorithm.num_mini_batches = 32
-        self.algorithm.num_learning_epochs = 4
-        self.algorithm.gamma = 0.97
-
-
-@configclass
-class JoystickPPORunnerCfg_BigNet(JoystickPPORunnerCfg):
-    """imitation_v21 — 비대칭 크리틱의 이득만 남기고 나머지는 v17로 복귀.
-
-    v20에서 upstream 하이퍼파라미터를 통째로 옮긴 결과를 분리해보면:
-
-      효과 있었음  네트워크 (512,256,128) + 비대칭 크리틱
-                   → 리워드 동일 조건에서 스텝당 3배, 에피소드 2.6배
-      역효과       num_mini_batches 32 (= 32x4 = iteration당 128 업데이트,
-                   v17은 4x5 = 20). 정책이 6.4배 크게 움직여 KL이 초과하고,
-                   rsl_rl의 adaptive 스케줄이 lr을 최저 한계 1e-5까지 깎아
-                   iter 200부터 학습이 사실상 동결됐다.
-      역효과       entropy_coef 0.005 → mean_noise_std가 0.99에서 0.27로 붕괴
-                   (v17은 0.8 유지). action_scale 0.25를 곱하면 탐색 폭이
-                   3.8도밖에 안 된다. 게다가 가우시안 KL은 sigma^2에 반비례해
-                   std가 줄수록 KL이 커지는 되먹임까지 걸린다.
-
-    brax의 num_minibatches는 데이터 분할 정의가 rsl_rl과 다르고 brax는 lr
-    고정에 KL 적응이 없다 — 숫자를 그대로 옮기면 의미가 달라진다는 게
-    이 런의 교훈이다.
-
-    그래서 여기서는 네트워크 크기만 유지하고 PPO 파라미터는 전부 상속받은
-    기본값(v17과 동일)을 쓴다. __post_init__ 대신 policy를 통째로 다시 적어
-    클래스 본문만 봐도 값이 보이게 했다.
+    여기서 base 대비 실제로 다른 것은 두 가지뿐이다:
+      네트워크  (256,128,64) -> (512,256,128)
+      gamma     0.99 -> 0.97
+    gamma 0.97의 유효 시간지평은 약 33스텝으로 이 로봇의 보행 주기 27스텝과
+    거의 같다. 0.99는 100스텝, 세 주기 반이다. 주기적 과제에서 크리틱이
+    추정해야 할 범위를 한 주기로 좁힌 것이 +53%를 만들었다.
     """
 
     policy = RslRlPpoActorCriticCfg(
@@ -148,104 +113,6 @@ class JoystickPPORunnerCfg_BigNet(JoystickPPORunnerCfg):
         critic_hidden_dims=[512, 256, 128],
         activation="elu",
     )
-
-
-@configclass
-class JoystickPPORunnerCfg_BigNetLowEnt(JoystickPPORunnerCfg_BigNet):
-    """imitation_v22 — v20b와 v21이 각각 반쪽씩 맞았던 것을 합친다.
-
-    v20b는 upstream 파라미터 두 개를 한꺼번에 바꿔서 좋은 쪽과 나쁜 쪽이
-    섞여 있었고, v21에서 둘 다 되돌렸더니 이번엔 반대로 나빠졌다:
-
-      v20b  minibatch 32, entropy 0.005  →  스텝당 0.345, 그러나 lr이
-            iter 150에 1e-5 바닥에 붙어 학습이 동결
-      v21   minibatch  4, entropy 0.01   →  lr은 정상 범위(2.3e-3~7.6e-5)에서
-            진동하지만 스텝당이 iter 180에 0.141로 v20b의 절반
-
-    v21이 뒤처진 이유는 탐색 잡음 자체다. std 0.69 x action_scale 0.25 =
-    관절당 약 10도의 액션 잡음인데, 이 정책의 관절 추종 오차가 7~8도
-    수준이라 잡음이 신호보다 크다. 정밀한 자세 추종이 곧 리워드인 과제에서는
-    넓은 탐색이 그대로 손해가 된다.
-
-    그래서 minibatch만 4로 되돌려 KL 초과와 lr 붕괴를 막고, entropy는 v20b의
-    0.005를 유지해 탐색 잡음을 낮게 둔다.
-    """
-
-    algorithm = RslRlPpoAlgorithmCfg(
-        value_loss_coef=1.0,
-        use_clipped_value_loss=True,
-        clip_param=0.2,
-        entropy_coef=0.005,
-        num_learning_epochs=5,
-        num_mini_batches=4,
-        learning_rate=1.0e-3,
-        schedule="adaptive",
-        gamma=0.99,
-        lam=0.95,
-        desired_kl=0.01,
-        max_grad_norm=1.0,
-    )
-
-
-@configclass
-class JoystickPPORunnerCfg_BigNetMB16(JoystickPPORunnerCfg_BigNetLowEnt):
-    """imitation_v23 — num_mini_batches 16. 업데이트 수와 lr 안정성 사이 절충.
-
-    v20b/v21/v22로 두 파라미터를 분리한 결과, 환경·리워드·네트워크가 전부
-    동일한 조건에서:
-
-      run   minibatch  entropy   업데이트/iter   스텝당   에피
-      v21       4       0.01          20        0.141   365
-      v22       4       0.005         20        0.222   466
-      v20b     32       0.005        128        0.342   498
-
-    entropy 0.01→0.005 (v21→v22)이 +57%, minibatch 4→32 (v22→v20b)가 +54%.
-    두 축 모두 유효하지만 minibatch 쪽이 더 크고, 무엇보다 v20b는 KL 초과로
-    lr이 iter 150에 1e-5 바닥에 붙은 상태에서도 이겼다. 즉 iteration당
-    업데이트 20회는 이 태스크에 부족하다 — 미니배치 24,576(4096x24÷4)은
-    지나치게 크다.
-
-    16이면 미니배치 6,144, 업데이트 80회로 v20b(128)와 v22(20) 사이다.
-    lr을 바닥까지 밀지 않으면서 업데이트 수를 확보하는 지점을 찾는 것이 목적.
-    """
-
-    algorithm = RslRlPpoAlgorithmCfg(
-        value_loss_coef=1.0,
-        use_clipped_value_loss=True,
-        clip_param=0.2,
-        entropy_coef=0.005,
-        num_learning_epochs=5,
-        num_mini_batches=16,
-        learning_rate=1.0e-3,
-        schedule="adaptive",
-        gamma=0.99,
-        lam=0.95,
-        desired_kl=0.01,
-        max_grad_norm=1.0,
-    )
-
-
-@configclass
-class JoystickPPORunnerCfg_Gamma097(JoystickPPORunnerCfg_BigNetLowEnt):
-    """imitation_v24 — v22에서 gamma만 0.99 -> 0.97. 한 번에 하나만 바꾼다.
-
-    앞선 귀속이 틀렸다는 것을 v23이 드러냈다. v22와 v20b를 "minibatch 차이"로
-    설명했지만 실제로는 다섯 개가 함께 달랐다:
-
-               num_steps  minibatch  epochs  gamma   lr(init)
-      v20b        20         32         4     0.97    3e-4
-      v22/v23     24        4/16        5     0.99    1e-3
-
-    v23에서 minibatch를 4->16으로 네 배 올렸는데 곡선이 v22와 완전히 겹쳤다
-    (iter 160에서 둘 다 0.192, v20b는 0.268). minibatch는 이 태스크에서
-    사실상 무관하다.
-
-    남은 유력 후보가 gamma다. 0.97과 0.99는 유효 시간지평이 각각 약 33스텝과
-    100스텝으로 세 배 차이인데, 이 로봇의 보행 주기는 27스텝이다. 0.97은 대략
-    한 주기를 보고 0.99는 세 주기를 본다. 주기적 과제에서 크리틱이 추정해야 할
-    범위가 세 배 넓어지면 가치 추정이 어려워지고, 그것이 어드밴티지 품질로
-    이어진다 -- 비대칭 크리틱이 그렇게 크게 작용했던 것과 같은 축이다.
-    """
 
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,

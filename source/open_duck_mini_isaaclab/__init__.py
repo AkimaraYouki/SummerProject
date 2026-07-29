@@ -55,42 +55,12 @@ try:
         disable_env_checker=True,
         kwargs={
             "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_Walk9",
-            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Upstream",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
         },
     )
 
-    # imitation_v21 — 같은 환경(Walk9)에 PPO 파라미터만 v17 값으로 되돌린 러너.
-    gym.register(
-        id="Isaac-OpenDuckMini-Joystick-Walk9Big-v0",
-        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
-        disable_env_checker=True,
-        kwargs={
-            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_Walk9",
-            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_BigNet",
-        },
-    )
 
-    # imitation_v22 — v21과 같지만 entropy만 v20b의 0.005 (탐색 잡음 축소).
-    gym.register(
-        id="Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0",
-        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
-        disable_env_checker=True,
-        kwargs={
-            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_Walk9",
-            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_BigNetLowEnt",
-        },
-    )
 
-    # imitation_v23 — v22와 같지만 num_mini_batches 16 (업데이트 80회).
-    gym.register(
-        id="Isaac-OpenDuckMini-Joystick-Walk9MB16-v0",
-        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
-        disable_env_checker=True,
-        kwargs={
-            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_Walk9",
-            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_BigNetMB16",
-        },
-    )
 
     # imitation_v24 — v22에서 gamma만 0.99 -> 0.97.
     gym.register(
