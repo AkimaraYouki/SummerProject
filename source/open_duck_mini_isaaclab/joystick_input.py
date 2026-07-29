@@ -118,17 +118,29 @@ class Gamepad:
     def detect_layout(self) -> str:
         """트리거 위치로 축 배치를 판별한다.
 
-        트리거는 안 누르면 -1, 스틱은 0에서 쉰다. 2번이 -1이면 그 자리가 LT인
-        고전 xpad 배치이고, 그렇지 않으면 2번이 오른쪽 스틱 X인 최신 배치다.
-        사용자가 판별 순간에 LT를 당기고 있으면 틀릴 수 있으나, 그 경우
-        `joystick_check.py --raw` 로 확인하고 axis_right_x 를 직접 넣으면 된다.
+        트리거는 안 누르면 -1, 스틱은 0에서 쉰다. 두 배치에서 -1로 쉬는 자리가
+        다르다 — 고전은 2번(LT), 최신은 4번(LT). 그래서 두 자리를 함께 본다.
+
+        한 자리만 보면 틀린다. 연결 순간에 오른쪽 스틱을 왼쪽으로 밀고 있으면
+        최신 배치의 2번이 -1이 되어 고전으로 오인한다(테스트에서 잡혔다).
+        둘 다 -1이면 구분이 안 되므로 요즘 흔한 최신 배치로 가정하고,
+        `joystick_check.py --raw` 로 확인하라고 알린다.
         """
-        if self._axes.get(2, 0.0) <= _TRIGGER_REST:
+        two_is_trigger = self._axes.get(2, 0.0) <= _TRIGGER_REST
+        four_is_trigger = self._axes.get(4, 0.0) <= _TRIGGER_REST
+
+        if four_is_trigger and not two_is_trigger:
+            self.axis_right_x = AXIS_RIGHT_X_MODERN
+            self.layout = "최신 hid (4=LT, 오른쪽 스틱 X=2)"
+        elif two_is_trigger and not four_is_trigger:
             self.axis_right_x = AXIS_RIGHT_X_CLASSIC
             self.layout = "고전 xpad (2=LT, 오른쪽 스틱 X=3)"
         else:
             self.axis_right_x = AXIS_RIGHT_X_MODERN
-            self.layout = "최신 hid (4=LT, 오른쪽 스틱 X=2)"
+            self.layout = (
+                "판별 모호 -> 최신 hid 로 가정 (연결 순간 스틱/트리거를 잡고 "
+                "있었을 수 있습니다. joystick_check.py --raw 로 확인하세요)"
+            )
         self._layout_done = True
         return self.layout
 
@@ -176,6 +188,12 @@ def command_from_gamepad(
     범위를 넘겨받는 이유: 정책은 학습 중 본 명령 분포 안에서만 믿을 수 있다.
     스틱을 끝까지 밀었을 때 그 상한에 정확히 닿아야 하고, 넘어가면 안 된다.
 
+    배치 (2026-07-30 사용자 요청으로 두 스틱의 수평축을 맞바꿨다):
+
+        왼쪽 스틱  세로 = 전진/후진 (vx)
+        왼쪽 스틱  가로 = 제자리 회전 (yaw)
+        오른쪽 스틱 가로 = 게걸음 (vy)
+
     방향 규약 — 로봇 기준 +x 앞, +y 왼쪽, yaw는 반시계 방향이 +.
     스틱은 위/왼쪽이 음수라서 부호를 뒤집는다. 그래야 "스틱을 미는 방향으로
     로봇이 간다"가 된다.
@@ -184,8 +202,8 @@ def command_from_gamepad(
         return 0.0, 0.0, 0.0
 
     vx = -pad.axis(AXIS_LEFT_Y)
-    vy = -pad.axis(AXIS_LEFT_X)
-    yaw = -pad.axis(pad.axis_right_x)
+    yaw = -pad.axis(AXIS_LEFT_X)
+    vy = -pad.axis(pad.axis_right_x)
 
     return (
         _scale(vx, lin_vel_x_range),

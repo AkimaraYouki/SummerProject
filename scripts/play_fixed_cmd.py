@@ -85,6 +85,12 @@ env_cfg.scene.num_envs = args_cli.num_envs
 # 때문인지 구분할 수 없게 만든다.
 env_cfg.events.push_robot = None
 print("[play] 외란(push_robot) 비활성화", flush=True)
+# 조이스틱으로 몰 때는 20초마다 원점으로 되돌아가면 조종이 끊긴다.
+# 시간 초과(time_out)만 사실상 없애고, 넘어짐/뒤집힘 종료는 그대로 둔다 —
+# 그것까지 끄면 쓰러진 채로 영영 누워 있게 된다.
+if args_cli.joystick:
+    env_cfg.episode_length_s = 1.0e9
+    print("[play] 조이스틱 모드: 시간 초과 리셋 해제 (넘어지면 리셋은 유지)", flush=True)
 # ── 레퍼런스 고스트 ─────────────────────────────────────────────────────
 # 구/정육면체 마커로는 "레퍼런스가 어떤 자세를 원하는지"가 안 보인다.
 # reference_motion_generator의 meshcat 재생처럼, 레퍼런스 관절각을 그대로
@@ -436,7 +442,8 @@ if args_cli.joystick:
     try:
         _pad = Gamepad(args_cli.joystick)
         print(f"[play] 조이스틱: {args_cli.joystick}  "
-              f"왼쪽스틱=전후·좌우, 오른쪽스틱 X=회전, A=비상정지", flush=True)
+              f"왼쪽스틱: 세로=전후 가로=회전 · 오른쪽스틱 가로=게걸음 · A=비상정지",
+              flush=True)
         print(f"[play] 명령 범위: vx {env_cfg.lin_vel_x_range}  "
               f"vy {env_cfg.lin_vel_y_range}  yaw {env_cfg.ang_vel_yaw_range}", flush=True)
     except GamepadUnavailable as exc:

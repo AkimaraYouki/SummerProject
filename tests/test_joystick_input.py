@@ -117,13 +117,16 @@ def test_idle_pad_commands_nothing_on_either_layout():
         assert command_from_gamepad(pad, X_RANGE, Y_RANGE, YAW_RANGE) == (0.0, 0.0, 0.0)
 
 
-def test_right_stick_turns_on_the_detected_axis():
+def test_right_stick_strafes_on_the_detected_axis():
+    """오른쪽 스틱 가로 = 게걸음(vy). 판별된 축을 써야 한다."""
     pad = _pad_fed_with(
         *_resting({4: -32767, 5: -32767}),
         _event(JS_EVENT_AXIS, AXIS_RIGHT_X_MODERN, 32767),
     )
     pad.poll()
-    assert command_from_gamepad(pad, X_RANGE, Y_RANGE, YAW_RANGE)[2] < -0.9
+    vx, vy, yaw = command_from_gamepad(pad, X_RANGE, Y_RANGE, YAW_RANGE)
+    assert vy < -0.19, "오른쪽으로 밀면 -y 로 게걸음"
+    assert yaw == 0.0, "오른쪽 스틱은 더 이상 회전이 아니다"
 
 
 def test_deadzone_zeroes_small_drift_and_rescales():
@@ -148,21 +151,47 @@ def test_full_deflection_reaches_exactly_the_trained_range():
 
 def test_stick_direction_matches_robot_frame():
     """스틱을 미는 방향으로 로봇이 가야 한다.
-    로봇 기준 +x 앞, +y 왼쪽, yaw 반시계 +. 스틱은 위/왼쪽이 음수다."""
-    up = _pad_fed_with(_event(JS_EVENT_AXIS, AXIS_LEFT_Y, -32767))
+    로봇 기준 +x 앞, +y 왼쪽, yaw 반시계 +. 스틱은 위/왼쪽이 음수다.
+
+    배치(2026-07-30 사용자 요청으로 두 스틱의 가로축을 맞바꿈):
+      왼쪽 세로=전후, 왼쪽 가로=회전, 오른쪽 가로=게걸음
+    """
+    up = _pad_fed_with(*_resting({1: -32767, 4: -32767, 5: -32767}))
     up.poll()
     assert command_from_gamepad(up, X_RANGE, Y_RANGE, YAW_RANGE)[0] > 0, "위로 밀면 전진"
 
-    left = _pad_fed_with(_event(JS_EVENT_AXIS, AXIS_LEFT_X, -32767))
+    left = _pad_fed_with(*_resting({0: -32767, 4: -32767, 5: -32767}))
     left.poll()
-    assert command_from_gamepad(left, X_RANGE, Y_RANGE, YAW_RANGE)[1] > 0, "왼쪽으로 밀면 +y"
+    assert command_from_gamepad(left, X_RANGE, Y_RANGE, YAW_RANGE)[2] > 0, "왼쪽 스틱 좌 = 반시계 회전"
 
-    right_stick = _pad_fed_with(
-        *_resting({4: -32767, 5: -32767}),
-        _event(JS_EVENT_AXIS, AXIS_RIGHT_X_MODERN, 32767),
-    )
+    # 오른쪽 스틱을 왼쪽으로 밀면 2번이 -1이 되어 판별이 모호해진다. 그래서
+    # 여기서는 오른쪽으로 밀어 -y 를 확인한다 (모호한 경우 자체는 아래 테스트에서).
+    right_stick = _pad_fed_with(*_resting({2: 32767, 4: -32767, 5: -32767}))
     right_stick.poll()
-    assert command_from_gamepad(right_stick, X_RANGE, Y_RANGE, YAW_RANGE)[2] < 0, "오른쪽이면 시계방향"
+    assert command_from_gamepad(right_stick, X_RANGE, Y_RANGE, YAW_RANGE)[1] < 0, "오른쪽 스틱 우 = -y 게걸음"
+
+
+def test_ambiguous_layout_falls_back_to_modern_and_says_so():
+    """연결 순간 오른쪽 스틱을 왼쪽으로 밀고 있으면 2번과 4번이 동시에 -1이라
+    두 배치를 구분할 수 없다. 조용히 틀린 쪽을 고르지 말고 알려야 한다."""
+    pad = _pad_fed_with(*_resting({2: -32767, 4: -32767, 5: -32767}))
+    pad.poll()
+    assert pad.axis_right_x == AXIS_RIGHT_X_MODERN
+    assert "모호" in pad.layout
+
+
+def test_left_and_right_horizontal_axes_are_swapped():
+    """사용자 요청으로 맞바꾼 것 — 되돌아가면 여기서 잡힌다.
+    왼쪽 가로는 회전만, 오른쪽 가로는 게걸음만 건드려야 한다."""
+    left_only = _pad_fed_with(*_resting({0: 32767, 4: -32767, 5: -32767}))
+    left_only.poll()
+    vx, vy, yaw = command_from_gamepad(left_only, X_RANGE, Y_RANGE, YAW_RANGE)
+    assert yaw != 0.0 and vy == 0.0, "왼쪽 스틱 가로는 회전만"
+
+    right_only = _pad_fed_with(*_resting({2: 32767, 4: -32767, 5: -32767}))
+    right_only.poll()
+    vx, vy, yaw = command_from_gamepad(right_only, X_RANGE, Y_RANGE, YAW_RANGE)
+    assert vy != 0.0 and yaw == 0.0, "오른쪽 스틱 가로는 게걸음만"
 
 
 def test_button_a_is_an_emergency_stop():

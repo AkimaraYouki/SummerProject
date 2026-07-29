@@ -61,7 +61,7 @@ def main():
         return 1
 
     print(f"연결됨: {args.device}   (Ctrl-C로 종료)")
-    print("왼쪽 스틱=전후·좌우, 오른쪽 스틱 X=회전, A=비상정지\n")
+    print("왼쪽 스틱: 세로=전후, 가로=회전   오른쪽 스틱: 가로=게걸음   A=비상정지\n")
 
     try:
         while True:
