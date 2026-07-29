@@ -13,6 +13,12 @@ Known simplification vs. Playground #2: Playground computes a delayed/noisy
 final 101-dim `state` observation it returns (the hstack that builds
 `state` omits it) — it's dead code in the source. This port does not
 reproduce that dead computation.
+  UPDATE 2026-07-30 (imitation_v27): `cfg.use_gravity_obs` deliberately
+  departs from upstream here and DOES put projected gravity in the policy
+  observation. This is an experiment, not a bug fix — upstream's omission is
+  faithful, but v26 measured torso roll RMS 7.2 deg and an ang_vel_xy
+  imitation sub-term at 3.6% of its maximum, and the policy has no direct
+  view of which way is down. Off by default; only JoystickEnvCfg_Grav sets it.
 
 Staged training note: `cfg.use_imitation` gates the reference-motion
 subsystem (see joystick_env_cfg.py). When False (Stage 1, current default),
@@ -327,7 +333,19 @@ class JoystickEnv(DirectRLEnv):
                 contact,
                 imitation_phase,
             ]
-            + ([self._path_error()] if self.cfg.use_path_frame else []),
+            + ([self._path_error()] if self.cfg.use_path_frame else [])
+            # 중력 방향 (2026-07-30, imitation_v27). **상류에서 의도적으로 이탈한다.**
+            # 위 모듈 docstring이 적어둔 대로 Playground도 gravity를 계산만 하고
+            # state에는 안 넣는다 -- 빠뜨린 게 아니라 원래 그렇다. 그런데 v26을
+            # 재보니 몸통 roll RMS 7.2도(보행 중 8.2도, 정지 4.1도)이고, 모방
+            # 리워드의 ang_vel_xy 항이 최댓값의 3.6%로 사실상 0점이었다. 몸통
+            # 자세가 안 잡히는데 정책은 "어느 쪽이 아래인지"를 직접 못 본다 --
+            # 자이로(각속도)와 가속도계로 유추해야 하고, 가속도계는 중력과 실제
+            # 가속이 섞여 있다. 크리틱은 노이즈 없는 값을 이미 갖고 있으므로
+            # (비대칭 크리틱) 정책 쪽에만 노이즈를 실어 더한다. 실기에서도 IMU로
+            # 추정 가능한 양이라 sim2real 관점에서 정당하다.
+            + ([apply_uniform_noise(self._robot.data.projected_gravity_b, level, cfg.noise_scale_gravity)]
+               if cfg.use_gravity_obs else []),
             dim=-1,
         )
 

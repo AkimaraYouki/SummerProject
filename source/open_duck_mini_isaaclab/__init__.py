@@ -73,6 +73,17 @@ try:
         },
     )
 
+    # imitation_v27 — v26(Path) + 정책 관측에 중력 방향 3차원.
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-Grav-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_Grav",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
     # imitation_v25 — v24 + path frame (경로 추종으로 직진성 확보).
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-Path-v0",

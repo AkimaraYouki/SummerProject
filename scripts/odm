@@ -20,6 +20,7 @@ task_of() {
     v17) echo "Isaac-OpenDuckMini-Joystick-Walk6-v0" ;;
     v20*|v24) echo "Isaac-OpenDuckMini-Joystick-Walk9G97-v0" ;;
     v25|v26|path) echo "Isaac-OpenDuckMini-Joystick-Path-v0" ;;
+    v27|grav) echo "Isaac-OpenDuckMini-Joystick-Grav-v0" ;;
     *) echo "" ;;
   esac
 }

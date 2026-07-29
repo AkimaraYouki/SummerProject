@@ -71,6 +71,12 @@ assert OBS_STATE_DIM == 101, f"expected 101-dim state obs, computed {OBS_STATE_D
 # (횡방향 오차, cos(방향오차), sin(방향오차)).
 PATH_ERR_DIM = 3
 
+# 중력 방향(projected_gravity, 3차원). 정책 관측에 넣을 때만 붙는다.
+# 상류 Playground도 정책 state에는 안 넣는다(계산만 하고 버리는 죽은 코드) —
+# 빠뜨린 게 아니라 원래 그렇다. v27은 여기서 의도적으로 이탈한다.
+# noise_scale_gravity 는 그동안 정의만 돼 있고 쓰이지 않았는데, 이제 쓰인다.
+GRAVITY_OBS_DIM = 3
+
 REF_FRAME_WIDTH = 36  # poly_reference_motion.REF_FRAME_DIM
 NUM_FEET = 2
 OBS_CRITIC_DIM = (
@@ -367,6 +373,9 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # 횡방향·방향 오차를 관측과 리워드에 넣는다. 끄면 관측 차원이 예전과
     # 같으므로 v1~v24 체크포인트가 그대로 로드된다.
     use_path_frame = False
+    # 정책 관측에 중력 방향을 넣을지. 크리틱은 use_gravity_obs 와 무관하게
+    # 항상 갖고 있다(비대칭 크리틱).
+    use_gravity_obs = False
     path_error_clip = 0.5      # m, 횡방향 오차 클리핑 (초기 발산 방지)
     path_tracking_scale = 0.0  # 리워드 가중치
     path_k_lateral = 20.0      # exp 예민도: 0.22 m 벗어나면 exp(-1)
@@ -537,6 +546,37 @@ class JoystickEnvCfg_Path(JoystickEnvCfg_Walk9):
     path_tracking_scale = 5.0
     observation_space = OBS_STATE_DIM + PATH_ERR_DIM
     state_space = OBS_CRITIC_DIM + PATH_ERR_DIM
+
+
+@configclass
+class JoystickEnvCfg_Grav(JoystickEnvCfg_Path):
+    """imitation_v27 — v26(Path) 설정 그대로 + 정책 관측에 중력 방향 3차원.
+
+    v26을 3000 iter까지 돌린 결과가 근거다. 명령 추종은 v25@1500보다 오히려
+    내려갔는데(전진 89% -> 81%) 모방 리워드는 올랐고, 재보니 몸통이 안 잡혀
+    있었다:
+
+        몸통 roll RMS            7.20 deg   (보행 중 8.2, 정지 4.1)
+        모방 ang_vel_xy 항       최댓값의 3.6%
+        고관절 roll/yaw 이탈     3.9 / 4.5 deg  (무릎·발목 5.3 보다 작다)
+
+    즉 고관절이 특별히 나쁜 게 아니라 **몸통 자세 자체가 안 잡힌다.** 그런데
+    정책 관측에는 중력 방향이 없다 — 자이로(각속도)와 가속도계만으로 기울기를
+    유추해야 하고, 가속도계는 중력과 실제 가속이 섞인다. 크리틱은 노이즈 없는
+    중력을 이미 보고 있으니(비대칭 크리틱) 정책만 못 보는 비대칭이다.
+
+    이 프로젝트에서 판을 바꾼 것은 매번 관측/가치추정 수정이었다(비대칭 크리틱
+    +3배, path frame). 리워드 계수는 열 번 넘게 만져도 국소 개선에 그쳤다.
+    그래서 리워드를 건드리지 않고 관측만 3차원 늘린다 — **한 번에 하나만.**
+
+    실기 이식 관점에서도 정당하다. 중력 방향은 IMU로 추정 가능한 양이고,
+    노이즈(noise_scale_gravity=0.1)를 실어 준다.
+    """
+
+    use_gravity_obs = True
+    observation_space = OBS_STATE_DIM + PATH_ERR_DIM + GRAVITY_OBS_DIM
+    # 크리틱 관측은 정책 state 를 그대로 앞에 붙이므로 같이 3차원 늘어난다.
+    state_space = OBS_CRITIC_DIM + PATH_ERR_DIM + GRAVITY_OBS_DIM
 
 
 

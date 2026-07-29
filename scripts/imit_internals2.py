@@ -24,39 +24,20 @@ from open_duck_mini_isaaclab.agents.rsl_rl_compat import (  # noqa: E402
     build_runner,
     load_checkpoint,
 )
-import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
-from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import (  # noqa: E402
-    JoystickPPORunnerCfg,
-    JoystickPPORunnerCfg_Gamma097,
+from open_duck_mini_isaaclab.tasks.task_registry import (  # noqa: E402
+    env_cfg_for,
+    runner_cfg_for,
 )
+import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
 
-# The runner cfg must match the one the checkpoint was TRAINED with, not just
-# the env cfg: Walk9 trains with the upstream network (512,256,128) while every
-# other variant uses (256,128,64), and loading across them fails with a bare
-# size-mismatch on actor.0.weight.
-_TASK_TO_RUNNER = {
-    "Isaac-OpenDuckMini-Joystick-Walk9-v0": JoystickPPORunnerCfg_Gamma097,
-    "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": JoystickPPORunnerCfg_Gamma097,
-    "Isaac-OpenDuckMini-Joystick-Path-v0": JoystickPPORunnerCfg_Gamma097,
-}
 
-from open_duck_mini_isaaclab.tasks.velocity import joystick_env_cfg as _cm  # noqa: E402
 from open_duck_mini_isaaclab.joint_order import ACT_LEG_JOINT_IDX, REF_LEG_JOINT_IDX  # noqa: E402
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
 
-_MAP = {
-    "Isaac-OpenDuckMini-Joystick-v0": "JoystickEnvCfg",
-    "Isaac-OpenDuckMini-Joystick-Walk3-v0": "JoystickEnvCfg_Walk3",
-    "Isaac-OpenDuckMini-Joystick-Walk6-v0": "JoystickEnvCfg_Walk6",
-    "Isaac-OpenDuckMini-Joystick-Walk9-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Path-v0": "JoystickEnvCfg_Path",
-    "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
-}
-env_cfg = getattr(_cm, _MAP[args_cli.task])()
+env_cfg = env_cfg_for(args_cli.task)
 env_cfg.scene.num_envs = args_cli.num_envs
 env = gym.make(args_cli.task, cfg=env_cfg)
-agent_cfg = _TASK_TO_RUNNER.get(args_cli.task, JoystickPPORunnerCfg)()
+agent_cfg = runner_cfg_for(args_cli.task)
 env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 runner = build_runner(env, agent_cfg)
 load_checkpoint(runner, args_cli.checkpoint)
