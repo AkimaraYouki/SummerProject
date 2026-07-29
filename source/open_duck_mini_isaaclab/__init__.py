@@ -70,5 +70,16 @@ try:
         },
     )
 
+    # imitation_v22 — v21과 같지만 entropy만 v20b의 0.005 (탐색 잡음 축소).
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_Walk9",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_BigNetLowEnt",
+        },
+    )
+
 except ImportError:
     pass

@@ -148,3 +148,40 @@ class JoystickPPORunnerCfg_BigNet(JoystickPPORunnerCfg):
         critic_hidden_dims=[512, 256, 128],
         activation="elu",
     )
+
+
+@configclass
+class JoystickPPORunnerCfg_BigNetLowEnt(JoystickPPORunnerCfg_BigNet):
+    """imitation_v22 — v20b와 v21이 각각 반쪽씩 맞았던 것을 합친다.
+
+    v20b는 upstream 파라미터 두 개를 한꺼번에 바꿔서 좋은 쪽과 나쁜 쪽이
+    섞여 있었고, v21에서 둘 다 되돌렸더니 이번엔 반대로 나빠졌다:
+
+      v20b  minibatch 32, entropy 0.005  →  스텝당 0.345, 그러나 lr이
+            iter 150에 1e-5 바닥에 붙어 학습이 동결
+      v21   minibatch  4, entropy 0.01   →  lr은 정상 범위(2.3e-3~7.6e-5)에서
+            진동하지만 스텝당이 iter 180에 0.141로 v20b의 절반
+
+    v21이 뒤처진 이유는 탐색 잡음 자체다. std 0.69 x action_scale 0.25 =
+    관절당 약 10도의 액션 잡음인데, 이 정책의 관절 추종 오차가 7~8도
+    수준이라 잡음이 신호보다 크다. 정밀한 자세 추종이 곧 리워드인 과제에서는
+    넓은 탐색이 그대로 손해가 된다.
+
+    그래서 minibatch만 4로 되돌려 KL 초과와 lr 붕괴를 막고, entropy는 v20b의
+    0.005를 유지해 탐색 잡음을 낮게 둔다.
+    """
+
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    )
