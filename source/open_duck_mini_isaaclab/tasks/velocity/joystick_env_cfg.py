@@ -537,3 +537,40 @@ class JoystickEnvCfg_Path(JoystickEnvCfg_Walk9):
     path_tracking_scale = 5.0
     observation_space = OBS_STATE_DIM + PATH_ERR_DIM
     state_space = OBS_CRITIC_DIM + PATH_ERR_DIM
+
+
+
+# ── 자기충돌: 조사했으나 보류 (2026-07-30) ───────────────────────────────
+# 사용자가 재생에서 다리와 몸통이 겹치는 것을 보고 제기했고, Disney BD-X는
+# 자기충돌을 켤 뿐 아니라 종료 조건으로도 쓴다("...also if we detect a
+# self-collision between the head and torso"). 우리는 계속 꺼져 있었고,
+# v4에서 머리를 자기 다리에 얹은 "플랭크" 자세가 접촉력 0.000 N으로 모든
+# 종료 조건을 빠져나간 것도 이 때문이었다.
+#
+# 켜보니 에피소드가 1스텝 만에 끝났다. 원인을 pinocchio 정확 메시로 재보니
+# 물리가 아니라 충돌 형상 근사의 문제였다 -- READY 자세에서 비인접 링크쌍
+# 91종 중 관통 0개, 최소 간격 10.2 mm인데 PhysX는 수천 N을 만들었다.
+# IsaacLab의 convert_urdf.py가 UrdfConverterCfg.collider_type을 설정하지 않아
+# 기본값 convex_hull이 쓰인 탓이다.
+#
+# scripts/convert_urdf_cd.py로 convex_decomposition 재변환까지 해봤고
+# neck_pitch<->neck_yaw(4340 N)는 해소됐지만 두 쌍이 남았다:
+#   head_pitch <-> xm430          1847 N   (정확 메시로는 13.8 mm 여유)
+#   trunk      <-> roll_to_pitch  1089 N   (11.3 mm 여유)
+# 둘 다 운동학 체인에서 두 관절 떨어져 있어 PhysX가 자동 제외하지 않는데,
+# 설계상 관절 하우징이 부모 부품 *안에* 끼워지는 구조라 어떤 볼록 근사로도
+# 겹친다. 즉 전역 자기충돌은 이 기구 구조에서 쓸 수 없다. Disney가 머리<->몸통
+# 한 쌍만 집어 쓴 것도 같은 이유로 보인다 -- 전역이 아니라 선별이다.
+#
+# 남은 길은 USD physics:filteredPairs로 끼워진 쌍만 제외하는 선별 필터링인데,
+# instanceable 자산에 적용하기가 까다로워 보류했다.
+#
+# 보류하되 실측은 남긴다 (v25 model_1500, 정확 메시 기준):
+#   레퍼런스 : 다리<->몸통 최소 7.1 mm, 접촉 0.0%
+#   정책     : 최소 0.0 mm, 접촉 56.7%
+# 레퍼런스는 한 번도 안 닿는데 정책은 절반 이상 닿는다 -- CAD나 레퍼런스가
+# 아니라 정책 결함이다. 접촉 시점의 관절 오차를 보면 원인이 고관절이다:
+#   right_hip_roll  접촉 -8.0도 / 비접촉 +0.9도
+#   left_hip_yaw    접촉 -8.9도 / 비접촉 -1.5도
+#   right_hip_yaw   메시 간격과 상관 -0.540 (가장 강함)
+# 무릎/발목은 거의 무관하다. 실기 이식 전에는 반드시 닫아야 한다.
