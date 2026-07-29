@@ -64,6 +64,19 @@ try:
     # fails) — see joystick_env_cfg.py::JoystickEnvCfg_A30J25Im2 and
     # rsl_rl_ppo_cfg.py::JoystickPPORunnerCfg_N2 for why. Registered
     # separately since it also swaps the PPO runner cfg, not just the env.
+    # imitation_v20 — upstream-aligned learning setup (asymmetric critic +
+    # upstream network/PPO params) on v17's reward config. Separate register
+    # because it swaps the runner cfg, not just the env cfg.
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-Walk9-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_Walk9",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Upstream",
+        },
+    )
+
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-A30J25Im2N2-v0",
         entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",

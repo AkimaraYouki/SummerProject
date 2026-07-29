@@ -83,3 +83,34 @@ class JoystickPPORunnerCfg_N2(JoystickPPORunnerCfg):
         critic_hidden_dims=[256, 128, 64],
         activation="elu",
     )
+
+
+@configclass
+class JoystickPPORunnerCfg_Upstream(JoystickPPORunnerCfg):
+    """PPO hyperparameters aligned to what upstream actually runs.
+
+    Upstream calls `locomotion_params.brax_ppo_config(
+    "BerkeleyHumanoidJoystickFlatTerrain")` -- with a literal `# TODO` -- so
+    these are Berkeley Humanoid's numbers, borrowed untuned. Recorded here so a
+    later reader does not mistake them for values validated on this robot.
+
+      network         (512, 256, 128)   was (256, 128, 64)
+      learning_rate   3e-4              was 1e-3
+      entropy_coef    0.005             was 0.01
+      num_mini_batches 32               was 4
+      gamma           0.97              was 0.99
+      num_updates     4                 was 5   (upstream num_updates_per_batch)
+      rollout         20                was 24  (upstream unroll_length)
+    """
+
+    num_steps_per_env = 20
+
+    def __post_init__(self):
+        super().__post_init__() if hasattr(super(), "__post_init__") else None
+        self.policy.actor_hidden_dims = [512, 256, 128]
+        self.policy.critic_hidden_dims = [512, 256, 128]
+        self.algorithm.learning_rate = 3.0e-4
+        self.algorithm.entropy_coef = 0.005
+        self.algorithm.num_mini_batches = 32
+        self.algorithm.num_learning_epochs = 4
+        self.algorithm.gamma = 0.97

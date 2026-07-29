@@ -306,11 +306,50 @@ class JoystickEnv(DirectRLEnv):
             dim=-1,
         )
 
+        # Asymmetric critic (2026-07-29). Upstream Open_Duck_Playground builds a
+        # `privileged_state` alongside `state` and feeds it to the value network
+        # (mujoco_playground's ppo config sets value_obs_key="privileged_state").
+        # This port omitted it -- documented as a deliberate v1 simplification --
+        # so our critic saw exactly the same noisy, partial 101-dim view as the
+        # policy. That degrades advantage estimation, which is upstream of every
+        # reward-shaping change we have been making.
+        #
+        # Composition follows upstream's privileged_state: the policy state, then
+        # NOISELESS copies of the sensors, the true base velocity the policy never
+        # observes, joint torques, foot velocities, root height, and the FULL
+        # reference frame (not just its phase).
+        # Deviations from upstream, both for lack of an existing counterpart here:
+        # feet_air_time is not tracked by this env, and imitation_i is dropped
+        # since imitation_phase already encodes it.
+        if self.cfg.state_space > 0:
+            feet_vel = self._robot.data.body_lin_vel_w[:, self._feet_ids].reshape(self.num_envs, -1)
+            critic = torch.cat(
+                [
+                    state,
+                    self._imu.data.ang_vel_b,
+                    self._imu.data.lin_acc_b,
+                    self._robot.data.projected_gravity_b,
+                    self._robot.data.root_lin_vel_b,
+                    self._robot.data.root_ang_vel_w,
+                    joint_pos - default_joint_pos,
+                    joint_vel,
+                    self._robot.data.root_pos_w[:, 2:3],
+                    self._robot.data.applied_torque[:, self._joint_ids],
+                    contact,
+                    feet_vel,
+                    self._current_reference_motion,
+                    imitation_phase,
+                ],
+                dim=-1,
+            )
+
         # history bookkeeping (matches Playground's step()-end ordering)
         self._last_last_last_act = self._last_last_act
         self._last_last_act = self._last_act
         self._last_act = self._actions
 
+        if self.cfg.state_space > 0:
+            return {"policy": state, "critic": critic}
         return {"policy": state}
 
     def _get_foot_contact(self) -> torch.Tensor:

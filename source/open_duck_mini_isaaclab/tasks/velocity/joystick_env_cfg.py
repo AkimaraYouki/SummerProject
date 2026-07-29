@@ -62,6 +62,30 @@ OBS_STATE_DIM = (
 )
 assert OBS_STATE_DIM == 101, f"expected 101-dim state obs, computed {OBS_STATE_DIM} — check NUM_JOINTS/NUM_COMMANDS"
 
+# Privileged (critic-only) observation — see joystick_env.py::_get_observations.
+# Mirrors upstream's privileged_state: policy state + noiseless sensors + the
+# true base velocity + torques + foot velocities + root height + the full
+# reference frame. Computed, not hardcoded, so a joint-count change can't
+# silently desync it from the tensor actually built.
+REF_FRAME_WIDTH = 36  # poly_reference_motion.REF_FRAME_DIM
+NUM_FEET = 2
+OBS_CRITIC_DIM = (
+    OBS_STATE_DIM
+    + 3   # gyro (noiseless)
+    + 3   # accelerometer (noiseless)
+    + 3   # projected gravity
+    + 3   # root_lin_vel_b — the policy never observes true velocity
+    + 3   # root_ang_vel_w
+    + NUM_JOINTS  # joint_pos_rel (noiseless)
+    + NUM_JOINTS  # joint_vel (noiseless, unscaled)
+    + 1   # root height
+    + NUM_JOINTS  # applied torque
+    + 2   # feet contact
+    + NUM_FEET * 3  # feet linear velocity
+    + REF_FRAME_WIDTH
+    + 2   # imitation phase
+)
+
 
 @configclass
 class EventCfg:
@@ -754,3 +778,29 @@ class JoystickEnvCfg_Walk7(JoystickEnvCfg_Walk6):
 @configclass
 class JoystickEnvCfg_Walk8(JoystickEnvCfg_Walk6):
     imitation_scale = 8.0
+
+
+# Walk9 / imitation_v20 (2026-07-29). "일단 rl 라이브러리 빼고 다 똑같이 해보자."
+#
+# Everything about the LEARNING SETUP aligned to upstream Open_Duck_Playground,
+# leaving the reward config at v17's values (the best walker so far by visual
+# judgement) so this run isolates the learning-side changes:
+#
+#   1. Asymmetric critic ON (state_space = OBS_CRITIC_DIM). Upstream feeds the
+#      value network a `privileged_state`; this port had state_space=0, so our
+#      critic saw the same noisy 101-dim view as the policy. That is upstream of
+#      every reward change we have made -- a bad value estimate corrupts the
+#      advantages that all the shaping is filtered through.
+#   2. Network (256,128,64) -> (512,256,128), matching what upstream actually
+#      runs. Caveat worth recording: upstream does not tune this itself -- it
+#      calls brax_ppo_config("BerkeleyHumanoidJoystickFlatTerrain") with a
+#      literal `# TODO`, i.e. borrows Berkeley Humanoid's hyperparameters
+#      wholesale. So "matching upstream" here means matching an untuned
+#      borrowed config, not a validated one. Paired with JoystickPPORunnerCfg_Upstream.
+#
+# Not matched (deliberate, per the user): the RL library stays rsl_rl rather
+# than brax/MJX, and the observation keeps our 14 actuated joints + 7 commands
+# (upstream's stale "# 10" comments notwithstanding, its real width is also 14).
+@configclass
+class JoystickEnvCfg_Walk9(JoystickEnvCfg_Walk6):
+    state_space = OBS_CRITIC_DIM
