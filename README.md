@@ -2,6 +2,9 @@
 
 Open Duck Mini V2 이족 보행 로봇을 위한 NVIDIA Isaac Lab 학습 파이프라인. `Open_Duck_Mini`(로봇 설명), `Open_Duck_Playground`(기존 MJX/Brax 학습 파이프라인), `Open_Duck_reference_motion_generator`(참조 동작 생성) 세 리포의 로직을 하나로 통합하고, MJX 대신 Isaac Lab(PyTorch/PhysX)으로 다시 구현한 것.
 
+> **뭐가 어디 있는지 모르겠으면 [`docs/map.md`](docs/map.md) 부터.**
+> 거의 모든 작업은 `scripts/odm` 하나로 합니다 (`odm train / play / measure / tb / test`).
+
 ## 중요: 이 리포는 macOS에서 실행할 수 없습니다
 
 Isaac Sim/Isaac Lab은 NVIDIA GPU + Linux(또는 Windows) 전용입니다. macOS에서는 코드 작성/리뷰/일부 순수-Python 단위테스트만 가능하고, 실제 시뮬레이션·학습은 **우분투(NVIDIA GPU) 머신에서만** 가능합니다. 아래 "Mac에서 가능한 것 / 우분투 전용"을 참고하세요.

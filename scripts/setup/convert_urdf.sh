@@ -32,7 +32,7 @@ if [ -z "${ISAACLAB_PATH:-}" ]; then
     exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 URDF_PATH="$REPO_ROOT/robot/robot.urdf"
 OUTPUT_USD="$REPO_ROOT/robot/usd/open_duck_mini_v2.usd"
 

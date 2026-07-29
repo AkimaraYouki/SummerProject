@@ -161,6 +161,26 @@ tb)
   echo "텐서보드: http://$(host_ip):6006   (v$from 이상 $(ls /tmp/tb | wc -l)개 런)"
   ;;
 
+test)
+  # 테스트는 Isaac Sim 없이 돌지만 torch 는 필요해서 Isaac 파이썬을 쓴다.
+  # PYTHONPATH 를 걷어내는 이유: 이 PC 는 ROS Humble 이 깔려 있어
+  # /opt/ros/humble/.../python3.10/site-packages 가 새어 들어오고, Isaac 의
+  # python3.11 에서 lark 같은 걸 못 찾아 엉뚱한 곳에서 죽는다.
+  cd "$PROJ"
+  fail=0
+  for t in tests/test_*.py; do
+    if out=$(env -u PYTHONPATH "$IL" -p "$t" 2>&1); then
+      printf "  ok    %s\n" "$(basename "$t")"
+    else
+      printf "  FAIL  %s\n" "$(basename "$t")"
+      echo "$out" | tail -5 | sed 's/^/        /'
+      fail=1
+    fi
+  done
+  [ "$fail" -eq 0 ] && echo "전부 통과" || echo "실패 있음"
+  exit "$fail"
+  ;;
+
 stop)
   pkill -9 -f "train.py" 2>/dev/null || true
   pkill -9 -f "play_fixed" 2>/dev/null || true
@@ -190,6 +210,7 @@ odm — OpenDuck Mini 원스톱
   odm tb                            텐서보드 (전체 런 겹쳐보기)
   odm stop                          학습/재생 정리
   odm list                          런과 체크포인트 목록
+  odm test                          테스트 전부 실행 (Isaac Sim 불필요)
 
 버전은 v13 v17 v24 v25 v26 처럼 주면 태스크가 자동으로 붙습니다.
 GPU에 Isaac Sim 두 개가 동시에 뜨면 한쪽이 조용히 죽으므로 자동으로 막습니다.

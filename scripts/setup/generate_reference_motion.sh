@@ -12,7 +12,7 @@
 # source/open_duck_mini_isaaclab/reference_motion/data/polynomial_coefficients.pkl
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GEN_DIR="$REPO_ROOT/reference_motion_generator"
 RECORDINGS_DIR="$GEN_DIR/recordings"
 OUTPUT_PKL="$REPO_ROOT/source/open_duck_mini_isaaclab/reference_motion/data/polynomial_coefficients.pkl"

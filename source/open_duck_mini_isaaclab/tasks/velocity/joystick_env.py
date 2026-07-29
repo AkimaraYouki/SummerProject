@@ -464,6 +464,19 @@ class JoystickEnv(DirectRLEnv):
             )
 
         reward = torch.sum(torch.stack(list(terms.values())), dim=0) * dt
+
+        # 항목별 기록 (2026-07-30). 여태 총합만 텐서보드에 올라가서, 리워드
+        # 해킹을 곡선으로 볼 수가 없었다 — `alive`를 파먹으며 명령 추종을
+        # 포기해도 총합은 예쁘게 오른다. 실제로 v26(3000 iter)에서 모방 리워드는
+        # v25@1500보다 올랐는데 명령 추종은 오히려 내려갔고, 총합만으로는 그게
+        # 어느 항에서 벌어진 일인지 알 수 없었다.
+        #
+        # dt를 곱해서 넣는다. 그래야 항목들의 합이 스텝당 총 리워드와 같아져
+        # "이 항이 전체의 몇 할인가"를 그래프에서 바로 읽을 수 있다.
+        # rsl-rl 로거가 extras["log"]를 iteration 평균으로 집계하고, "/"가 든
+        # 키는 그 이름 그대로 텐서보드 태그가 된다.
+        self.extras["log"] = {f"Episode_Reward/{name}": (value * dt).mean() for name, value in terms.items()}
+
         return torch.clamp(reward, 0.0, 10000.0)
 
     # ── termination ──────────────────────────────────────────────────────

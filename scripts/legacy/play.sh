@@ -15,7 +15,7 @@ if [ -z "${ISAACLAB_PATH:-}" ]; then
     exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # See scripts/_isaaclab_launch.py's docstring — play.py has the same
 # "doesn't know about external task packages" problem train.py does.

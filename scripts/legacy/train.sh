@@ -13,7 +13,7 @@ if [ -z "${ISAACLAB_PATH:-}" ]; then
     exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Make sure this repo's extension package is importable IN THE SAME PYTHON
 # THAT WILL ACTUALLY RUN TRAINING BELOW. Must go through isaaclab.sh -p for

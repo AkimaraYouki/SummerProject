@@ -12,11 +12,11 @@ if [ -z "${ISAACLAB_PATH:-}" ]; then
     exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 "$ISAACLAB_PATH/isaaclab.sh" -p -c "import open_duck_mini_isaaclab" 2>/dev/null \
     || (cd "$REPO_ROOT" && "$ISAACLAB_PATH/isaaclab.sh" -p -m pip install -e .)
 
 "$ISAACLAB_PATH/isaaclab.sh" -p "$REPO_ROOT/scripts/_isaaclab_launch.py" \
-    "$REPO_ROOT/scripts/eval_policy_stability.py" \
+    "$REPO_ROOT/scripts/diag/eval_policy_stability.py" \
     "$@"
