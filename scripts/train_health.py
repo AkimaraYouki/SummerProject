@@ -72,11 +72,41 @@ def _zip_terms(series, keep):
     return [(chosen[0][i][0], [v[i][1] for v in chosen]) for i in range(n)]
 
 
+def _max_episode_steps(run_dir, fallback):
+    """런이 저장해 둔 설정에서 에피소드 길이 상한(스텝)을 읽는다.
+
+    상수로 박아두면 안 된다. 처음에 500으로 박아뒀다가 v27 감시에서
+    "552/500 포화" 라는 오탐이 났다 — 실제 상한은 20.0s / (0.002*10) = 1000
+    스텝이라 55% 였는데 포화로 잡힌 것이다. 비율이 1을 넘는 게 단서였다.
+    조이스틱 재생처럼 episode_length_s 를 바꿔 도는 경우도 있으니 런마다 읽는다.
+    """
+    path = os.path.join(run_dir, "params", "env.yaml")
+    if not os.path.exists(path):
+        return fallback
+    vals = {}
+    with open(path) as f:
+        for line in f:
+            for key in ("episode_length_s", "dt", "decimation"):
+                stripped = line.strip()
+                if stripped.startswith(f"{key}:") and key not in vals:
+                    try:
+                        vals[key] = float(stripped.split(":", 1)[1])
+                    except ValueError:
+                        pass
+    try:
+        step_dt = vals["dt"] * vals["decimation"]
+        return vals["episode_length_s"] / step_dt
+    except (KeyError, ZeroDivisionError):
+        return fallback
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--run", type=str, required=True, help="런 디렉터리")
-    p.add_argument("--max_ep_len", type=float, default=500.0, help="에피소드 길이 상한 (스텝)")
+    p.add_argument("--max_ep_len", type=float, default=0.0,
+                   help="에피소드 길이 상한(스텝). 0이면 런의 params/env.yaml 에서 읽는다")
     args = p.parse_args()
+    args.max_ep_len = args.max_ep_len or _max_episode_steps(args.run, 1000.0)
 
     files = sorted(glob.glob(os.path.join(args.run, "events.out.tfevents.*")))
     if not files:
