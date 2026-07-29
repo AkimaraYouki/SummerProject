@@ -7,12 +7,21 @@ of the policy's init distribution -- unreachable. Centering default ON the
 reference makes action=0 the reference's neutral pose and +-0.25 rad of action
 cover the gait's actual swing amplitude.
 """
-import sys, torch
+import argparse, sys, torch
 sys.path.insert(0, "source")
 from open_duck_mini_isaaclab.reference_motion.poly_reference_motion import PolyReferenceMotion
 from open_duck_mini_isaaclab.joint_order import REF_JOINT_NAMES, REF_LEG_JOINT_IDX
 
-prm = PolyReferenceMotion("source/open_duck_mini_isaaclab/reference_motion/data/polynomial_coefficients.pkl", device="cpu")
+# pkl 경로는 인자로 받는다. 하드코딩돼 있어서 새로 만든 레퍼런스(예: 키를 높인
+# ref_h175.pkl)에는 쓸 수 없었다 (2026-07-30). 레퍼런스를 바꾸면 이 스크립트로
+# READY_JOINT_POS 를 반드시 다시 뽑아야 한다 — 기본 자세와 레퍼런스가 어긋나면
+# 액션이 도달 불가능해지고, 그게 v1~v9 를 아홉 번 실패시킨 원인이었다.
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--pkl", default="source/open_duck_mini_isaaclab/reference_motion/data/polynomial_coefficients.pkl")
+_args = _ap.parse_args()
+print(f"[calc_home] 레퍼런스: {_args.pkl}")
+
+prm = PolyReferenceMotion(_args.pkl, device="cpu")
 N = prm.nb_steps_in_period
 # average over a representative spread of commands, not just one, so the home
 # pose is neutral across the whole command space the policy will see
