@@ -13,7 +13,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "source"))
 from open_duck_mini_isaaclab.joystick_input import (  # noqa: E402
     AXIS_LEFT_X,
     AXIS_LEFT_Y,
-    AXIS_RIGHT_X,
+    AXIS_RIGHT_X_CLASSIC,
+    AXIS_RIGHT_X_MODERN,
     BUTTON_A,
     JS_EVENT_AXIS,
     JS_EVENT_BUTTON,
@@ -47,7 +48,18 @@ def _pad_fed_with(*events):
     pad._axes, pad._buttons = {}, {}
     pad._fd = r
     pad.connected = True
+    pad.axis_right_x = AXIS_RIGHT_X_CLASSIC
+    pad.layout = "미판별"
+    pad._layout_done = False
     return pad
+
+
+def _resting(overrides=None):
+    """8축 전부에 대해 '쉬고 있는' 초기 상태 이벤트를 만든다.
+    커널이 장치를 열 때 보내주는 것과 같은 모양이다."""
+    values = {n: 0 for n in range(8)}
+    values.update(overrides or {})
+    return [_event(JS_EVENT_AXIS | JS_EVENT_INIT, n, v) for n, v in values.items()]
 
 
 def test_missing_device_is_a_clear_error():
@@ -72,9 +84,46 @@ def test_axis_and_button_parsing():
 def test_init_events_are_not_discarded():
     """장치를 열면 커널이 현재 상태를 INIT 플래그로 한 번 보낸다. 이걸 버리면
     사용자가 스틱을 건드리기 전까지 상태를 모른다."""
-    pad = _pad_fed_with(_event(JS_EVENT_AXIS | JS_EVENT_INIT, AXIS_RIGHT_X, 32767))
+    pad = _pad_fed_with(_event(JS_EVENT_AXIS | JS_EVENT_INIT, AXIS_RIGHT_X_MODERN, 32767))
     pad.poll()
-    assert pad.axis(AXIS_RIGHT_X) > 0.9
+    assert pad.axis(AXIS_RIGHT_X_MODERN) > 0.9
+
+
+# ── 축 배치 자동 판별 ────────────────────────────────────────────────────
+# 하드코딩했다가 실제 Xbox Wireless 패드에서 틀렸다. 오른쪽 스틱 X라고 믿은
+# 3번이 그 패드에서는 오른쪽 스틱 Y였고, 스틱을 안 건드렸는데 yaw 명령이
+# -1.0 rad/s 로 꽉 차 있었다. 두 배치를 모두 고정해 둔다.
+
+def test_detects_modern_layout_from_trigger_rest_positions():
+    """Xbox Wireless: 4=LT, 5=RT 가 -1 에서 쉰다 -> 오른쪽 스틱 X 는 2번."""
+    pad = _pad_fed_with(*_resting({4: -32767, 5: -32767}))
+    pad.poll()
+    assert pad.axis_right_x == AXIS_RIGHT_X_MODERN
+
+
+def test_detects_classic_layout_from_trigger_rest_positions():
+    """유선 xpad: 2=LT, 5=RT 가 -1 에서 쉰다 -> 오른쪽 스틱 X 는 3번."""
+    pad = _pad_fed_with(*_resting({2: -32767, 5: -32767}))
+    pad.poll()
+    assert pad.axis_right_x == AXIS_RIGHT_X_CLASSIC
+
+
+def test_idle_pad_commands_nothing_on_either_layout():
+    """스틱에서 손을 뗐는데 명령이 나가면 안 된다. 실제로 겪은 버그다 —
+    yaw 가 -1.0 rad/s 로 고정돼 로봇이 계속 돌았다."""
+    for triggers in ({4: -32767, 5: -32767}, {2: -32767, 5: -32767}):
+        pad = _pad_fed_with(*_resting(triggers))
+        pad.poll()
+        assert command_from_gamepad(pad, X_RANGE, Y_RANGE, YAW_RANGE) == (0.0, 0.0, 0.0)
+
+
+def test_right_stick_turns_on_the_detected_axis():
+    pad = _pad_fed_with(
+        *_resting({4: -32767, 5: -32767}),
+        _event(JS_EVENT_AXIS, AXIS_RIGHT_X_MODERN, 32767),
+    )
+    pad.poll()
+    assert command_from_gamepad(pad, X_RANGE, Y_RANGE, YAW_RANGE)[2] < -0.9
 
 
 def test_deadzone_zeroes_small_drift_and_rescales():
@@ -108,7 +157,10 @@ def test_stick_direction_matches_robot_frame():
     left.poll()
     assert command_from_gamepad(left, X_RANGE, Y_RANGE, YAW_RANGE)[1] > 0, "왼쪽으로 밀면 +y"
 
-    right_stick = _pad_fed_with(_event(JS_EVENT_AXIS, AXIS_RIGHT_X, 32767))
+    right_stick = _pad_fed_with(
+        *_resting({4: -32767, 5: -32767}),
+        _event(JS_EVENT_AXIS, AXIS_RIGHT_X_MODERN, 32767),
+    )
     right_stick.poll()
     assert command_from_gamepad(right_stick, X_RANGE, Y_RANGE, YAW_RANGE)[2] < 0, "오른쪽이면 시계방향"
 

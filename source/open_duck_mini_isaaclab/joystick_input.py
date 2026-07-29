@@ -20,12 +20,22 @@ joydev 이벤트 (리눅스 커널 `linux/joystick.h`):
 읽기는 논블로킹이다. 시뮬 루프는 60Hz로 돌아야 하는데, 조이스틱 입력이 없다고
 루프가 멈추면 안 된다. 매 스텝 `poll()`로 밀린 이벤트만 훑고 즉시 반환한다.
 
-xpad 드라이버가 붙인 Xbox 컨트롤러의 축 번호는 다음과 같다:
+**축 번호는 패드/드라이버마다 다르다.** 실제로 두 배치를 만났다:
 
-    0 왼쪽 스틱 X (오른쪽 +)      3 오른쪽 스틱 X (오른쪽 +)
-    1 왼쪽 스틱 Y (아래쪽 +)      4 오른쪽 스틱 Y (아래쪽 +)
-    2 LT                          5 RT
-    6 D-pad X                     7 D-pad Y
+    고전 xpad (유선)          최신 hid (Xbox Wireless, 이 PC에 물린 것)
+    ------------------------  --------------------------------------
+    0 왼쪽 X                  0 왼쪽 X
+    1 왼쪽 Y                  1 왼쪽 Y
+    2 LT                      2 오른쪽 X
+    3 오른쪽 X                3 오른쪽 Y
+    4 오른쪽 Y                4 LT
+    5 RT                      5 RT
+    6/7 D-pad                 6/7 D-pad
+
+하드코딩했다가 실제로 틀렸다 — 오른쪽 스틱 X라고 믿은 3번이 이 패드에서는
+오른쪽 스틱 **Y**였다. 그래서 배치를 자동으로 판별한다. 단서는 트리거다:
+트리거는 안 누르면 -1을 내고 스틱은 0을 낸다. 쉴 때 -1인 축이 어디냐로
+두 배치가 갈린다. `scripts/joystick_check.py --raw`로 눈으로도 볼 수 있다.
 """
 
 from __future__ import annotations
@@ -44,8 +54,13 @@ JS_EVENT_INIT = 0x80
 #: 로봇 명령에 그대로 실리면 "정지" 명령이 영영 안 나온다.
 DEFAULT_DEADZONE = 0.12
 
+# 왼쪽 스틱은 두 배치가 같다. 오른쪽 스틱 X만 갈리므로 그것만 판별한다.
 AXIS_LEFT_X, AXIS_LEFT_Y = 0, 1
-AXIS_RIGHT_X = 3
+AXIS_RIGHT_X_CLASSIC = 3  # 고전 xpad (2=LT, 5=RT)
+AXIS_RIGHT_X_MODERN = 2  # 최신 hid (4=LT, 5=RT)
+
+#: 트리거는 안 누르면 이 값 이하로 쉰다. 스틱은 0 근처다.
+_TRIGGER_REST = -0.9
 
 BUTTON_A = 0
 
@@ -63,6 +78,10 @@ class Gamepad:
         self._axes: dict[int, float] = {}
         self._buttons: dict[int, bool] = {}
         self.connected = False
+        #: 판별 전까지는 고전 배치를 가정한다. 첫 poll()에서 확정된다.
+        self.axis_right_x = AXIS_RIGHT_X_CLASSIC
+        self.layout = "미판별"
+        self._layout_done = False
         try:
             self._fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
         except OSError as exc:
@@ -91,6 +110,27 @@ class Gamepad:
             if not data or len(data) < _EVENT_SIZE:
                 return
             self._apply(data)
+            # 장치를 열면 커널이 현재 상태를 INIT 이벤트로 한 번씩 보내주므로,
+            # 사용자가 아무것도 안 해도 첫 poll 에서 배치를 판별할 수 있다.
+            if not self._layout_done and len(self._axes) >= 6:
+                self.detect_layout()
+
+    def detect_layout(self) -> str:
+        """트리거 위치로 축 배치를 판별한다.
+
+        트리거는 안 누르면 -1, 스틱은 0에서 쉰다. 2번이 -1이면 그 자리가 LT인
+        고전 xpad 배치이고, 그렇지 않으면 2번이 오른쪽 스틱 X인 최신 배치다.
+        사용자가 판별 순간에 LT를 당기고 있으면 틀릴 수 있으나, 그 경우
+        `joystick_check.py --raw` 로 확인하고 axis_right_x 를 직접 넣으면 된다.
+        """
+        if self._axes.get(2, 0.0) <= _TRIGGER_REST:
+            self.axis_right_x = AXIS_RIGHT_X_CLASSIC
+            self.layout = "고전 xpad (2=LT, 오른쪽 스틱 X=3)"
+        else:
+            self.axis_right_x = AXIS_RIGHT_X_MODERN
+            self.layout = "최신 hid (4=LT, 오른쪽 스틱 X=2)"
+        self._layout_done = True
+        return self.layout
 
     def _apply(self, data: bytes) -> None:
         _, value, ev_type, number = struct.unpack(_EVENT_FORMAT, data)
@@ -145,7 +185,7 @@ def command_from_gamepad(
 
     vx = -pad.axis(AXIS_LEFT_Y)
     vy = -pad.axis(AXIS_LEFT_X)
-    yaw = -pad.axis(AXIS_RIGHT_X)
+    yaw = -pad.axis(pad.axis_right_x)
 
     return (
         _scale(vx, lin_vel_x_range),
