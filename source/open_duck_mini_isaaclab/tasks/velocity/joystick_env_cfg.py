@@ -29,6 +29,7 @@ from isaaclab.utils import configclass
 
 from open_duck_mini_isaaclab.joint_order import (
     ACTUATOR_JOINT_NAMES,
+    READY_BASE_HEIGHT,
     LEFT_FOOT_BODY_NAME,
     RIGHT_FOOT_BODY_NAME,
     ROOT_BODY_NAME,
@@ -306,6 +307,12 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # evades all three termination conditions (not flipped, above the old
     # 0.6 height ratio, no trunk/head contact) simultaneously. 0.75 puts
     # that specific crouch below the new threshold.
+    # 붕괴 판정의 기준 높이. joint_order.READY_BASE_HEIGHT 를 기본으로 쓰되
+    # 설정으로 뺀 이유: 레퍼런스 보행의 키를 바꾸면(walk_com_height) 안착 높이가
+    # 달라지는데, 전역 상수를 고치면 v25~v27 체크포인트의 판정 기준까지 함께
+    # 바뀐다. 버전마다 자기 높이를 갖게 한다 (2026-07-30).
+    ready_base_height = READY_BASE_HEIGHT
+
     min_base_height_ratio = 0.75
 
     # ── reward scales ────────────────────────────────────────────────────

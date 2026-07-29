@@ -54,7 +54,6 @@ from isaaclab.terrains import TerrainImporter
 from open_duck_mini_isaaclab.joint_order import (
     ACT_LEG_JOINT_IDX,
     ACTUATOR_JOINT_NAMES,
-    READY_BASE_HEIGHT,
     LEFT_FOOT_BODY_NAME,
     REF_LEG_JOINT_IDX,
     RIGHT_FOOT_BODY_NAME,
@@ -510,7 +509,7 @@ class JoystickEnv(DirectRLEnv):
         # min_base_height_ratio docstring — `flipped` alone only catches
         # >90 deg tips, not a collapsed-but-not-inverted heap, which Stage 1
         # (use_imitation=False) has no other guard against.
-        collapsed = self._robot.data.root_pos_w[:, 2] < READY_BASE_HEIGHT * self.cfg.min_base_height_ratio
+        collapsed = self._robot.data.root_pos_w[:, 2] < self.cfg.ready_base_height * self.cfg.min_base_height_ratio
         has_nan = torch.isnan(self._robot.data.joint_pos).any(dim=-1) | torch.isnan(self._robot.data.joint_vel).any(dim=-1)
         # See _get_trunk_head_contact's docstring note (added alongside
         # `collapsed`/`flipped`, not replacing them) — this catches
