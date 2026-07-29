@@ -64,6 +64,7 @@ from .rewards import (
     cost_torques,
     reward_alive,
     reward_imitation,
+    reward_path_tracking,
     reward_tracking_ang_vel,
     reward_tracking_lin_vel,
 )
@@ -163,6 +164,17 @@ class JoystickEnv(DirectRLEnv):
         self._command = torch.zeros(n, 7, device=dev)
         self._imitation_i = torch.zeros(n, dtype=torch.long, device=dev)
 
+        # Path frame (Disney BD-X, 2026-07-29). The paper keeps "a path frame
+        # that integrates these velocity commands over time" and expresses the
+        # policy's state in it. Our commands are pure rates -- yaw_rate=0 means
+        # "do not rotate now", NOT "return to the original heading" -- so once
+        # the robot drifts, nothing in its observation says so and nothing pulls
+        # it back. That is exactly the "won't walk in a straight line" the user
+        # saw: instantaneous yaw swung +-1.5 rad/s under a pure forward command
+        # while averaging near zero.
+        self._path_pos = torch.zeros(n, 2, device=dev)   # world xy
+        self._path_yaw = torch.zeros(n, device=dev)      # world heading
+
         # Per-joint position-noise scale (hip/knee/ankle/head), built once
         # from cfg — see joystick_env_cfg.py's noise_scale_* fields.
         self._joint_pos_noise_scale = torch.zeros(nj, device=dev)
@@ -251,6 +263,18 @@ class JoystickEnv(DirectRLEnv):
         max_delta = self.cfg.max_motor_velocity * self.step_dt
         self._motor_targets = torch.clamp(target, prev - max_delta, prev + max_delta)
 
+        # integrate the commanded velocity into the path frame
+        if self.cfg.use_path_frame:
+            yaw = self._path_yaw
+            c, sn = torch.cos(yaw), torch.sin(yaw)
+            vx, vy = self._command[:, 0], self._command[:, 1]
+            self._path_pos[:, 0] += (c * vx - sn * vy) * self.step_dt
+            self._path_pos[:, 1] += (sn * vx + c * vy) * self.step_dt
+            self._path_yaw = torch.atan2(
+                torch.sin(yaw + self._command[:, 2] * self.step_dt),
+                torch.cos(yaw + self._command[:, 2] * self.step_dt),
+            )
+
         # advance gait phase (drives the imitation_phase observation always;
         # drives the reference-motion lookup only when use_imitation=True)
         self._imitation_i = (self._imitation_i + 1) % self._gait_period_steps
@@ -302,7 +326,8 @@ class JoystickEnv(DirectRLEnv):
                 self._motor_targets,
                 contact,
                 imitation_phase,
-            ],
+            ]
+            + ([self._path_error()] if self.cfg.use_path_frame else []),
             dim=-1,
         )
 
@@ -339,6 +364,9 @@ class JoystickEnv(DirectRLEnv):
                     feet_vel,
                     self._current_reference_motion,
                     imitation_phase,
+                    # path 오차는 `state`에 이미 포함돼 있으므로 여기서 다시
+                    # 붙이지 않는다. 붙였다가 크리틱 관측이 208 대신 211이 되어
+                    # cfg.state_space와 어긋났다.
                 ],
                 dim=-1,
             )
@@ -351,6 +379,26 @@ class JoystickEnv(DirectRLEnv):
         if self.cfg.state_space > 0:
             return {"policy": state, "critic": critic}
         return {"policy": state}
+
+    def _path_error(self) -> torch.Tensor:
+        """[N,3] — 경로 기준 횡방향 오차와 방향 오차 (cos, sin).
+
+        전후(종방향) 오차는 일부러 뺐다. path frame은 *명령* 속도를 적분하므로
+        로봇이 명령보다 조금이라도 느리면(실측 0.148 vs 명령 0.15) 종방향
+        오차가 무한히 쌓이고, 그걸 보정하라고 하면 뒤처졌을 때 무리하게
+        가속하는 쪽으로 학습된다. "일자로 간다"는 횡방향으로 안 새고 방향이
+        안 휘는 것이므로 그 두 성분만 쓴다.
+        """
+        rp = self._robot.data.root_pos_w[:, :2] - self._terrain.env_origins[:, :2]
+        d = rp - self._path_pos
+        c, sn = torch.cos(self._path_yaw), torch.sin(self._path_yaw)
+        lateral = -sn * d[:, 0] + c * d[:, 1]          # 경로 진행방향에 수직인 성분
+        lateral = torch.clamp(lateral, -self.cfg.path_error_clip, self.cfg.path_error_clip)
+        rob_yaw = math_utils.euler_xyz_from_quat(self._robot.data.root_quat_w)[2]
+        yaw_err = torch.atan2(
+            torch.sin(rob_yaw - self._path_yaw), torch.cos(rob_yaw - self._path_yaw)
+        )
+        return torch.stack([lateral, torch.cos(yaw_err), torch.sin(yaw_err)], dim=-1)
 
     def _get_foot_contact(self) -> torch.Tensor:
         forces = self._contact_sensor.data.net_forces_w_history[:, 0, self._feet_ids, :]
@@ -405,6 +453,14 @@ class JoystickEnv(DirectRLEnv):
                     w_joint_pos_amp=cfg.imitation_w_joint_pos_amp,
                 )
                 * cfg.imitation_scale
+            )
+
+        if cfg.use_path_frame and cfg.path_tracking_scale != 0.0:
+            terms["path_tracking"] = (
+                reward_path_tracking(
+                    self._path_error(), cfg.path_k_lateral, cfg.path_k_yaw, cfg.path_w_yaw
+                )
+                * cfg.path_tracking_scale
             )
 
         reward = torch.sum(torch.stack(list(terms.values())), dim=0) * dt
@@ -521,6 +577,14 @@ class JoystickEnv(DirectRLEnv):
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
+
+        if self.cfg.use_path_frame:
+            self._path_pos[env_ids] = (
+                self._robot.data.root_pos_w[env_ids, :2] - self._terrain.env_origins[env_ids, :2]
+            )
+            self._path_yaw[env_ids] = math_utils.euler_xyz_from_quat(
+                self._robot.data.root_quat_w[env_ids]
+            )[2]
 
         self._motor_targets[env_ids] = joint_pos[:, self._joint_ids]
         # (self._current_reference_motion already set above, at the sampled

@@ -48,6 +48,7 @@ _TASK_TO_RUNNER = {
     "Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0": JoystickPPORunnerCfg_BigNetLowEnt,
     "Isaac-OpenDuckMini-Joystick-Walk9MB16-v0": JoystickPPORunnerCfg_BigNetMB16,
     "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": JoystickPPORunnerCfg_Gamma097,
+    "Isaac-OpenDuckMini-Joystick-Path-v0": JoystickPPORunnerCfg_Gamma097,
 }
 
 from open_duck_mini_isaaclab.tasks.velocity import joystick_env_cfg as _cm  # noqa: E402
@@ -65,6 +66,7 @@ _MAP = {
     "Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Walk9MB16-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": "JoystickEnvCfg_Walk9",
+    "Isaac-OpenDuckMini-Joystick-Path-v0": "JoystickEnvCfg_Path",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
 }
 env_cfg = getattr(_cm, _MAP[args_cli.task])()
@@ -82,6 +84,10 @@ u = env.unwrapped
 # PolyReferenceMotion falls back to a nearest grid point and the "reference"
 # being compared against would not be the one for this command.
 CONDS = [
+    # 정지 명령. reward_imitation은 cmd_norm <= 0.01에서 0으로 게이트되고
+    # cost_stand_still만 남으므로, 학습 신호의 성격이 나머지 다섯과 완전히
+    # 다르다. 조이스틱 사용에서 가장 기본인데 그동안 측정에서 빠져 있었다.
+    ("stop",     0.0,   0.0,  0.0),
     ("forward",  0.15,  0.0,  0.0),
     ("backward", -0.15, 0.0,  0.0),
     ("left",     0.0,   0.2,  0.0),

@@ -103,5 +103,16 @@ try:
         },
     )
 
+    # imitation_v25 — v24 + path frame (경로 추종으로 직진성 확보).
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-Path-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_Path",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
 except ImportError:
     pass

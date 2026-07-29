@@ -92,6 +92,7 @@ _TASK_TO_RUNNER = {
     "Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0": JoystickPPORunnerCfg_BigNetLowEnt,
     "Isaac-OpenDuckMini-Joystick-Walk9MB16-v0": JoystickPPORunnerCfg_BigNetMB16,
     "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": JoystickPPORunnerCfg_Gamma097,
+    "Isaac-OpenDuckMini-Joystick-Path-v0": JoystickPPORunnerCfg_Gamma097,
 }
 
 from open_duck_mini_isaaclab.joint_order import ACT_LEG_JOINT_IDX  # noqa: E402
@@ -112,6 +113,7 @@ _TASK_TO_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-Walk9BigLE-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Walk9MB16-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": "JoystickEnvCfg_Walk9",
+    "Isaac-OpenDuckMini-Joystick-Path-v0": "JoystickEnvCfg_Path",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
 }
 if args_cli.task not in _TASK_TO_CFG_CLASS:

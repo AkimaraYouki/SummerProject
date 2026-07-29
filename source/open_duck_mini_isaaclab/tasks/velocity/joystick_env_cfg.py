@@ -67,6 +67,10 @@ assert OBS_STATE_DIM == 101, f"expected 101-dim state obs, computed {OBS_STATE_D
 # true base velocity + torques + foot velocities + root height + the full
 # reference frame. Computed, not hardcoded, so a joint-count change can't
 # silently desync it from the tensor actually built.
+# path frame이 켜지면 정책/크리틱 관측에 3차원이 붙는다
+# (횡방향 오차, cos(방향오차), sin(방향오차)).
+PATH_ERR_DIM = 3
+
 REF_FRAME_WIDTH = 36  # poly_reference_motion.REF_FRAME_DIM
 NUM_FEET = 2
 OBS_CRITIC_DIM = (
@@ -357,6 +361,17 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     imitation_w_lin_vel_z = 1.0
     imitation_w_ang_vel_xy = 0.5
     imitation_w_contact = 1.0
+
+    # ── path frame (Disney BD-X) ────────────────────────────────────────
+    # 명령 속도를 적분한 "의도한 궤적"을 유지하고, 로봇이 거기서 벗어난
+    # 횡방향·방향 오차를 관측과 리워드에 넣는다. 끄면 관측 차원이 예전과
+    # 같으므로 v1~v24 체크포인트가 그대로 로드된다.
+    use_path_frame = False
+    path_error_clip = 0.5      # m, 횡방향 오차 클리핑 (초기 발산 방지)
+    path_tracking_scale = 0.0  # 리워드 가중치
+    path_k_lateral = 20.0      # exp 예민도: 0.22 m 벗어나면 exp(-1)
+    path_k_yaw = 4.0           # exp 예민도: 0.5 rad(29도) 벗어나면 exp(-1)
+    path_w_yaw = 1.0           # 방향 오차 항의 상대 비중
     # Penalty weight for lifting a foot the reference says should be planted.
     # 0.0 reproduces v11/v12 exactly; see rewards.py for the chatter it caused.
     imitation_w_stance_violation = 0.0
@@ -496,3 +511,29 @@ class JoystickEnvCfg_Upstream(JoystickEnvCfg_LegsOnly):
     """
 
     use_rsi = False
+
+
+@configclass
+class JoystickEnvCfg_Path(JoystickEnvCfg_Walk9):
+    """imitation_v25 — Disney BD-X의 path frame 도입. v24 설정 + 경로 추종.
+
+    v24를 눈으로 보니 전진 명령만 주는데도 요가 순간적으로 ±1.5 rad/s까지
+    요동치고, 좌우 명령에서는 옆으로 가는 대신 비틀거리며 회전했다. 평균은
+    0에 가까워 측정치(좌 71% / 우 81%)로는 잘 안 드러났다.
+
+    원인은 명령이 순수 rate라는 데 있다. yaw_rate=0은 "지금 회전하지 마라"이지
+    "원래 방향으로 돌아와라"가 아니고, vy=0도 마찬가지다. 한 번 휘면 정책의
+    관측 어디에도 그 사실이 없어서 되돌릴 수단이 없다.
+
+    논문은 이를 path frame으로 푼다 -- "a path frame that integrates these
+    velocity commands over time"를 유지하고 정책의 상태를 그 프레임 기준으로
+    표현한다. 여기서는 적분된 경로 대비 횡방향 오차와 방향 오차를 관측(3차원)과
+    리워드에 추가했다. 종방향 오차는 뺐다: path frame은 *명령* 속도를 적분하므로
+    로봇이 조금이라도 느리면(0.148 vs 0.15) 무한히 쌓이고, 그걸 보정하라고 하면
+    뒤처졌을 때 무리하게 가속하는 쪽으로 학습된다.
+    """
+
+    use_path_frame = True
+    path_tracking_scale = 5.0
+    observation_space = OBS_STATE_DIM + PATH_ERR_DIM
+    state_space = OBS_CRITIC_DIM + PATH_ERR_DIM

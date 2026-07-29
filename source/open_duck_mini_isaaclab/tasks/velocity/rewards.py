@@ -177,3 +177,21 @@ def reward_imitation(
     reward = lin_vel_xy_rew + lin_vel_z_rew + ang_vel_xy_rew + ang_vel_z_rew + joint_pos_rew + joint_vel_rew + contact_rew
     reward = reward * (cmd_norm > 0.01).float()
     return torch.nan_to_num(reward)
+
+
+def reward_path_tracking(
+    path_err: torch.Tensor,  # [N,3] — lateral, cos(yaw_err), sin(yaw_err)
+    k_lateral: float,
+    k_yaw: float,
+    w_yaw: float,
+) -> torch.Tensor:
+    """경로에서 벗어난 정도를 벌한다 (Disney BD-X의 path frame).
+
+    속도 명령은 순수 rate라 yaw_rate=0이 "원래 방향으로 돌아와라"를 뜻하지
+    않는다. 그래서 한 번 휘면 정책이 그 사실 자체를 관측하지 못하고 되돌릴
+    이유도 없다. 적분된 경로 기준의 횡방향·방향 오차를 관측에 넣고 여기서
+    보상해야 비로소 "일자로 걷기"가 학습 목표가 된다.
+    """
+    lateral = path_err[:, 0]
+    yaw_err = torch.atan2(path_err[:, 2], path_err[:, 1])
+    return torch.exp(-k_lateral * lateral**2) + torch.exp(-k_yaw * yaw_err**2) * w_yaw
