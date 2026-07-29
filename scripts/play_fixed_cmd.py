@@ -27,6 +27,10 @@ parser.add_argument("--ghost_opacity", type=float, default=0.35, help="고스트
 parser.add_argument("--hud", action="store_true", help="뷰포트 우상단에 명령·실제속도·관절오차 HUD를 띄운다")
 parser.add_argument("--selfcol_thresh", type=float, default=0.085,
                     help="다리-몸통 링크 원점 거리가 이 값 아래면 빨간 구 표시 (m)")
+parser.add_argument("--joystick", nargs="?", const="/dev/input/js0", default=None,
+                    metavar="DEV",
+                    help="Xbox 패드로 실시간 조종한다 (기본 장치 /dev/input/js0). "
+                         "--cycle 보다 우선한다")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 app_launcher = AppLauncher(args_cli)
@@ -418,6 +422,27 @@ def _update_hud(tag, cx, cy, cw):
             _hud_plots[k].set_data(*h)
 
 
+# ── 조이스틱 ────────────────────────────────────────────────────────────
+# 명령 범위는 env_cfg에서 그대로 가져온다. 스틱을 끝까지 밀었을 때 학습에서 본
+# 상한에 정확히 닿아야 하고, 넘어가면 정책이 본 적 없는 명령이 된다.
+_pad = None
+if args_cli.joystick:
+    from open_duck_mini_isaaclab.joystick_input import (  # noqa: E402
+        Gamepad,
+        GamepadUnavailable,
+        command_from_gamepad,
+    )
+
+    try:
+        _pad = Gamepad(args_cli.joystick)
+        print(f"[play] 조이스틱: {args_cli.joystick}  "
+              f"왼쪽스틱=전후·좌우, 오른쪽스틱 X=회전, A=비상정지", flush=True)
+        print(f"[play] 명령 범위: vx {env_cfg.lin_vel_x_range}  "
+              f"vy {env_cfg.lin_vel_y_range}  yaw {env_cfg.ang_vel_yaw_range}", flush=True)
+    except GamepadUnavailable as exc:
+        print(f"[play] !! {exc}", flush=True)
+        print("[play] 조이스틱 없이 계속합니다.", flush=True)
+
 obs = env.get_observations()
 t_end = time.time() + args_cli.seconds
 step = 0
@@ -425,7 +450,14 @@ hold_steps = max(1, int(args_cli.hold / dt))
 cur_idx = -1
 while simulation_app.is_running() and time.time() < t_end:
     t0 = time.time()
-    if args_cli.cycle:
+    if _pad is not None:
+        # 조이스틱이 최우선. poll()은 밀린 이벤트만 훑고 즉시 돌아오므로
+        # 60Hz 루프를 붙잡지 않는다.
+        _pad.poll()
+        cx, cy, cw = command_from_gamepad(
+            _pad, env_cfg.lin_vel_x_range, env_cfg.lin_vel_y_range, env_cfg.ang_vel_yaw_range
+        )
+    elif args_cli.cycle:
         idx = (step // hold_steps) % len(CYCLE)
         if idx != cur_idx:
             cur_idx = idx
@@ -441,13 +473,15 @@ while simulation_app.is_running() and time.time() < t_end:
         obs, _, _, _ = env.step(policy(obs))
     _draw_overlay()
     _update_ghost()
+    # 조이스틱일 때 cur_idx 는 -1 이라 CYCLE[cur_idx] 를 쓰면 엉뚱하게 TURN 이 뜬다.
+    mode_tag = "JOY " if _pad is not None else (CYCLE[cur_idx][0] if args_cli.cycle else "고정")
     if args_cli.hud:
-        _update_hud(CYCLE[cur_idx][0] if args_cli.cycle else "고정", cx, cy, cw)
+        _update_hud(mode_tag, cx, cy, cw)
     step += 1
     if step % 100 == 0:
         v = u._robot.data.root_lin_vel_b[0, :2]
         w = u._robot.data.root_ang_vel_b[0, 2]
-        tag = CYCLE[cur_idx][0] if args_cli.cycle else "고정"
+        tag = mode_tag
         extra = f"  다리-몸통 최소 {_selfcol_min*1000:.0f}mm" if args_cli.overlay else ""
         print(f"[play] {tag:4} vx={v[0]:+.3f} vy={v[1]:+.3f} yaw={w:+.3f}  (cmd {cx:+.2f},{cy:+.2f},{cw:+.2f}){extra}", flush=True)
     sleep = dt - (time.time() - t0)

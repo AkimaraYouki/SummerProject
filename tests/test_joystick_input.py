@@ -1,0 +1,155 @@
+"""joydev 리더 검증 — 컨트롤러도 Isaac Sim도 없이 돈다.
+
+joydev는 8바이트 고정 구조를 그냥 흘려보내는 프로토콜이라, 진짜 장치 대신
+파이프에 같은 바이트를 써 넣으면 커널이 보내는 것과 구분되지 않는다.
+그래서 컨트롤러가 안 꽂혀 있어도 파싱·데드존·스케일을 전부 검증할 수 있다.
+"""
+
+import os
+import struct
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "source"))
+from open_duck_mini_isaaclab.joystick_input import (  # noqa: E402
+    AXIS_LEFT_X,
+    AXIS_LEFT_Y,
+    AXIS_RIGHT_X,
+    BUTTON_A,
+    JS_EVENT_AXIS,
+    JS_EVENT_BUTTON,
+    JS_EVENT_INIT,
+    Gamepad,
+    GamepadUnavailable,
+    command_from_gamepad,
+)
+
+FMT = "IhBB"
+X_RANGE = (-0.15, 0.15)
+Y_RANGE = (-0.2, 0.2)
+YAW_RANGE = (-1.0, 1.0)
+
+
+def _event(ev_type, number, value):
+    return struct.pack(FMT, 0, value, ev_type, number)
+
+
+def _pad_fed_with(*events):
+    """이벤트를 파이프에 미리 써 두고, 그 읽기쪽을 장치처럼 물린 Gamepad를 만든다."""
+    r, w = os.pipe()
+    os.set_blocking(r, False)
+    for e in events:
+        os.write(w, e)
+    os.close(w)
+
+    pad = Gamepad.__new__(Gamepad)  # __init__ 의 os.open 을 우회
+    pad.path = "<pipe>"
+    pad.deadzone = 0.12
+    pad._axes, pad._buttons = {}, {}
+    pad._fd = r
+    pad.connected = True
+    return pad
+
+
+def test_missing_device_is_a_clear_error():
+    try:
+        Gamepad("/dev/input/js-does-not-exist")
+    except GamepadUnavailable as exc:
+        assert "js" in str(exc)
+    else:
+        raise AssertionError("장치가 없는데 예외가 안 났습니다")
+
+
+def test_axis_and_button_parsing():
+    pad = _pad_fed_with(
+        _event(JS_EVENT_AXIS, AXIS_LEFT_Y, -32767),
+        _event(JS_EVENT_BUTTON, BUTTON_A, 1),
+    )
+    pad.poll()
+    assert pad.axis(AXIS_LEFT_Y) < -0.9
+    assert pad.button(BUTTON_A) is True
+
+
+def test_init_events_are_not_discarded():
+    """장치를 열면 커널이 현재 상태를 INIT 플래그로 한 번 보낸다. 이걸 버리면
+    사용자가 스틱을 건드리기 전까지 상태를 모른다."""
+    pad = _pad_fed_with(_event(JS_EVENT_AXIS | JS_EVENT_INIT, AXIS_RIGHT_X, 32767))
+    pad.poll()
+    assert pad.axis(AXIS_RIGHT_X) > 0.9
+
+
+def test_deadzone_zeroes_small_drift_and_rescales():
+    pad = _pad_fed_with(_event(JS_EVENT_AXIS, AXIS_LEFT_X, int(0.05 * 32767)))
+    pad.poll()
+    assert pad.axis(AXIS_LEFT_X) == 0.0, "드리프트가 명령에 실리면 정지가 안 된다"
+
+    # 데드존 바로 바깥은 0에서 다시 시작해야 한다 (안 그러면 명령이 뚝 튄다)
+    pad = _pad_fed_with(_event(JS_EVENT_AXIS, AXIS_LEFT_X, int(0.13 * 32767)))
+    pad.poll()
+    assert 0.0 < pad.axis(AXIS_LEFT_X) < 0.05
+
+
+def test_full_deflection_reaches_exactly_the_trained_range():
+    """끝까지 밀면 학습 때 쓴 상한에 닿아야 하고, 넘으면 안 된다 —
+    정책은 학습 중 본 명령 분포 밖에서는 믿을 수 없다."""
+    pad = _pad_fed_with(_event(JS_EVENT_AXIS, AXIS_LEFT_Y, -32767))
+    pad.poll()
+    vx, _, _ = command_from_gamepad(pad, X_RANGE, Y_RANGE, YAW_RANGE)
+    assert abs(vx - 0.15) < 1e-6
+
+
+def test_stick_direction_matches_robot_frame():
+    """스틱을 미는 방향으로 로봇이 가야 한다.
+    로봇 기준 +x 앞, +y 왼쪽, yaw 반시계 +. 스틱은 위/왼쪽이 음수다."""
+    up = _pad_fed_with(_event(JS_EVENT_AXIS, AXIS_LEFT_Y, -32767))
+    up.poll()
+    assert command_from_gamepad(up, X_RANGE, Y_RANGE, YAW_RANGE)[0] > 0, "위로 밀면 전진"
+
+    left = _pad_fed_with(_event(JS_EVENT_AXIS, AXIS_LEFT_X, -32767))
+    left.poll()
+    assert command_from_gamepad(left, X_RANGE, Y_RANGE, YAW_RANGE)[1] > 0, "왼쪽으로 밀면 +y"
+
+    right_stick = _pad_fed_with(_event(JS_EVENT_AXIS, AXIS_RIGHT_X, 32767))
+    right_stick.poll()
+    assert command_from_gamepad(right_stick, X_RANGE, Y_RANGE, YAW_RANGE)[2] < 0, "오른쪽이면 시계방향"
+
+
+def test_button_a_is_an_emergency_stop():
+    pad = _pad_fed_with(
+        _event(JS_EVENT_AXIS, AXIS_LEFT_Y, -32767),
+        _event(JS_EVENT_BUTTON, BUTTON_A, 1),
+    )
+    pad.poll()
+    assert command_from_gamepad(pad, X_RANGE, Y_RANGE, YAW_RANGE) == (0.0, 0.0, 0.0)
+
+
+def test_zero_width_range_stays_zero():
+    """머리축처럼 태스크가 잠가둔 축은 스틱을 밀어도 0이어야 한다."""
+    pad = _pad_fed_with(_event(JS_EVENT_AXIS, AXIS_LEFT_Y, -32767))
+    pad.poll()
+    vx, _, _ = command_from_gamepad(pad, (0.0, 0.0), Y_RANGE, YAW_RANGE)
+    assert vx == 0.0
+
+
+def test_poll_returns_immediately_when_idle():
+    """시뮬 루프가 조이스틱 때문에 멈추면 안 된다."""
+    pad = _pad_fed_with()
+    pad.poll()
+    pad.poll()
+    assert pad.axis(AXIS_LEFT_X) == 0.0
+
+
+def test_unplug_mid_run_goes_neutral_instead_of_crashing():
+    pad = _pad_fed_with(_event(JS_EVENT_AXIS, AXIS_LEFT_Y, -32767))
+    pad.poll()
+    os.close(pad._fd)  # 케이블이 빠진 상황
+    pad.poll()
+    assert pad.connected is False
+    assert command_from_gamepad(pad, X_RANGE, Y_RANGE, YAW_RANGE) == (0.0, 0.0, 0.0)
+
+
+if __name__ == "__main__":
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            fn()
+            print(f"ok  {name}")
+    print("all passed")

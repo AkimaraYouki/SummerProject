@@ -185,6 +185,7 @@ odm — OpenDuck Mini 원스톱
   odm watch  [ver]                  진행 상황 한 줄
   odm play   [ver] [추가인자...]     재생 — 네이티브 창 (명령 순환, 오버레이, HUD)
   odm play   [ver] --stream         재생 — WebRTC (화면 없는 기계에서만)
+  odm play   [ver] --joystick       재생 — Xbox 패드로 실시간 조종
   odm measure[ver]                  6방향·주기성·리워드 성분 측정
   odm tb                            텐서보드 (전체 런 겹쳐보기)
   odm stop                          학습/재생 정리
