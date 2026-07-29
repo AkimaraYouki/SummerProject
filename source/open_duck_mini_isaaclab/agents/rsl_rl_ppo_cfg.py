@@ -1,5 +1,14 @@
 """rsl_rl PPO runner config for the Joystick task.
 
+2026-07-30 갱신 — 아래 문단은 랩PC(isaaclab_rl 0.2.0 + rsl-rl 2.x)를 두고 쓴
+것이고, 이 PC는 isaaclab_rl 0.5.1 + rsl-rl 5.0.1이라 상황이 바뀌었다. 신버전은
+`policy` 대신 `actor`/`critic` + `obs_groups`를 받지만, **여기서는 계속 `policy`로
+적는다**: 상류가 `handle_deprecated_rsl_rl_cfg`로 `policy` -> `actor`/`critic`
+변환을 제공하고 그것이 학습·재생 양쪽에서 불리므로, 한 벌만 유지하면 두 세대의
+rsl-rl에서 모두 뜬다 (변환 호출은 `rsl_rl_compat.py`). 아래 문단의 "0.2.0에는
+`RslRlMLPModelCfg`가 없다"는 관찰 자체는 그 체크아웃에 대해서는 여전히 맞다.
+새 필드 `obs_groups`만 신버전용으로 더해 두었고, 구버전은 모르는 키를 무시한다.
+
 Uses `isaaclab_rl.rsl_rl.rl_cfg`'s ACTUAL API as installed on the lab PC
 (isaaclab_rl==0.2.0, confirmed 2026-07-25 by reading rl_cfg.py directly and
 by a real smoke-test crash): a single `policy: RslRlPpoActorCriticCfg` field
@@ -46,6 +55,15 @@ class JoystickPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     save_interval = 100
     experiment_name = "open_duck_mini_v2_joystick"
     empirical_normalization = True
+
+    # rsl-rl >= 4.0은 어떤 관측 그룹이 어느 망으로 가는지를 설정에서 받는다
+    # (2026-07-30, 이 PC의 rsl-rl 5.0.1). 이 베이스 설정이 붙는 태스크들은
+    # state_space=0이라 환경이 {"policy": ...} 하나만 돌려주므로 크리틱도 같은
+    # 것을 본다 — 비대칭 크리틱 이전 버전(v13/v17 등)의 상태 그대로다.
+    # 비워 두면 rsl-rl이 이름으로 추론해 주긴 하지만 경고를 내고, 무엇보다
+    # "크리틱이 무엇을 보는가"는 이 프로젝트에서 스텝당 3배를 만든 결정이라
+    # 추론에 맡기지 않고 적어 둔다.
+    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
 
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
@@ -106,6 +124,13 @@ class JoystickPPORunnerCfg_Gamma097(JoystickPPORunnerCfg):
     거의 같다. 0.99는 100스텝, 세 주기 반이다. 주기적 과제에서 크리틱이
     추정해야 할 범위를 한 주기로 좁힌 것이 +53%를 만들었다.
     """
+
+    # 비대칭 크리틱. 이 설정이 붙는 태스크(Walk9 / Walk9G97 / Path)는
+    # state_space > 0이라 환경이 {"policy": 101~104, "critic": 205~208}을
+    # 돌려준다. 크리틱을 "critic" 그룹에 붙이는 것이 곧 비대칭 크리틱이다 —
+    # 여기를 "policy"로 되돌리면 리워드를 한 글자도 안 바꾸고 스텝당 1/3로
+    # 떨어진다.
+    obs_groups = {"actor": ["policy"], "critic": ["critic"]}
 
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,

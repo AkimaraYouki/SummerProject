@@ -70,7 +70,10 @@ import sys  # noqa: E402
 import torch  # noqa: E402
 
 import gymnasium as gym  # noqa: E402
-from rsl_rl.runners import OnPolicyRunner  # noqa: E402
+from open_duck_mini_isaaclab.agents.rsl_rl_compat import (  # noqa: E402
+    build_runner,
+    load_checkpoint,
+)
 
 import open_duck_mini_isaaclab.tasks  # noqa: E402, F401 - side effect: gym.register()
 from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import (  # noqa: E402
@@ -119,8 +122,8 @@ agent_cfg = _TASK_TO_RUNNER.get(args_cli.task, JoystickPPORunnerCfg)()
 env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
 print(f"[info] loading checkpoint: {args_cli.checkpoint}", flush=True)
-runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
-runner.load(args_cli.checkpoint)
+runner = build_runner(env, agent_cfg)
+load_checkpoint(runner, args_cli.checkpoint)
 policy = runner.get_inference_policy(device=env.unwrapped.device)
 
 unwrapped = env.unwrapped
@@ -132,7 +135,7 @@ leg_joint_ids = [joint_ids[i] for i in ACT_LEG_JOINT_IDX]
 
 print(f"[info] HOME_BASE_HEIGHT (spawn z) = {env_cfg.robot.init_state.pos[2]:.4f} m", flush=True)
 
-obs, _ = env.get_observations()
+obs = env.get_observations()
 
 log_base_h, log_up = [], []
 log_leg_pos = []  # per-step, mean-across-envs leg joint angles (10,)

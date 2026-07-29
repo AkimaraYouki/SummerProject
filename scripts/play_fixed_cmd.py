@@ -36,7 +36,10 @@ import time  # noqa: E402
 import torch  # noqa: E402
 import gymnasium as gym  # noqa: E402
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR  # noqa: E402
-from rsl_rl.runners import OnPolicyRunner  # noqa: E402
+from open_duck_mini_isaaclab.agents.rsl_rl_compat import (  # noqa: E402
+    build_runner,
+    load_checkpoint,
+)
 import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
 from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import (  # noqa: E402
     JoystickPPORunnerCfg,
@@ -125,8 +128,8 @@ env = gym.make(args_cli.task, cfg=env_cfg)
 
 agent_cfg = _TASK_TO_RUNNER.get(args_cli.task, JoystickPPORunnerCfg)()
 env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
-runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
-runner.load(args_cli.checkpoint)
+runner = build_runner(env, agent_cfg)
+load_checkpoint(runner, args_cli.checkpoint)
 policy = runner.get_inference_policy(device=env.unwrapped.device)
 u = env.unwrapped
 dt = u.step_dt
@@ -415,7 +418,7 @@ def _update_hud(tag, cx, cy, cw):
             _hud_plots[k].set_data(*h)
 
 
-obs, _ = env.get_observations()
+obs = env.get_observations()
 t_end = time.time() + args_cli.seconds
 step = 0
 hold_steps = max(1, int(args_cli.hold / dt))

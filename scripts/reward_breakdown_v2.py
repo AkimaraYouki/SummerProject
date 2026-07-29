@@ -29,7 +29,10 @@ simulation_app = app_launcher.app
 import torch  # noqa: E402
 
 import gymnasium as gym  # noqa: E402
-from rsl_rl.runners import OnPolicyRunner  # noqa: E402
+from open_duck_mini_isaaclab.agents.rsl_rl_compat import (  # noqa: E402
+    build_runner,
+    load_checkpoint,
+)
 
 import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
 from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import JoystickPPORunnerCfg  # noqa: E402
@@ -60,15 +63,15 @@ agent_cfg = JoystickPPORunnerCfg()
 env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
 print(f"[info] checkpoint={args_cli.checkpoint}", flush=True)
-runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
-runner.load(args_cli.checkpoint)
+runner = build_runner(env, agent_cfg)
+load_checkpoint(runner, args_cli.checkpoint)
 policy = runner.get_inference_policy(device=env.unwrapped.device)
 
 unwrapped = env.unwrapped
 cfg = unwrapped.cfg
 print(f"[info] alive_scale={cfg.alive_scale} imitation_w_joint_pos={cfg.imitation_w_joint_pos} imitation_scale={cfg.imitation_scale}", flush=True)
 
-obs, _ = env.get_observations()
+obs = env.get_observations()
 
 sums = {}
 n_clamped = 0

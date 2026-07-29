@@ -20,7 +20,10 @@ simulation_app = app_launcher.app
 
 import torch  # noqa: E402
 import gymnasium as gym  # noqa: E402
-from rsl_rl.runners import OnPolicyRunner  # noqa: E402
+from open_duck_mini_isaaclab.agents.rsl_rl_compat import (  # noqa: E402
+    build_runner,
+    load_checkpoint,
+)
 import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
 from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import JoystickPPORunnerCfg  # noqa: E402
 from open_duck_mini_isaaclab.tasks.velocity import joystick_env_cfg as _cm  # noqa: E402
@@ -37,14 +40,14 @@ env_cfg.scene.num_envs = args_cli.num_envs
 env = gym.make(args_cli.task, cfg=env_cfg)
 agent_cfg = JoystickPPORunnerCfg()
 env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
-runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
-runner.load(args_cli.checkpoint)
+runner = build_runner(env, agent_cfg)
+load_checkpoint(runner, args_cli.checkpoint)
 policy = runner.get_inference_policy(device=env.unwrapped.device)
 u = env.unwrapped
 cfg = u.cfg
 print(f"[info] w_joint_pos={cfg.imitation_w_joint_pos} bounded={cfg.imitation_bounded_joint_pos} scale={cfg.imitation_scale}", flush=True)
 
-obs, _ = env.get_observations()
+obs = env.get_observations()
 acc = {k: 0.0 for k in ["joint_pos_err2", "joint_pos_rew", "joint_vel_rew", "lin_xy", "lin_z", "ang_xy", "ang_z", "contact", "cmd_active"]}
 n = 0
 for step in range(args_cli.num_steps):
