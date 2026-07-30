@@ -23,6 +23,7 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-Grav-v0": "JoystickEnvCfg_Grav",
     "Isaac-OpenDuckMini-Joystick-Tall-v0": "JoystickEnvCfg_Tall",
     "Isaac-OpenDuckMini-Joystick-Sym-v0": "JoystickEnvCfg_Tall",  # v29: 환경은 v28 과 동일
+    "Isaac-OpenDuckMini-Joystick-Taller-v0": "JoystickEnvCfg_Taller",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
 }
 
@@ -35,6 +36,7 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-Grav-v0",
     "Isaac-OpenDuckMini-Joystick-Tall-v0",
     "Isaac-OpenDuckMini-Joystick-Sym-v0",
+    "Isaac-OpenDuckMini-Joystick-Taller-v0",
 }
 
 

@@ -656,6 +656,64 @@ class JoystickEnvCfg_Tall(JoystickEnvCfg_Grav):
     ready_base_height = READY_BASE_HEIGHT_H175
 
 
+# ref_h190 (walk_com_height 0.19) 의 READY 자세. 실측 전 잠정 높이는
+# scripts/diag/settle_height.py 로 재서 갱신한다.
+# settle_height.py 실측 (16 envs x 400 steps, 200 mm 에서 낙하, 표준편차 1.5 mm).
+# 키 변화:  121 mm (원본) -> 136 mm (h175) -> 154 mm (h190).  원래 대비 +27%.
+READY_BASE_HEIGHT_H190 = 0.1539
+SPAWN_BASE_HEIGHT_H190 = 0.1614
+
+READY_JOINT_POS_H190 = {
+    "left_hip_yaw": 0.0003,
+    "left_hip_roll": 0.0208,
+    "left_hip_pitch": 0.8252,
+    "left_knee": -1.4750,
+    "left_ankle": 0.7202,
+    "neck_pitch": 0.0,
+    "head_pitch": 0.0,
+    "head_yaw": 0.0,
+    "head_roll": 0.0,
+    "right_hip_yaw": -0.0003,
+    "right_hip_roll": -0.0114,
+    "right_hip_pitch": 0.8490,
+    "right_knee": 1.5137,
+    "right_ankle": -0.7350,
+}
+
+
+@configclass
+class JoystickEnvCfg_Taller(JoystickEnvCfg_Grav):
+    """imitation_v30 — v28 에서 확인된 방향(키)을 한 단계 더 (0.175 -> 0.19).
+
+    v28 이 유일하게 명확한 개선이었다. 키를 121 -> 136 mm 로 올렸더니 이 프로젝트
+    최대 결함이던 횡방향 오차가 절반이 됐다(좌 0.040 -> 0.017, 우 0.035 -> 0.018,
+    각 4표본으로 구간이 겹치지 않는다). v29(좌우 미러 손실)는 같은 표적을 노렸으나
+    이득이 없었다. 그래서 통한 쪽을 한 번 더 민다.
+
+        무릎        2.032 -> 1.816 -> **1.514** rad
+        필요 액션   1.30  -> 1.46  -> **1.87**
+
+    필요 액션이 계속 오른다. v1~v9 를 죽인 값은 8.1 이라 아직 여유가 크지만,
+    계속 올리면 언젠가 같은 벽에 부딪힌다. 이번에도 나아지면 그 다음은 액션
+    도달성부터 확인할 것.
+
+    ready_base_height / 스폰 높이는 settle_height.py 로 **실측해서** 넣는다.
+    추측하면 발이 지면을 파고들어 PhysX 가 튕겨내고, 그러면 안착 측정 자체가
+    오염된다 (v28 준비 때 실제로 겪었다 — 안착값이 92~188 mm 로 흩어졌다).
+    """
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_h190.pkl"
+
+    robot = OPEN_DUCK_MINI_V2_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_H190),
+            joint_pos=dict(READY_JOINT_POS_H190),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_H190
+
+
 
 # ── 자기충돌: 조사했으나 보류 (2026-07-30) ───────────────────────────────
 # 사용자가 재생에서 다리와 몸통이 겹치는 것을 보고 제기했고, Disney BD-X는
