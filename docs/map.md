@@ -76,6 +76,8 @@ RL 환경과 정책 설정. **고칠 게 있으면 십중팔구 여기다.**
       joint_order.py           관절 순서·인덱스 — 여기 틀리면 전부 조용히 틀린다
       robot_cfg.py             로봇 자산(USD)·액추에이터 설정
       joystick_input.py        Xbox 패드 (joydev 직접 읽기, 의존성 없음)
+      symmetry.py              좌우 미러 (관절·관측) + rsl-rl symmetry_cfg 연결
+      tasks/task_registry.py   태스크 -> 환경/러너 설정 매핑 (여기 한 곳만 고친다)
 
 ## scripts/ — 목적별로 나눠뒀다
 
@@ -98,6 +100,8 @@ RL 환경과 정책 설정. **고칠 게 있으면 십중팔구 여기다.**
     reward_terms.py               학습된 정책의 항목별 리워드 균형 (환경이 기록한 값을 그대로 읽는다)
     torso_vs_hip.py               몸통 roll RMS · 고관절 이탈 · 둘의 상관
     compare_runs.py               여러 런을 같은 iteration 에서 비교 (GPU 불필요)
+    settle_height.py              태스크의 READY 자세로 놓았을 때 실제 안착 높이 (GPU 필요)
+    derive_mirror.py              좌우 미러 매핑을 레퍼런스에서 유도 (GPU 불필요)
     reward_breakdown.py / _v2.py  옛 버전. 리워드 수식을 복제해 놔서 어긋난다 — reward_terms.py 를 쓸 것
     reward_at_ready.py            READY 자세로 가만히 있을 때 각 항이 주는 값
     imit_internals.py             imit_internals2 의 옛 버전
@@ -147,3 +151,9 @@ RL 환경과 정책 설정. **고칠 게 있으면 십중팔구 여기다.**
   `env -u PYTHONPATH` 로 돈다.
 - **드라이버 595.84 는 RTX 렌더러를 깬다.** 580.173.02 를 쓴다.
   (`docs/handoff/README.md` 참고)
+- **안착 높이는 스폰이 낮으면 측정이 오염된다.** 발이 지면을 파고들면 PhysX 가
+  튕겨내서 안착값이 스폰보다 높게 나온다. 충분히 높은 데서 떨어뜨릴 것.
+- **오래 학습할수록 명령 추종을 잃는다** (v25@1500 > v26@2999,
+  v27@1500 > v27@2000). 1500 과 최종을 둘 다 재고 같은 iteration 끼리 비교.
+- **리워드 수렴은 행동 수렴이 아니다.** v26 은 곡선이 평평해진 뒤에도
+  명령 추종이 계속 나빠졌다.
