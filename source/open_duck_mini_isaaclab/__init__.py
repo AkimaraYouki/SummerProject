@@ -106,6 +106,17 @@ try:
         },
     )
 
+    # imitation_v33 — v32 + Z 자 목 자세로 학습 (자세만 바꾸면 넘어진다).
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-ZNeck-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_ZNeck",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
     # 안전 필터를 켠 변형 (학습용이 아니라 평가용).
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-TallSafe-v0",

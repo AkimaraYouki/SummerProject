@@ -892,3 +892,38 @@ class JoystickEnvCfg_HipInwardSafe(JoystickEnvCfg_HipInward):
     """
 
     safety_filter_ckpt = "source/open_duck_mini_isaaclab/barrier_h5d.pt"
+
+
+# Z 자 목으로 학습할 때 쓰는 READY 자세. 다리 값은 H175 그대로이고 머리만 세운다.
+READY_JOINT_POS_H175_ZNECK = dict(READY_JOINT_POS_H175)
+READY_JOINT_POS_H175_ZNECK.update({"neck_pitch": 0.785, "head_pitch": 0.785})
+
+
+@configclass
+class JoystickEnvCfg_ZNeck(JoystickEnvCfg_HipInward):
+    """imitation_v33 — v32 + BD-X 특유의 Z 자 목 자세로 **처음부터 학습**.
+
+    자세만 바꾸면 안 된다. v32 정책에 머리만 세워 재생해 봤더니 앞으로 기울다가
+    넘어졌다. pinocchio 로 재보면 머리를 +45 도로 세울 때 무게중심이 x 로
+    14.3 mm 옮겨간다 (-8.8 -> -23.1 mm). 발 길이가 60 mm 인 로봇이라 작지 않고,
+    정책은 머리가 0 인 무게중심으로 학습돼 있었으니 겪어본 적 없는 외란이다.
+
+    "머리는 모방 리워드에서 빠져 있으니 무관하다" 는 생각이 틀린 지점이 여기다 --
+    리워드에 없는 것과 동역학에 없는 것은 다르다. 머리는 질량을 갖는다.
+
+    그래서 이 설정은 **그 무게중심으로 학습**한다. 바뀌는 것은 머리 자세 하나뿐이고
+    (lock_head_joints 가 그대로라 정책은 여전히 다리 10 관절만 쓴다), 나머지는
+    v32 와 같다 -- 안쪽 고관절 이탈 벌점, ref_h175, 큰 네트워크, gamma 0.97.
+
+    비교 기준: v32 는 추종 0.0200 · 5 mm 위반 1.0%. 무게중심이 뒤로 가는 만큼
+    균형이 어려워질 수 있으니 **넘어짐 빈도(에피소드 길이)를 같이 볼 것.**
+    """
+
+    robot = OPEN_DUCK_MINI_V2_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_H175),
+            joint_pos=dict(READY_JOINT_POS_H175_ZNECK),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_H175
