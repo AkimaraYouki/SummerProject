@@ -27,12 +27,24 @@ set -euo pipefail
 HOST="${ODM_LABPC:-do@192.168.137.111}"
 REMOTE_DIR="/home/do/Pictures/Claude/refgen"
 HEIGHT=""
+YAW_SWEEP=""
+PRESET_SET=""
 OUT="polynomial_coefficients"
 JOBS=4
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --height) HEIGHT="$2"; shift 2 ;;
+    # yaw 격자를 대칭으로. 기본값(-0.3~0.3, 간격 0.07)은 0.6 이 0.07 로 나누어
+    # 떨어지지 않아 격자가 -0.02 / +0.05 로 0 을 비껴가고, 어떤 명령도 부호를
+    # 뒤집은 짝을 갖지 못한다 (2026-07-30 확인). 좌회전과 우회전의 모방 목표가
+    # 서로 다른 위치의 격자에서 보간된다는 뜻이다. dx / dy 는 멀쩡하다.
+    #   --yaw-sweep 0.28  ->  -0.28 .. 0.28, 간격 0.07 그대로, 9종 그대로,
+    #                         0 포함, 모든 명령에 거울짝 존재
+    --yaw-sweep) YAW_SWEEP="$2"; shift 2 ;;
+    # medium 프리셋의 임의 키를 덮어쓴다: --preset foot_zmp_target_y=0.0
+    # (쉼표로 여러 개). walk_com_height 는 --height 를 쓰는 편이 낫다.
+    --preset) PRESET_SET="$2"; shift 2 ;;
     --out)    OUT="$2"; shift 2 ;;
     --host)   HOST="$2"; shift 2 ;;
     --jobs)   JOBS="$2"; shift 2 ;;
@@ -68,6 +80,38 @@ print(f'  walk_com_height {old} -> {d[\"walk_com_height\"]}')
 PY"
 else
   echo "== 3/5 높이 그대로 (--height 없음)"
+fi
+
+if [ -n "$YAW_SWEEP" ]; then
+  echo "== 3.5/5 yaw 스윕 -> +-$YAW_SWEEP (대칭 격자)"
+  ssh -o BatchMode=yes "$HOST" "python3 - <<'PY'
+import json, pathlib, numpy as np
+p = pathlib.Path('$REMOTE_DIR/reference_motion_generator/open_duck_reference_motion_generator/robots/open_duck_mini_v2/auto_gait.json')
+d = json.loads(p.read_text())
+old = (d['min_sweep_theta'], d['max_sweep_theta'])
+lim = float('$YAW_SWEEP')
+d['min_sweep_theta'], d['max_sweep_theta'] = -lim, lim
+g = d['sweep_theta_granularity']
+grid = np.round(np.arange(-lim, lim + g, g), 6)
+assert all(round(-x, 6) in set(grid) for x in grid), f'격자가 여전히 비대칭이다: {grid}'
+p.write_text(json.dumps(d, indent=2))
+print(f'  sweep_theta {old} -> ({-lim}, {lim}), 간격 {g}, {len(grid)}종, 대칭 확인')
+PY"
+fi
+
+if [ -n "$PRESET_SET" ]; then
+  echo "== 3.6/5 medium 프리셋 덮어쓰기: $PRESET_SET"
+  ssh -o BatchMode=yes "$HOST" "python3 - <<'PY'
+import json, pathlib
+p = pathlib.Path('$REMOTE_DIR/reference_motion_generator/open_duck_reference_motion_generator/robots/open_duck_mini_v2/placo_presets/medium.json')
+d = json.loads(p.read_text())
+for kv in '$PRESET_SET'.split(','):
+    k, v = kv.split('=', 1)
+    old = d.get(k, '(없음)')
+    d[k] = json.loads(v)
+    print(f'  {k}: {old} -> {d[k]}')
+p.write_text(json.dumps(d, indent=2))
+PY"
 fi
 
 echo "== 4/5 보행 생성 + 다항식 피팅 (수십 분)"
