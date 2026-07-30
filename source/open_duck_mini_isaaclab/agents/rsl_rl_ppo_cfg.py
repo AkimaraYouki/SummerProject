@@ -45,7 +45,12 @@ recipe, just reasonable PPO defaults for a 14-action-dim biped.
 """
 
 from isaaclab.utils import configclass
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
+from isaaclab_rl.rsl_rl import (
+    RslRlOnPolicyRunnerCfg,
+    RslRlPpoActorCriticCfg,
+    RslRlPpoAlgorithmCfg,
+    RslRlSymmetryCfg,
+)
 
 
 @configclass
@@ -152,4 +157,47 @@ class JoystickPPORunnerCfg_Gamma097(JoystickPPORunnerCfg):
         lam=0.95,
         desired_kl=0.01,
         max_grad_norm=1.0,
+    )
+
+
+@configclass
+class JoystickPPORunnerCfg_Symmetry(JoystickPPORunnerCfg_Gamma097):
+    """imitation_v29 — v28 설정 + 좌우 미러 손실.
+
+    좌/우 명령의 추종 오차가 전진의 7배다 (v27@1500: 좌 0.037 / 우 0.033 vs
+    전진 0.005). v13 부터 계속 그랬고, 로봇은 물리적으로 좌우 대칭인데 정책이
+    그걸 모른다. 미러 손실은 "정책이 좌우로 뒤집힌 상황에서 뒤집힌 행동을
+    내야 한다"를 손실로 직접 물린다 — 리워드 계수가 아니라 학습 문제 자체를
+    바꾸는 구조 변경이고, 이번 rsl-rl 5.0.1 이식으로 새로 열린 선택지다.
+
+    **데이터 증강은 끄고 미러 손실만 켠다.** 증강을 켜면 크리틱도 뒤집힌 관측을
+    받는데, 크리틱 관측 211차원에는 월드 좌표계 각속도처럼 몸통 시상면 기준으로
+    깔끔히 반사되지 않는 항이 있다. 미러 손실 경로에서는 뒤집힌 관측을 액터만
+    읽으므로(크리틱 값은 그 전에 원본으로 계산된다) 정책 관측 107차원만 정확히
+    뒤집으면 되고, 위험 표면이 훨씬 작다.
+
+    계수 0.5 는 상류 예시들이 쓰는 범위의 중간값이다. 너무 크면 대칭을 맞추느라
+    과제를 놓치고, 너무 작으면 아무 일도 안 일어난다. 첫 시도이므로 중간에서
+    시작하고 결과를 보고 조정한다.
+    """
+
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.97,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=False,
+            use_mirror_loss=True,
+            mirror_loss_coeff=0.5,
+            data_augmentation_func="open_duck_mini_isaaclab.symmetry:compute_symmetric_states",
+        ),
     )

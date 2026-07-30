@@ -121,3 +121,39 @@ def mirror_observation(obs: torch.Tensor, layout) -> torch.Tensor:
             raise ValueError(f"모르는 구간 종류: {kind}")
         i += width
     return torch.cat(out, dim=-1)
+
+
+@torch.no_grad()
+def compute_symmetric_states(env, obs=None, actions=None):
+    """rsl-rl `symmetry_cfg.data_augmentation_func` 계약 구현.
+
+    원본과 좌우 반전본을 이어 붙여 배치를 2배로 돌려준다
+    (rsl_rl/algorithms/ppo.py 가 `[:original_batch_size]` / `[original_batch_size:]`
+    로 잘라 쓴다 — 첫 절반이 원본이어야 한다).
+
+    **`policy` 그룹만 뒤집는다.** 미러 손실 경로에서 증강된 관측을 읽는 것은
+    액터뿐이고(크리틱 값은 그 전에 원본으로 이미 계산된다, ppo.py 의
+    value_loss 계산 위치 참고), 크리틱 관측 211차원에는 월드 좌표계 각속도처럼
+    몸통 시상면 기준으로 깔끔히 반사되지 않는 항이 섞여 있다. 안 쓰는 것을
+    억지로 뒤집으면 틀릴 기회만 늘어난다. 크리틱 그룹은 원본을 복제해 둔다.
+
+    그래서 이 함수는 **use_mirror_loss 전용**이다. use_data_augmentation 을 켜면
+    크리틱도 증강된 관측을 쓰게 되므로 그때는 크리틱 미러까지 구현해야 한다.
+    """
+    cfg = env.unwrapped.cfg
+    layout = build_obs_layout(
+        use_path_frame=bool(getattr(cfg, "use_path_frame", False)),
+        use_gravity_obs=bool(getattr(cfg, "use_gravity_obs", False)),
+    )
+
+    obs_aug = None
+    if obs is not None:
+        n = obs.batch_size[0]
+        obs_aug = obs.repeat(2)
+        obs_aug["policy"][n:] = mirror_observation(obs["policy"], layout)
+
+    actions_aug = None
+    if actions is not None:
+        actions_aug = torch.cat([actions, mirror_joint_vector(actions)], dim=0)
+
+    return obs_aug, actions_aug

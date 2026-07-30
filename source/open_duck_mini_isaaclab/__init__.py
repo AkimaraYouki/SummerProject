@@ -73,6 +73,17 @@ try:
         },
     )
 
+    # imitation_v29 — v28 과 환경은 같고 러너에 좌우 미러 손실만 더한다.
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-Sym-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_Tall",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Symmetry",
+        },
+    )
+
     # imitation_v28 — v27 + 로봇을 더 세운다 (레퍼런스 walk_com_height 0.175).
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-Tall-v0",

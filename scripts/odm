@@ -22,6 +22,7 @@ task_of() {
     v25|v26|path) echo "Isaac-OpenDuckMini-Joystick-Path-v0" ;;
     v27|grav) echo "Isaac-OpenDuckMini-Joystick-Grav-v0" ;;
     v28|tall) echo "Isaac-OpenDuckMini-Joystick-Tall-v0" ;;
+    v29|sym) echo "Isaac-OpenDuckMini-Joystick-Sym-v0" ;;
     *) echo "" ;;
   esac
 }

@@ -22,6 +22,7 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-Path-v0": "JoystickEnvCfg_Path",
     "Isaac-OpenDuckMini-Joystick-Grav-v0": "JoystickEnvCfg_Grav",
     "Isaac-OpenDuckMini-Joystick-Tall-v0": "JoystickEnvCfg_Tall",
+    "Isaac-OpenDuckMini-Joystick-Sym-v0": "JoystickEnvCfg_Tall",  # v29: 환경은 v28 과 동일
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
 }
 
@@ -33,6 +34,7 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-Path-v0",
     "Isaac-OpenDuckMini-Joystick-Grav-v0",
     "Isaac-OpenDuckMini-Joystick-Tall-v0",
+    "Isaac-OpenDuckMini-Joystick-Sym-v0",
 }
 
 
@@ -61,4 +63,9 @@ def runner_cfg_for(task: str):
         raise KeyError(
             f"모르는 태스크: {task!r}. task_registry.ENV_CFG_CLASS 에 추가하세요."
         )
+    # v29 만 러너가 다르다(미러 손실). 환경은 v28 과 같아 ENV_CFG_CLASS 로는
+    # 구분되지 않으므로 여기서 따로 잡는다.
+    if task == "Isaac-OpenDuckMini-Joystick-Sym-v0":
+        from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import JoystickPPORunnerCfg_Symmetry
+        return JoystickPPORunnerCfg_Symmetry()
     return JoystickPPORunnerCfg_Gamma097() if task in _BIG_NET_TASKS else JoystickPPORunnerCfg()
