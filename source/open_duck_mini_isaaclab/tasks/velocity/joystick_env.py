@@ -210,6 +210,17 @@ class JoystickEnv(DirectRLEnv):
 
         # 고관절 roll/yaw 이탈 상한 (cfg.hip_dev_limit_*). 다리 10관절 부분집합
         # 안에서의 자리: 0 L_yaw 1 L_roll 5 R_yaw 6 R_roll.
+        # 안쪽 방향 부호. dir*(q - qr) 가 양수면 다리가 몸통 밑으로 들어간 것.
+        # 측정으로 정했고(위 cfg 주석의 표), 미러 맵과도 맞는다:
+        # hip_yaw 는 좌 -1 / 우 +1 (미러 부호 -1 이라 같은 물리 방향),
+        # hip_roll 은 양쪽 -1 (미러 부호 +1).
+        self._hip_in_dir = None
+        if self.cfg.hip_inward_thresh is not None:
+            slots = (0, 1, 5, 6)   # L_yaw L_roll R_yaw R_roll
+            self._hip_in_act = [ACT_LEG_JOINT_IDX[k] for k in slots]
+            self._hip_in_ref = [REF_LEG_JOINT_IDX[k] for k in slots]
+            self._hip_in_dir = torch.tensor([-1.0, -1.0, +1.0, -1.0], device=dev)
+
         self._hip_lim = None
         if self.cfg.hip_dev_limit_yaw is not None:
             slots = (0, 1, 5, 6)
@@ -493,6 +504,14 @@ class JoystickEnv(DirectRLEnv):
                 )
                 * cfg.imitation_scale
             )
+
+        if self._hip_in_dir is not None:
+            # 실측 관절각 기준. v31 은 목표에 걸었다가 실제 각을 못 묶었다.
+            inward = (self._hip_in_dir
+                      * (joint_pos[:, self._hip_in_act]
+                         - self._current_reference_motion[:, 0:14][:, self._hip_in_ref]))
+            over = torch.clamp(inward - cfg.hip_inward_thresh, min=0.0).sum(dim=-1)
+            terms["hip_inward"] = over * cfg.hip_inward_scale
 
         if cfg.use_path_frame and cfg.path_tracking_scale != 0.0:
             terms["path_tracking"] = (

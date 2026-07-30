@@ -25,6 +25,7 @@ task_of() {
     v29|sym) echo "Isaac-OpenDuckMini-Joystick-Sym-v0" ;;
     v30|taller) echo "Isaac-OpenDuckMini-Joystick-Taller-v0" ;;
     v31|hiplimit) echo "Isaac-OpenDuckMini-Joystick-HipLimit-v0" ;;
+    v32|hipinward) echo "Isaac-OpenDuckMini-Joystick-HipInward-v0" ;;
     *) echo "" ;;
   esac
 }
