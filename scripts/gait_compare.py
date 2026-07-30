@@ -75,6 +75,7 @@ store = {}
 for name, cx, cy, cw in CONDS:
     obs, _ = env.reset()
     q, qr, dq, dqr, vb, vw, vr, ft, wz, wr, pe = [], [], [], [], [], [], [], [], [], [], []
+    bh, fr = [], []   # 몸통 높이 / 레퍼런스 접지
     for step in range(args_cli.num_steps):
         u._command[:, 0] = cx
         u._command[:, 1] = cy
@@ -88,6 +89,13 @@ for name, cx, cy, cw in CONDS:
         qr.append(rf[:, 0:14][:, REF_LEG_JOINT_IDX].cpu().numpy())
         dqr.append(rf[:, 14:28][:, REF_LEG_JOINT_IDX].cpu().numpy())
         ft.append(u._get_foot_contact().float().cpu().numpy())
+        # 몸통 높이. v28(ref_h175) vs v30(ref_h190)처럼 레퍼런스 높이를 바꾼
+        # 실험은 "실제로 더 크게 서서 걷는가"로 판정해야 하는데, 그동안
+        # 어느 측정에도 이 값이 남지 않아 판정 자체가 불가능했다.
+        bh.append((u._robot.data.root_pos_w[:, 2]
+                   - u._terrain.env_origins[:, 2]).cpu().numpy())
+        # 레퍼런스 접지 — 위상만으로 복원 가능하지만 npz를 자족적으로 둔다.
+        fr.append((rf[:, 28:30] > 0.5).float().cpu().numpy())
         # path frame 오차 (v25 이후). 순수 rate 명령에서는 "휘었다"는 사실이
         # 어디에도 안 남으므로, 이 값이 직진성을 재는 유일한 직접 지표다.
         if getattr(u.cfg, "use_path_frame", False):
@@ -102,6 +110,7 @@ for name, cx, cy, cw in CONDS:
         feet=np.asarray(ft), v_base=np.asarray(vb), v_world=np.asarray(vw),
         v_ref=np.asarray(vr), w_base=np.asarray(wz), w_ref=np.asarray(wr),
         cmd=np.array([cx, cy, cw]),
+        base_h=np.asarray(bh), feet_ref=np.asarray(fr),
         path_err=np.asarray(pe) if pe else np.zeros((0, 0, 3)),
     )
     err = np.linalg.norm(np.asarray(vb)[100:].mean(axis=(0, 1)) - np.array([cx, cy]))

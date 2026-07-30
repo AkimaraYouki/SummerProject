@@ -155,7 +155,11 @@ def plot_tracking(g, out, ver):
           panel_title_lines=1)
 
 
-def plot_gait(j, ref_contact, out, ver):
+def plot_gait(j, ref_contact, out, ver, ref_series=None):
+    """`ref_contact` 는 위상별 접지표, `ref_series` 는 시간축 접지 기록.
+
+    후자가 있으면 그대로 쓴다 — 위상 인덱싱을 한 번 덜 거치므로 더 직접적이다.
+    """
     feet = j["feet"]
     phase = j["phase"].astype(int)
     period = int(j["gait_period_steps"])
@@ -165,7 +169,8 @@ def plot_gait(j, ref_contact, out, ver):
 
     fig, ax = plt.subplots(figsize=(13, 4.0))
     for idx, side, color, y in [(0, "왼발", L_COLOR, 1), (1, "오른발", R_COLOR, 0)]:
-        rc = ref_contact[phase[:T, env] % period, idx] > 0.5
+        rc = (ref_series[:T, env, idx] > 0.5 if ref_series is not None
+              else ref_contact[phase[:T, env] % period, idx] > 0.5)
         ax.broken_barh([(t[i], dt) for i in range(T) if rc[i]], (y - 0.40, 0.80),
                        facecolors=color, alpha=0.22, edgecolor="none")
         pc = feet[:T, env, idx] > 0.5
@@ -179,7 +184,8 @@ def plot_gait(j, ref_contact, out, ver):
     ax.grid(axis="x", alpha=0.25); ax.margins(x=0)
 
     pol = feet[WARM:, :, :] > 0.5
-    ref = ref_contact[phase[WARM:] % period, :] > 0.5
+    ref = (ref_series[WARM:, :, :] > 0.5 if ref_series is not None
+           else ref_contact[phase[WARM:] % period, :] > 0.5)
     agree = float((pol == ref).mean())
     dl, dr = float(pol[:, :, 0].mean()), float(pol[:, :, 1].mean())
     rl, rr = float(ref[:, :, 0].mean()), float(ref[:, :, 1].mean())
@@ -310,6 +316,17 @@ def main():
     g = np.load(os.path.join(args.src, f"gait_{args.ver}.npz"))
     j = np.load(os.path.join(args.src, f"joint_{args.ver}.npz"))
     print(f"[info] 체크포인트: {str(j['checkpoint'])}")
+
+    # 2026-07-30 이후 측정은 레퍼런스 접지를 직접 저장한다. 있으면 그걸 쓰고,
+    # 그 전 npz 에 대해서만 pkl 로 복원한다 (둘 다 같은 값이어야 한다).
+    if "forward__feet_ref" in g.files:
+        print("[info] 레퍼런스 접지: npz 에 기록된 값 사용")
+        rc_series = g["forward__feet_ref"]
+        plot_tracking(g, args.out, args.ver)
+        plot_gait(j, None, args.out, args.ver, ref_series=rc_series)
+        plot_joints(j, args.out, args.ver)
+        plot_path(g, args.out, args.ver)
+        return
 
     ref = args.ref or os.path.join(
         os.path.dirname(__file__), "..", "..", "source", "open_duck_mini_isaaclab",
