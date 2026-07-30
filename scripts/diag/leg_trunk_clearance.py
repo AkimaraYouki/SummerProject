@@ -97,6 +97,10 @@ def main():
     # 명령이라 분포가 거의 겹치므로, 기본은 1개만 본다.
     ap.add_argument("--envs", type=int, default=1)
     ap.add_argument("--dump", default="", help="포즈별 (간격, 고관절 이탈) 을 npz 로")
+    # 실기 안전 기준 (mm). 사용자 지정 5 mm -- 부품 공차를 감안하면 "닿지만
+    # 않으면 된다"가 아니라 이만큼 떠 있어야 한다. 접촉률(<=0)만 보면 문제를
+    # 3분의 1 크기로 과소평가한다: v28 은 접촉 13.0% 인데 5 mm 위반은 38.0% 다.
+    ap.add_argument("--safe-mm", type=float, default=5.0)
     args = ap.parse_args()
 
     import pinocchio as pin
@@ -115,8 +119,9 @@ def main():
         assert jid < model.njoints, f"URDF 에 없는 관절: {n}"
         slot.append(model.idx_qs[jid])
 
-    print(f"\n{'명령':6s} {'':4s}{'정책 접촉률':>12s} {'정책 최소':>11s} "
-          f"{'레퍼런스 접촉률':>16s} {'레퍼런스 최소':>14s}")
+    SAFE = args.safe_mm / 1000.0
+    print(f"\n{'명령':6s} {'':3s}{'정책 위반율':>11s} {'정책 접촉':>10s} {'정책 최소':>10s} "
+          f"{'레퍼런스 위반':>13s} {'레퍼런스 최소':>13s}   (기준 {args.safe_mm:g} mm)")
     agg = {"q": [], "qr": []}
     # --dump: 어느 관절이 어느 **방향**으로 갈 때 간격이 줄어드는지 보려면
     # 포즈별로 간격과 부호 있는 이탈을 같이 남겨야 한다. v31 이 실패한 것은
@@ -144,10 +149,11 @@ def main():
                         dump["cmd"].append(CONDS.index(c))
             dists = np.array(dists)
             agg[tag].append(dists)
-            row[tag] = (float((dists <= 0).mean()) * 100, float(dists.min()) * 1000)
+            row[tag] = (float((dists < SAFE).mean()) * 100,
+                        float((dists <= 0).mean()) * 100, float(dists.min()) * 1000)
         import sys; sys.stdout.flush()
-        print(f"{KO[c]:6s} {'':4s}{row['q'][0]:10.1f} % {row['q'][1]:8.1f} mm "
-              f"{row['qr'][0]:14.1f} % {row['qr'][1]:11.1f} mm")
+        print(f"{KO[c]:6s} {'':3s}{row['q'][0]:9.1f} % {row['q'][1]:8.1f} % {row['q'][2]:7.1f} mm "
+              f"{row['qr'][0]:11.1f} % {row['qr'][2]:10.1f} mm")
 
     if args.dump:
         np.savez_compressed(args.dump, hip_names=np.array([names[k] for k in hip_slots]),
@@ -156,8 +162,9 @@ def main():
 
     for tag, label in (("q", "정책"), ("qr", "레퍼런스")):
         a = np.concatenate(agg[tag])
-        print(f"\n[{label}] 접촉률 {float((a <= 0).mean())*100:.1f} % · "
-              f"최소 간격 {a.min()*1000:.1f} mm · 중앙값 {np.median(a)*1000:.1f} mm")
+        print(f"\n[{label}] {args.safe_mm:g} mm 위반 {float((a < SAFE).mean())*100:.1f} % · "
+              f"접촉 {float((a <= 0).mean())*100:.1f} % · "
+              f"최소 {a.min()*1000:.1f} mm · 중앙값 {np.median(a)*1000:.1f} mm")
 
 
 if __name__ == "__main__":
