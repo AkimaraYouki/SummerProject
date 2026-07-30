@@ -62,6 +62,31 @@ def _trend(series, frac=0.3):
     return (b - a) / abs(a)
 
 
+def _window_mean(series, lo, hi):
+    """[lo, hi] 구간의 평균. 두 점만 비교하면 잡음에 속는다 — 실제로 v27 감시
+    중에 한 번 속았다(두 점으로는 정체처럼 보였으나 구간 평균으로는 상승 중)."""
+    vals = [v for s, v in series if lo <= s <= hi]
+    return sum(vals) / len(vals) if vals else None
+
+
+def converged(series, span=500, win=40, thresh=PLATEAU_REL):
+    """최근 span iteration 동안의 상승률이 thresh 미만이면 수렴으로 본다.
+
+    양 끝을 win 폭으로 평균해서 비교한다. 표본이 부족하면 (None, None).
+    """
+    if not series:
+        return None, None
+    last = series[-1][0]
+    if last < span + win:
+        return None, None
+    a = _window_mean(series, last - span - win, last - span)
+    b = _window_mean(series, last - win, last)
+    if a is None or b is None or a == 0:
+        return None, None
+    rel = (b - a) / abs(a)
+    return rel, rel < thresh
+
+
 def _zip_terms(series, keep):
     """선택한 항목들을 step 기준으로 묶어 [(step, [값...])] 로 돌려준다.
     항목마다 기록 step 이 같다고 가정하지 않고 최소 길이에 맞춘다."""
@@ -204,6 +229,14 @@ def main():
                         f"명령 추종 합계는 {track_trend*100:+.1f}% 로 제자리다. v26 이 이 양상으로 "
                         "총 리워드는 올리면서 실제 추종은 떨어뜨렸다."
                     )
+
+    rel, is_conv = converged(ps_series)
+    if rel is not None:
+        print(f"\n[수렴]  최근 500 iter 상승률 {rel*100:+.2f}%  (임계 {PLATEAU_REL*100:.0f}%)"
+              f"  ->  {'수렴' if is_conv else '아직 상승 중'}")
+        if is_conv:
+            print("        멈추고 측정할 시점이다. 단, 리워드 수렴은 행동 수렴이 아니다 —")
+            print("        v26 은 곡선이 평평해진 뒤에도 명령 추종이 계속 나빠졌다.")
 
     print()
     if warn:
