@@ -145,6 +145,7 @@ def main():
     lr = _scalars(acc, "Loss/learning_rate")
     v_loss = _scalars(acc, "Loss/value")
     entropy = _scalars(acc, "Loss/entropy")
+    sym = _scalars(acc, "Loss/symmetry")  # 미러 손실 (v29~, 켰을 때만 있다)
 
     if not reward:
         raise SystemExit("Train/mean_reward 가 없습니다 — 아직 첫 기록 전일 수 있습니다.")
@@ -162,6 +163,12 @@ def main():
     print(f"  learning_rate   {_last(lr, float('nan')):.2e}")
     print(f"  value loss      {_last(v_loss, float('nan')):.4f}")
     print(f"  entropy         {_last(entropy, float('nan')):.3f}")
+    if sym:
+        # 미러 손실이 내려가야 정책이 좌우로 대칭해진다. 켜놓고 안 내려가면
+        # 계수가 너무 작거나 미러 매핑이 틀린 것이다.
+        sym_tr = _trend(sym)
+        tr_s = f"  ({sym_tr*100:+.1f}%)" if sym_tr is not None else ""
+        print(f"  미러 손실       {_last(sym):.4f}{tr_s}")
 
     warn = []
 
@@ -194,6 +201,15 @@ def main():
 
     if ps_trend is not None and ps_trend < -0.05:
         warn.append(f"스텝당 리워드가 최근 {ps_trend*100:+.1f}%로 하락 중이다.")
+
+    if sym and len(sym) > 60:
+        sym_tr = _trend(sym)
+        if sym_tr is not None and sym_tr > -0.02:
+            warn.append(
+                f"미러 손실이 안 줄어든다 (최근 {sym_tr*100:+.1f}%). 계수가 너무 작거나 "
+                "미러 매핑이 틀렸을 수 있다. tests/test_symmetry.py 와 "
+                "scripts/diag/derive_mirror.py 를 먼저 볼 것."
+            )
 
     # ── 리워드 항목별 (v27~) ───────────────────────────────────────────
     term_tags = [t for t in acc.Tags()["scalars"] if t.startswith("Episode_Reward/")]
