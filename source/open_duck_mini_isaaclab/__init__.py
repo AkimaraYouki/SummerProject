@@ -106,6 +106,27 @@ try:
         },
     )
 
+    # 안전 필터를 켠 변형 (학습용이 아니라 평가용).
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-TallSafe-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_TallSafe",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-HipInwardSafe-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_HipInwardSafe",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
     # imitation_v29 — v28 과 환경은 같고 러너에 좌우 미러 손실만 더한다.
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-Sym-v0",

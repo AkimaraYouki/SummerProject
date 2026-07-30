@@ -221,6 +221,15 @@ class JoystickEnv(DirectRLEnv):
             self._hip_in_ref = [REF_LEG_JOINT_IDX[k] for k in slots]
             self._hip_in_dir = torch.tensor([-1.0, -1.0, +1.0, -1.0], device=dev)
 
+        # 안전 필터. 다리 관절만 민다.
+        self._safety = None
+        if getattr(self.cfg, "safety_filter_ckpt", None):
+            from open_duck_mini_isaaclab.safety_filter import ClearanceFilter
+            self._safety = ClearanceFilter(
+                self.cfg.safety_filter_ckpt, dev, self.cfg.safety_margin_mm)
+            self._safe_l = [ACT_LEG_JOINT_IDX[k] for k in (0, 1, 2, 3, 4)]
+            self._safe_r = [ACT_LEG_JOINT_IDX[k] for k in (5, 6, 7, 8, 9)]
+
         self._hip_lim = None
         if self.cfg.hip_dev_limit_yaw is not None:
             slots = (0, 1, 5, 6)
@@ -296,6 +305,11 @@ class JoystickEnv(DirectRLEnv):
             ref = self._current_reference_motion[:, 0:14][:, self._hip_ref_idx]
             target[:, self._hip_act_idx] = torch.clamp(
                 target[:, self._hip_act_idx], ref - self._hip_lim, ref + self._hip_lim)
+
+        if self._safety is not None:
+            # 속도 제한 **전에** 건다. 필터가 민 목표도 모터 속도 한계를 지켜야
+            # 한다 -- 순서를 바꾸면 안전하지만 도달 불가능한 목표가 나온다.
+            target = self._safety(target, self._safe_l, self._safe_r)
 
         prev = self._motor_targets
         max_delta = self.cfg.max_motor_velocity * self.step_dt

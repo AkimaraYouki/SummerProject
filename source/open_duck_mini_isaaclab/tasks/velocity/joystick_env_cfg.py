@@ -207,6 +207,12 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     hip_inward_thresh = None
     hip_inward_scale = -25.0
 
+    # 런타임 안전 필터 (safety_filter.py). 경로를 주면 켜진다.
+    # 리워드는 위반을 줄일 뿐 0 을 보장하지 못한다 -- 액추에이터 파손이 걸린
+    # 조건에서는 필터만이 보장을 준다. 정적 검증은 통과했다 (v28 위반 38% -> 0%).
+    safety_filter_ckpt = None
+    safety_margin_mm = 5.0
+
     # ── simulation ───────────────────────────────────────────────────────
     sim: SimulationCfg = SimulationCfg(
         dt=0.002,
@@ -845,3 +851,22 @@ class JoystickEnvCfg_HipInward(JoystickEnvCfg_Tall):
 
     hip_inward_thresh = 0.0524   # 3°
     hip_inward_scale = -25.0
+
+
+@configclass
+class JoystickEnvCfg_TallSafe(JoystickEnvCfg_Tall):
+    """v28 + 런타임 안전 필터. 정책은 그대로 두고 안전만 얹는 경로의 검증용."""
+
+    safety_filter_ckpt = "source/open_duck_mini_isaaclab/barrier_h5d.pt"
+
+
+@configclass
+class JoystickEnvCfg_HipInwardSafe(JoystickEnvCfg_HipInward):
+    """v32 + 런타임 안전 필터. 실기 후보 조합이다.
+
+    v32 는 이미 5 mm 위반 1.0% 라 필터가 개입할 일이 드물고, 그만큼 추종을 덜
+    해친다. 필터 단독(v28 위에)과 비교하면 "정책을 안전하게 학습시킨 것" 과
+    "필터로 막은 것" 이 각각 얼마를 기여하는지 갈린다.
+    """
+
+    safety_filter_ckpt = "source/open_duck_mini_isaaclab/barrier_h5d.pt"
