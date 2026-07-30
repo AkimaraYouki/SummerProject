@@ -626,8 +626,12 @@ READY_JOINT_POS_H175 = {
     "left_hip_pitch": 0.9910,
     "left_knee": -1.7852,
     "left_ankle": 0.8647,
-    "neck_pitch": 0.0,
-    "head_pitch": 0.0,
+    # BD-X 특유의 Z 자 목. calc_home.py 가 레퍼런스에서 뽑을 때 0 이 됐는데,
+    # 레퍼런스가 머리를 안 쓰기 때문이지 이 자세가 틀려서가 아니다.
+    # 머리는 모방 리워드에서 빠져 있고 lock_head_joints 로 고정되므로
+    # 학습에 영향 없이 되돌릴 수 있다 (원본 READY_JOINT_POS 와 같은 값).
+    "neck_pitch": 0.785,    # +45 deg
+    "head_pitch": 0.785,    # +45 deg
     "head_yaw": 0.0,
     "head_roll": 0.0,
     "right_hip_yaw": -0.0005,
@@ -688,8 +692,12 @@ READY_JOINT_POS_H190 = {
     "left_hip_pitch": 0.8252,
     "left_knee": -1.4750,
     "left_ankle": 0.7202,
-    "neck_pitch": 0.0,
-    "head_pitch": 0.0,
+    # BD-X 특유의 Z 자 목. calc_home.py 가 레퍼런스에서 뽑을 때 0 이 됐는데,
+    # 레퍼런스가 머리를 안 쓰기 때문이지 이 자세가 틀려서가 아니다.
+    # 머리는 모방 리워드에서 빠져 있고 lock_head_joints 로 고정되므로
+    # 학습에 영향 없이 되돌릴 수 있다 (원본 READY_JOINT_POS 와 같은 값).
+    "neck_pitch": 0.785,    # +45 deg
+    "head_pitch": 0.785,    # +45 deg
     "head_yaw": 0.0,
     "head_roll": 0.0,
     "right_hip_yaw": -0.0003,

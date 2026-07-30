@@ -18,3 +18,4 @@ env_isaaclab/
 reference_motion_generator/recordings/
 reference_motion_generator/**/placo_presets/tmp/
 filtered_v28.npz
+.venv-tools/
