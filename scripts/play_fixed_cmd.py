@@ -12,6 +12,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", type=str, required=True)
 parser.add_argument("--task", type=str, required=True)
 parser.add_argument("--num_envs", type=int, default=1)
+# 기본 뷰어는 (7.5, 7.5, 7.5) 에서 원점을 본다. 이 로봇은 키가 14 cm 라 점으로만
+# 보이고, 녹화하면 빈 바닥만 찍힌다. --cam 은 로봇을 따라다니는 근접 시점이다.
+parser.add_argument("--cam", type=float, nargs=3, default=None,
+                    metavar=("X", "Y", "Z"),
+                    help="로봇 기준 카메라 위치 [m]. 예: --cam 0.6 0.6 0.35")
 parser.add_argument("--cmd_x", type=float, default=0.15)
 parser.add_argument("--cmd_y", type=float, default=0.0)
 parser.add_argument("--cmd_yaw", type=float, default=0.0)
@@ -61,6 +66,13 @@ import isaaclab.sim as sim_utils  # noqa: E402
 
 env_cfg = env_cfg_for(args_cli.task)
 env_cfg.scene.num_envs = args_cli.num_envs
+
+if args_cli.cam is not None:
+    # asset_root 기준이라 로봇이 걸어가도 시점이 따라간다.
+    env_cfg.viewer.origin_type = "asset_root"
+    env_cfg.viewer.asset_name = "robot"
+    env_cfg.viewer.eye = tuple(args_cli.cam)
+    env_cfg.viewer.lookat = (0.0, 0.0, 0.08)
 # 재생에는 외란을 항상 끈다. push_robot은 5~10초마다 ±1 m/s로 몸통을 밀어서
 # 학습 때는 강건성을 주지만, 눈으로 보행을 판단할 때는 정책의 문제인지 외력
 # 때문인지 구분할 수 없게 만든다.
