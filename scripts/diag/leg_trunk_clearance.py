@@ -96,6 +96,7 @@ def main():
     # 메시 전수 거리계산이 비싸다(형상 46개). 환경을 늘려도 같은 정책의 같은
     # 명령이라 분포가 거의 겹치므로, 기본은 1개만 본다.
     ap.add_argument("--envs", type=int, default=1)
+    ap.add_argument("--dump", default="", help="포즈별 (간격, 고관절 이탈) 을 npz 로")
     args = ap.parse_args()
 
     import pinocchio as pin
@@ -117,6 +118,11 @@ def main():
     print(f"\n{'명령':6s} {'':4s}{'정책 접촉률':>12s} {'정책 최소':>11s} "
           f"{'레퍼런스 접촉률':>16s} {'레퍼런스 최소':>14s}")
     agg = {"q": [], "qr": []}
+    # --dump: 어느 관절이 어느 **방향**으로 갈 때 간격이 줄어드는지 보려면
+    # 포즈별로 간격과 부호 있는 이탈을 같이 남겨야 한다. v31 이 실패한 것은
+    # 이 정보 없이 대칭으로 잘랐기 때문이다.
+    hip_slots = [k for k, n in enumerate(names) if "hip_roll" in n or "hip_yaw" in n]
+    dump = {"clear": [], "dev": [], "cmd": []}
     for c in CONDS:
         if f"{c}__q" not in d.files:
             continue
@@ -129,13 +135,24 @@ def main():
                     q = pin.neutral(model)
                     for k, s in enumerate(slot):
                         q[s] = traj[t, e, k]
-                    dists.append(min_clearance(model, geom, data, gdata, q))
+                    cl = min_clearance(model, geom, data, gdata, q)
+                    dists.append(cl)
+                    if args.dump and tag == "q":
+                        dump["clear"].append(cl)
+                        dump["dev"].append(traj[t, e, hip_slots]
+                                           - d[f"{c}__qr"][WARM::args.stride, :args.envs][t, e, hip_slots])
+                        dump["cmd"].append(CONDS.index(c))
             dists = np.array(dists)
             agg[tag].append(dists)
             row[tag] = (float((dists <= 0).mean()) * 100, float(dists.min()) * 1000)
         import sys; sys.stdout.flush()
         print(f"{KO[c]:6s} {'':4s}{row['q'][0]:10.1f} % {row['q'][1]:8.1f} mm "
               f"{row['qr'][0]:14.1f} % {row['qr'][1]:11.1f} mm")
+
+    if args.dump:
+        np.savez_compressed(args.dump, hip_names=np.array([names[k] for k in hip_slots]),
+                            **{k: np.array(v) for k, v in dump.items()})
+        print(f"[ok] dump -> {args.dump}")
 
     for tag, label in (("q", "정책"), ("qr", "레퍼런스")):
         a = np.concatenate(agg[tag])
