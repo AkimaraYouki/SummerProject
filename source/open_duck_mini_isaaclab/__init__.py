@@ -73,6 +73,17 @@ try:
         },
     )
 
+    # imitation_v28 — v27 + 로봇을 더 세운다 (레퍼런스 walk_com_height 0.175).
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-Tall-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_Tall",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
     # imitation_v27 — v26(Path) + 정책 관측에 중력 방향 3차원.
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-Grav-v0",

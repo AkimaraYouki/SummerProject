@@ -586,6 +586,76 @@ class JoystickEnvCfg_Grav(JoystickEnvCfg_Path):
     state_space = OBS_CRITIC_DIM + PATH_ERR_DIM + GRAVITY_OBS_DIM
 
 
+# imitation_v27 의 레퍼런스로 계산한 READY 자세 (walk_com_height 0.175).
+# scripts/diag/calc_home.py --pkl .../ref_h175.pkl 출력 그대로.
+# 기존(0.16) 대비 무릎이 12.4도, 고관절 pitch 가 6.2도 펴졌다.
+# scripts/diag/settle_height.py 로 실측 (2026-07-30, 16 envs x 400 steps).
+# 기존 자세: 안착 121 mm / 스폰 130 mm  ->  새 자세: 안착 136 mm / 스폰 144 mm.
+# 로봇이 15 mm(+12%) 커진다.
+#
+# 처음엔 스폰을 130 mm 그대로 두고 쟀다가 안착값이 92~188 mm 로 흩어졌다.
+# 최댓값이 스폰보다 높았는데 중력만으로는 불가능한 값이다 — 키가 커진 자세라
+# 발이 지면을 파고들어 PhysX 가 튕겨낸 것이다(joint_order.py 의 SPAWN_BASE_HEIGHT
+# 주석이 기록한 그 현상). 200 mm 에서 떨어뜨려 다시 재니 표준편차가 6.9 -> 1.7 mm
+# 로 떨어졌다. **스폰이 낮으면 안착 측정 자체가 오염된다.**
+READY_BASE_HEIGHT_H175 = 0.1360
+SPAWN_BASE_HEIGHT_H175 = 0.1437
+
+READY_JOINT_POS_H175 = {
+    "left_hip_yaw": 0.0003,
+    "left_hip_roll": 0.0213,
+    "left_hip_pitch": 0.9910,
+    "left_knee": -1.7852,
+    "left_ankle": 0.8647,
+    "neck_pitch": 0.0,
+    "head_pitch": 0.0,
+    "head_yaw": 0.0,
+    "head_roll": 0.0,
+    "right_hip_yaw": -0.0005,
+    "right_hip_roll": -0.0092,
+    "right_hip_pitch": 1.0114,
+    "right_knee": 1.8163,
+    "right_ankle": -0.8754,
+}
+
+
+@configclass
+class JoystickEnvCfg_Tall(JoystickEnvCfg_Grav):
+    """imitation_v28 — v27 그대로 + 로봇을 더 세운다 (walk_com_height 0.16 -> 0.175).
+
+    사용자 요청. 기존 로봇은 121 mm 로 상당히 웅크리고 걷는다.
+
+    **레퍼런스부터 다시 만들어야 한다.** 서는 높이는 임의 값이 아니라 레퍼런스
+    보행의 평균 자세에서 나온다 (calc_home.py). READY 자세만 높이면 모방 리워드가
+    매 스텝 웅크린 레퍼런스로 되돌리고, 기본 자세와 레퍼런스가 어긋나면 액션이
+    도달 불가능해진다 — v1~v9 를 아홉 번 실패시킨 바로 그 상황이다.
+    그래서 placo 프리셋의 walk_com_height 를 올려 레퍼런스를 새로 생성했고
+    (scripts/setup/gen_reference_remote.sh, 랩PC), 그 레퍼런스에서 READY 자세를
+    다시 뽑았다.
+
+    바뀐 것:
+        레퍼런스   walk_com_height 0.16 -> 0.175
+        무릎       2.032 -> 1.816 rad  (12.4도 펴짐)
+        고관절pitch 1.120 -> 1.011 rad (6.2도)
+        발목       -0.983 -> -0.875 rad (6.2도)
+        필요 액션  최대 1.30 -> 1.46   (v1~v9 를 죽인 값은 8.1 이었다. 안전)
+
+    ready_base_height / 스폰 높이는 **실측해서** 넣는다. 추측하면 스폰 순간
+    지면을 파고들거나 낙하한다 (joint_order.py 의 SPAWN_BASE_HEIGHT 주석 참고).
+    """
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_h175.pkl"
+
+    robot = OPEN_DUCK_MINI_V2_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_H175),
+            joint_pos=dict(READY_JOINT_POS_H175),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_H175
+
+
 
 # ── 자기충돌: 조사했으나 보류 (2026-07-30) ───────────────────────────────
 # 사용자가 재생에서 다리와 몸통이 겹치는 것을 보고 제기했고, Disney BD-X는

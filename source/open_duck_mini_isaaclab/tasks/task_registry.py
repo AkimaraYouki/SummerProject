@@ -21,6 +21,7 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": "JoystickEnvCfg_Walk9",
     "Isaac-OpenDuckMini-Joystick-Path-v0": "JoystickEnvCfg_Path",
     "Isaac-OpenDuckMini-Joystick-Grav-v0": "JoystickEnvCfg_Grav",
+    "Isaac-OpenDuckMini-Joystick-Tall-v0": "JoystickEnvCfg_Tall",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
 }
 
@@ -31,6 +32,7 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-Walk9G97-v0",
     "Isaac-OpenDuckMini-Joystick-Path-v0",
     "Isaac-OpenDuckMini-Joystick-Grav-v0",
+    "Isaac-OpenDuckMini-Joystick-Tall-v0",
 }
 
 
