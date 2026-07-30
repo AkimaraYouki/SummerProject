@@ -203,12 +203,25 @@ def main():
         warn.append(f"스텝당 리워드가 최근 {ps_trend*100:+.1f}%로 하락 중이다.")
 
     if sym and len(sym) > 60:
-        sym_tr = _trend(sym)
-        if sym_tr is not None and sym_tr > -0.02:
+        # "처음부터 안 줄어든다"(매핑 오류 의심)와 "바닥에 수렴했다"(정상)를 구분해야
+        # 한다. 최근 추세만 보면 둘이 똑같이 보인다 — v29 에서 실제로 그랬다.
+        #
+        # 바닥이 존재하는 이유: 레퍼런스 보행 자체가 완벽히 좌우 대칭이 아니다.
+        # derive_mirror.py 가 잰 잔차가 0.02~0.05 rad 였고, 미러 손실이 멈춘
+        # 0.0139 는 RMS 로 환산하면 0.118 액션 = 0.03 rad (action_scale 0.25)로
+        # 그 잔차와 일치한다. 정책이 그보다 더 대칭해질 수는 없다.
+        # 기준은 **최고점**이지 초기값이 아니다. 학습 시작 시점엔 정책의 평균
+        # 액션이 거의 0 이라 자동으로 대칭이고, 미러 손실도 인위적으로 낮다.
+        # v29 는 0.0135 로 시작해 0.0188 까지 올랐다가 0.0138 로 내려왔다 —
+        # 초기값과 비교하면 "안 줄었다"로 보이지만 최고점 대비로는 -27% 다.
+        peak = max(v for _, v in sym)
+        now = _last(sym)
+        drop = (peak - now) / abs(peak) if peak else 0.0
+        if drop < 0.10:
             warn.append(
-                f"미러 손실이 안 줄어든다 (최근 {sym_tr*100:+.1f}%). 계수가 너무 작거나 "
-                "미러 매핑이 틀렸을 수 있다. tests/test_symmetry.py 와 "
-                "scripts/diag/derive_mirror.py 를 먼저 볼 것."
+                f"미러 손실이 최고점에서 거의 안 내려왔다 (최고 {peak:.4f} -> 현재 {now:.4f}, "
+                f"-{drop*100:.1f}%). 계수가 너무 작거나 미러 매핑이 틀렸을 수 있다. "
+                "tests/test_symmetry.py 와 scripts/diag/derive_mirror.py 를 먼저 볼 것."
             )
 
     # ── 리워드 항목별 (v27~) ───────────────────────────────────────────
