@@ -129,3 +129,63 @@ if __name__ == "__main__":
             fn()
             print(f"ok  {name}")
     print("all passed")
+
+
+# ── 관측 조립 순서가 어긋나는 것을 잡는다 ──────────────────────────────────
+# symmetry.build_obs_layout 은 joystick_env.py 의 `state = torch.cat([...])`
+# 순서를 **복제**하고 있다. 누가 환경 쪽 순서를 바꾸면 총 폭은 그대로여도
+# 미러가 조용히 틀린다 — 폭 검사로는 절대 못 잡는 종류의 오류다.
+# 그래서 소스를 실제로 읽어 대조한다.
+
+_ENV_SRC = os.path.join(
+    os.path.dirname(__file__), "..", "source", "open_duck_mini_isaaclab",
+    "tasks", "velocity", "joystick_env.py",
+)
+
+# 환경 쪽 표현식 -> layout 이름
+_EXPR_TO_LAYOUT = {
+    "gyro": "gyro",
+    "accel": "accel",
+    "self._command": "command",
+    "joint_pos_rel": "joint_pos_rel",
+    "joint_vel_scaled": "joint_vel",
+    "self._last_act": "last_act",
+    "self._last_last_act": "last_last_act",
+    "self._last_last_last_act": "last_last_last_act",
+    "self._motor_targets": "motor_targets",
+    "contact": "contact",
+    "imitation_phase": "imitation_phase",
+    "self._path_error()": "path_error",
+    "projected_gravity_b": "gravity",
+}
+
+
+def _env_state_order():
+    """joystick_env.py 의 state 조립 순서를 읽어 layout 이름 목록으로 돌려준다."""
+    with open(_ENV_SRC) as f:
+        src = f.read()
+    start = src.index("state = torch.cat(")
+    end = src.index("dim=-1,", start)
+    block = src[start:end]
+
+    order = []
+    for line in block.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        for expr, name in _EXPR_TO_LAYOUT.items():
+            if expr in line and name not in order:
+                order.append(name)
+                break
+    return order
+
+
+def test_layout_matches_env_state_assembly_order():
+    env_order = _env_state_order()
+    layout_order = [n for n, _, _ in build_obs_layout(use_path_frame=True, use_gravity_obs=True)]
+    assert env_order == layout_order, (
+        "관측 조립 순서가 어긋났다.\n"
+        f"  joystick_env.py : {env_order}\n"
+        f"  symmetry.py     : {layout_order}\n"
+        "미러가 조용히 틀리게 된다 — symmetry.build_obs_layout 을 맞추세요."
+    )
