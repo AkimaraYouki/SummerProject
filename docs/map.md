@@ -52,7 +52,9 @@
 
 **레퍼런스만 바꿔서는 키가 안 바뀐다.** 이어서:
   1. `scripts/diag/calc_home.py --pkl <새pkl>` -> READY_JOINT_POS
-  2. `scripts/diag/settle_pose.py` -> 실제 안착 높이 (cfg.ready_base_height)
+  2. `scripts/diag/settle_height.py --task <새태스크>` -> 실제 안착 높이
+     (cfg.ready_base_height / 스폰 높이). settle_pose.py 는 전역 설정만 재서
+     새 태스크에 못 쓴다 — legacy/ 로 옮겼다.
   3. 새 cfg 클래스 + 태스크 등록 + 학습
 기본 자세와 레퍼런스가 어긋나면 액션이 도달 불가능해진다 — v1~v9 가 아홉 번
 실패한 원인이 그것이다.
@@ -102,9 +104,7 @@ RL 환경과 정책 설정. **고칠 게 있으면 십중팔구 여기다.**
     compare_runs.py               여러 런을 같은 iteration 에서 비교 (GPU 불필요)
     settle_height.py              태스크의 READY 자세로 놓았을 때 실제 안착 높이 (GPU 필요)
     derive_mirror.py              좌우 미러 매핑을 레퍼런스에서 유도 (GPU 불필요)
-    reward_breakdown.py / _v2.py  옛 버전. 리워드 수식을 복제해 놔서 어긋난다 — reward_terms.py 를 쓸 것
     reward_at_ready.py            READY 자세로 가만히 있을 때 각 항이 주는 값
-    imit_internals.py             imit_internals2 의 옛 버전
     contact_diagnostic.py         몸통/머리/발 접촉력 실측
     selfcol_diag.py               자기충돌 켜면 어떤 종료가 터지는지
     eval_policy_stability.py(.sh) 정책 안정성 지표
@@ -112,7 +112,7 @@ RL 환경과 정책 설정. **고칠 게 있으면 십중팔구 여기다.**
     ref_stats.py                  레퍼런스 신호 분포
     ref_vs_robot.py               레퍼런스 vs 실제 관절각
     pose_detail.py                몸통 roll/pitch/yaw + 드리프트
-    settle_pose.py / viz_home.py  홈 자세 안착·시각화
+    viz_home.py                   홈 자세 시각화
     calc_home.py / head_level.py  홈 자세·머리 수평 계산
     lock_test.py                  머리 관절 잠금이 실제로 먹는지
 
@@ -123,9 +123,16 @@ RL 환경과 정책 설정. **고칠 게 있으면 십중팔구 여기다.**
     patch_urdf_for_placo.py                Placo 가 요구하는 프레임 별칭 확인
     generate_reference_motion.sh           레퍼런스 보행 생성 (placo 필요)
 
-**scripts/legacy/ — `odm`이 대체했다.** 참고용으로만 남겼다.
+**scripts/legacy/ — 더 나은 것으로 대체됐다.** 지우지 않고 남겼을 뿐,
+새로 쓰지 말 것.
 
-    train.sh  play.sh
+    train.sh / play.sh              -> odm
+    reward_breakdown.py / _v2.py    -> diag/reward_terms.py
+         (리워드 수식을 스크립트에 복제해 놔서 환경과 어긋난다.
+          실제로 Path 태스크를 몰라 KeyError 로 죽었다.)
+    imit_internals.py               -> imit_internals2.py
+    settle_pose.py                  -> diag/settle_height.py
+         (전역 설정만 재서 새 태스크에 못 쓴다.)
 
 ## 나머지
 
