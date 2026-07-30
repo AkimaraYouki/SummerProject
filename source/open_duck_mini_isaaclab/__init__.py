@@ -84,6 +84,17 @@ try:
         },
     )
 
+    # imitation_v31 — v28 + 고관절 roll/yaw 이탈 상한 (실기 이식용, 접촉 = 파손).
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-HipLimit-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_HipLimit",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
     # imitation_v29 — v28 과 환경은 같고 러너에 좌우 미러 손실만 더한다.
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-Sym-v0",

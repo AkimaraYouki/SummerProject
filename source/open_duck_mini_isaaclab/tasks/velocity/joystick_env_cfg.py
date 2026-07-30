@@ -194,6 +194,13 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # robot_cfg.py's velocity_limit_sim (same datasheet source).
     max_motor_velocity = 4.82
 
+    # 고관절 roll/yaw 가 레퍼런스에서 벗어날 수 있는 한계 (rad). None 이면 끈다.
+    # 다리-몸통 접촉이 이 이탈에 딸려 온다 -- v25 는 접촉 56.7%, v28 은 이탈이
+    # 절반으로 줄면서 접촉도 11.5% 로 떨어졌다 (leg_trunk_clearance.py).
+    # 실기에서는 접촉이 곧 파손이라 0 이어야 한다.
+    hip_dev_limit_yaw = None
+    hip_dev_limit_roll = None
+
     # ── simulation ───────────────────────────────────────────────────────
     sim: SimulationCfg = SimulationCfg(
         dt=0.002,
@@ -749,3 +756,46 @@ class JoystickEnvCfg_Taller(JoystickEnvCfg_Grav):
 #   left_hip_yaw    접촉 -8.9도 / 비접촉 -1.5도
 #   right_hip_yaw   메시 간격과 상관 -0.540 (가장 강함)
 # 무릎/발목은 거의 무관하다. 실기 이식 전에는 반드시 닫아야 한다.
+
+
+@configclass
+class JoystickEnvCfg_HipLimit(JoystickEnvCfg_Tall):
+    """imitation_v31 — v28 그대로 + 고관절 roll/yaw 이탈에 상한.
+
+    실기 이식이 목표로 확정됐고, 다리-몸통 접촉은 성능 문제가 아니라 **파손**이다.
+
+    접촉률은 정확 메시로 재야 한다. PhysX 는 못 쓴다 -- 관절 하우징이 부모 부품
+    안에 끼워지는 구조라 어떤 볼록 근사도 겹친다 (아래 자기충돌 주석).
+    `scripts/diag/leg_trunk_clearance.py` 로 v28 을 재면:
+
+        레퍼런스  접촉  0.0 %   최소 간격 5.9 mm
+        v28       접촉 11.5 %   최소 간격 0.0 mm   (좌 25% / 앞 19% / 정지·뒤 0%)
+
+    v25 의 56.7% 에서 크게 내려왔는데, 아무 대책도 넣지 않았는데 내려왔다 --
+    고관절 이탈이 같이 줄었기 때문이다. **접촉은 이탈에 딸려 온다.**
+
+    그러면 이탈을 직접 묶는 것이 가장 짧은 길이다. **절대 관절 범위 제한은
+    소용없다**: 레퍼런스가 쓰는 범위가 고관절 roll ±16.5° / yaw ±10.2° 인데
+    정책의 절대각은 거기서 크게 안 벗어난다. 문제는 절대각이 아니라 매 순간
+    레퍼런스 대비 얼마나 어긋나 있느냐다.
+
+    한계값은 v28 자신의 이탈 분포 p90 에서 잡았다:
+
+        left_hip_yaw   |이탈| 평균  4.3°  p90  8.4°
+        right_hip_yaw               3.9°  p90  7.8°
+        left_hip_roll              10.4°  p90 20.0°
+        right_hip_roll              9.5°  p90 17.9°
+
+    roll 이 yaw 보다 두 배 이상 벗어나므로 한계도 따로 준다. p90 을 고른 것은
+    **상위 10% 만 자르기 위해서**다 -- 접촉률 11.5% 와 거의 겹치므로, 접촉이
+    일어나는 꼬리만 막고 나머지 90% 의 동작에는 손대지 않는다는 뜻이다.
+    고관절 roll/yaw 는 이족보행에서 몸통을 지지발 위에 세우는 관절이라
+    (torso_vs_hip.py 는 몸통과의 상관을 |r| = 0.404, "부분적으로 얽혀 있음"
+    으로 판정했다) 넉넉히 자르면 균형 권한을 뺏어 넘어질 위험이 있다.
+
+    **감시할 것**: 넘어짐 빈도, 추종 오차(v28 = 0.0158), 그리고 재측정한 접촉률.
+    접촉이 0 이 안 되면 한계를 조이고, 넘어지기 시작하면 되돌린다.
+    """
+
+    hip_dev_limit_yaw = 0.1466    # 8.4°  (좌우 p90 중 큰 쪽)
+    hip_dev_limit_roll = 0.3491   # 20.0°

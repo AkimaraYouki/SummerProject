@@ -208,6 +208,18 @@ class JoystickEnv(DirectRLEnv):
             self._gait_period_steps = cfg.gait_period_steps
         self._current_reference_motion = torch.zeros(n, REF_FRAME_DIM, device=dev)
 
+        # 고관절 roll/yaw 이탈 상한 (cfg.hip_dev_limit_*). 다리 10관절 부분집합
+        # 안에서의 자리: 0 L_yaw 1 L_roll 5 R_yaw 6 R_roll.
+        self._hip_lim = None
+        if self.cfg.hip_dev_limit_yaw is not None:
+            slots = (0, 1, 5, 6)
+            self._hip_act_idx = [ACT_LEG_JOINT_IDX[k] for k in slots]
+            self._hip_ref_idx = [REF_LEG_JOINT_IDX[k] for k in slots]
+            self._hip_lim = torch.tensor(
+                [self.cfg.hip_dev_limit_yaw, self.cfg.hip_dev_limit_roll,
+                 self.cfg.hip_dev_limit_yaw, self.cfg.hip_dev_limit_roll],
+                device=dev)
+
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.robot)
         self.scene.articulations["robot"] = self._robot
@@ -263,6 +275,16 @@ class JoystickEnv(DirectRLEnv):
 
         default_pos = self._robot.data.default_joint_pos[:, self._joint_ids]
         target = default_pos + action_w_delay * self.cfg.action_scale
+
+        if self._hip_lim is not None:
+            # 고관절 roll/yaw 를 레퍼런스 +- 한계 안으로 묶는다. 다리-몸통 접촉이
+            # 이 이탈의 꼬리에서 나오므로, 꼬리만 자르고 나머지는 두는 것이다.
+            # 여기서 쓰는 레퍼런스는 한 스텝 전 것이다 (갱신이 아래 285줄에서
+            # 일어난다). 20 ms 차이라 +-8~20 도 한계에는 영향이 없고, 이 순서를
+            # 지켜야 아래의 속도 제한이 마지막에 걸린다.
+            ref = self._current_reference_motion[:, 0:14][:, self._hip_ref_idx]
+            target[:, self._hip_act_idx] = torch.clamp(
+                target[:, self._hip_act_idx], ref - self._hip_lim, ref + self._hip_lim)
 
         prev = self._motor_targets
         max_delta = self.cfg.max_motor_velocity * self.step_dt
