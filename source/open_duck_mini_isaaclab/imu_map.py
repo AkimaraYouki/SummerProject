@@ -81,7 +81,12 @@ if os.path.exists(_CAL_JSON):
 
 # IMU 가 몸통 원점에서 떨어진 위치 (m). robot/robot.urdf 의 `imu_frame` 고정관절
 # 값이다 (부모 trunk_assembly 기준). 시뮬 ImuCfg.offset 이 이 값과 같아야 한다.
-MOUNT_POS = (-0.0388, 0.0, 0.0914)
+#
+# **CAD 를 다시 임포트하면 여기도 다시 읽어야 한다.** 2026-08-07 재임포트에서
+# z 가 91.44 -> 89.64 mm 로 1.76 mm 움직였다. 값을 직접 뽑는 방법:
+#   python3 -c "import xml.etree.ElementTree as ET; r=ET.parse('robot/robot.urdf').getroot(); \
+#     print([j.find('origin').get('xyz') for j in r.findall('joint') if j.get('name')=='imu_frame'])"
+MOUNT_POS = (-0.038487, 0.0, 0.089637)
 
 
 def to_trunk(v):

@@ -61,11 +61,25 @@ def main():
         for prim in stage.Traverse():
             if not prim.IsA(UsdGeom.Mesh):
                 continue
-            # 메시 프림은 모두 이름이 `mesh` 다. 부품명은 부모가 들고 있다.
-            key = prim.GetParent().GetName()
-            if key not in colors:
-                key = re.sub(r"_\d+$", "", key)      # body_bottom_2 -> body_bottom
-            if key not in colors:
+            # 메시 프림은 모두 이름이 `mesh` 다. 부품명은 **조상 어딘가**가 들고 있다.
+            #
+            # 부모 하나만 보면 안 된다 (2026-08-07). 임포터 버전에 따라 부품명과
+            # 메시 사이에 중간 노드가 낀다:
+            #   예전  /visuals/<링크>/<부품>/mesh
+            #   지금  /visuals/<링크>/<부품>/node_STL_BINARY_/mesh
+            # 부모만 보면 `node_STL_BINARY_` 를 열쇠로 삼아 642개 전부 놓친다.
+            # 그래서 조상을 거슬러 올라가며 색 표에 있는 이름을 찾는다.
+            key = None
+            p = prim.GetParent()
+            while p and p.GetPath().pathString != "/":
+                for cand in (p.GetName(), re.sub(r"_\d+$", "", p.GetName())):
+                    if cand in colors:
+                        key = cand
+                        break
+                if key:
+                    break
+                p = p.GetParent()
+            if key is None:
                 miss += 1
                 continue
             hit += 1

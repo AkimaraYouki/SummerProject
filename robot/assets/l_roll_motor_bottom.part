@@ -1,13 +1,13 @@
 {
     "configuration": "default",
     "documentId": "74b3f52a36a998f803570eb7",
-    "documentMicroversion": "6ddddbb03a47894d656bf5f4",
+    "documentMicroversion": "cf6a514c9866cd16c6056d37",
     "elementId": "be54cee0760268cf313e1dae",
     "fullConfiguration": "default",
     "id": "MjsDdlagt/LopvMjR",
     "isStandardContent": false,
     "name": "L-roll_motor_bottom <1>",
-    "partId": "RBGD",
+    "partId": "R/FD",
     "suppressed": false,
     "type": "Part"
 }

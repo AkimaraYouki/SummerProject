@@ -1,13 +1,13 @@
 {
     "configuration": "default",
     "documentId": "74b3f52a36a998f803570eb7",
-    "documentMicroversion": "d1924a0e5184a2904e4a9728",
-    "elementId": "2aabfd6ef3f72f4bad929ed6",
+    "documentMicroversion": "cf6a514c9866cd16c6056d37",
+    "elementId": "be54cee0760268cf313e1dae",
     "fullConfiguration": "default",
-    "id": "Iqfvx5b8TxxlgRucQ",
+    "id": "MUqF7dS+UZSqYaa6C",
     "isStandardContent": false,
-    "name": "MODULE_BOARD_ME <1>",
-    "partId": "JFH",
+    "name": "Part 1 <1>",
+    "partId": "SHPDF",
     "suppressed": false,
     "type": "Part"
 }

@@ -1,13 +1,13 @@
 {
     "configuration": "default",
     "documentId": "74b3f52a36a998f803570eb7",
-    "documentMicroversion": "6ddddbb03a47894d656bf5f4",
+    "documentMicroversion": "cf6a514c9866cd16c6056d37",
     "elementId": "be54cee0760268cf313e1dae",
     "fullConfiguration": "default",
     "id": "M9QvdrmpVd96BQQ3J",
     "isStandardContent": false,
     "name": "L-foot_side <1>",
-    "partId": "RmFD",
+    "partId": "RkFD",
     "suppressed": false,
     "type": "Part"
 }
