@@ -29,8 +29,14 @@ Usage:
 
 import os
 import re
+import shutil
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# scripts/setup/ 에 있으므로 세 단계 올라가야 레포 루트다. 두 단계였던 시절
+# (스크립트가 scripts/ 에 있었을 때) 그대로 남아 있어서, 옮긴 뒤로는 실행하면
+# scripts/robot/robot.urdf 를 찾다가 FileNotFoundError 로 죽었다. 그 결과
+# 2026-07-26 이후 아무도 이걸 못 돌렸고, 생성기의 URDF 가 그날 형상(2.3388 kg)에
+# 멈춰 있었다 — 새 CAD 로 레퍼런스를 만들려던 참에 발견했다 (2026-08-07).
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC_URDF = os.path.join(_REPO_ROOT, "robot", "robot.urdf")
 DST_URDF = os.path.join(
     _REPO_ROOT,
@@ -40,6 +46,9 @@ DST_URDF = os.path.join(
     "open_duck_mini_v2",
     "open_duck_mini_v2.urdf",
 )
+
+SRC_ASSETS = os.path.join(_REPO_ROOT, "robot", "assets")
+DST_ASSETS = os.path.join(os.path.dirname(DST_URDF), "assets")
 
 # Required child frame link names Placo's HumanoidRobot looks up by name.
 REQUIRED_FRAME_LINKS = ["trunk", "left_foot", "right_foot", "head"]
@@ -131,6 +140,20 @@ def main():
     with open(DST_URDF, "w") as f:
         f.write(patched)
     print(f"Wrote Placo-compatible URDF: {DST_URDF}")
+
+    # 메시도 같이 옮긴다. URDF 만 갱신하고 assets 를 두면 placo 가 옛 형상으로
+    # 궤적을 만든다 — URDF 는 mesh 를 package://assets/*.stl 로 참조하므로 파일
+    # 이름이 같으면 조용히 낡은 메시를 읽는다. 2026-08-07 에 실제로 URDF 는
+    # 7/26 판, assets 는 46개(현재 56개)로 어긋나 있었다. 문서가 "수동 재복사" 로
+    # 남겨둔 단계인데, 수동이라 빠졌다.
+    if os.path.isdir(SRC_ASSETS):
+        if os.path.isdir(DST_ASSETS):
+            shutil.rmtree(DST_ASSETS)
+        shutil.copytree(SRC_ASSETS, DST_ASSETS)
+        n = len([f for f in os.listdir(DST_ASSETS) if f.endswith(".stl")])
+        print(f"Copied meshes: {DST_ASSETS}  ({n} STL)")
+    else:
+        print(f"WARNING: {SRC_ASSETS} not found — meshes NOT refreshed.")
 
 
 if __name__ == "__main__":

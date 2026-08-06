@@ -1,13 +1,13 @@
 {
     "configuration": "default",
     "documentId": "74b3f52a36a998f803570eb7",
-    "documentMicroversion": "d1924a0e5184a2904e4a9728",
-    "elementId": "2aabfd6ef3f72f4bad929ed6",
+    "documentMicroversion": "bc05138e7a6153ad893cff58",
+    "elementId": "be54cee0760268cf313e1dae",
     "fullConfiguration": "default",
-    "id": "Iw2zl4Djv5u5XwaPI",
+    "id": "Mt4PCBwO4ho1FukTu",
     "isStandardContent": false,
-    "name": "MODULE_BOARD_ME <2>",
-    "partId": "JFL",
+    "name": "body top right <1>",
+    "partId": "R2NH",
     "suppressed": false,
     "type": "Part"
 }

@@ -1,13 +1,13 @@
 {
     "configuration": "default",
     "documentId": "74b3f52a36a998f803570eb7",
-    "documentMicroversion": "d1924a0e5184a2904e4a9728",
-    "elementId": "2aabfd6ef3f72f4bad929ed6",
+    "documentMicroversion": "bc05138e7a6153ad893cff58",
+    "elementId": "7dc6ae2e7332f7c1b5a1042b",
     "fullConfiguration": "default",
-    "id": "Iqfvx5b8TxxlgRucQ",
+    "id": "MYBUfEk4e9bog5p1q",
     "isStandardContent": false,
-    "name": "MODULE_BOARD_ME <1>",
-    "partId": "JFH",
+    "name": "relay <1>",
+    "partId": "JFD",
     "suppressed": false,
     "type": "Part"
 }

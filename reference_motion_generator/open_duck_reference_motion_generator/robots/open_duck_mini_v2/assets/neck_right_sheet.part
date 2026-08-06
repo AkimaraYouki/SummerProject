@@ -1,13 +1,13 @@
 {
     "configuration": "default",
     "documentId": "74b3f52a36a998f803570eb7",
-    "documentMicroversion": "6ddddbb03a47894d656bf5f4",
+    "documentMicroversion": "bc05138e7a6153ad893cff58",
     "elementId": "be54cee0760268cf313e1dae",
     "fullConfiguration": "default",
     "id": "M8fJckSPn4u+ct8pO",
     "isStandardContent": false,
     "name": "neck_right_sheet <1>",
-    "partId": "RsHH",
+    "partId": "RqHH",
     "suppressed": false,
     "type": "Part"
 }
