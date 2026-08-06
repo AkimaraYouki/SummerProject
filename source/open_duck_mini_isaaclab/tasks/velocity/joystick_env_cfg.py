@@ -939,3 +939,97 @@ class JoystickEnvCfg_ZNeck(JoystickEnvCfg_HipInward):
         ),
     )
     ready_base_height = READY_BASE_HEIGHT_H175
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# imitation_v33n — 새 CAD 모델(2.7140 kg) + 새 레퍼런스(ref_g115)
+# ──────────────────────────────────────────────────────────────────────────
+# scripts/diag/calc_home.py --pkl .../ref_g115.pkl 출력 그대로.
+# 필요 최대 액션 1.54 (v1~v9 를 죽인 값은 8.1 이었다. 안전)
+#
+# ref_g115 는 walk_com_height 0.1873 으로 생성했다. 이 값이 "몸통 바닥 지상고
+# 115 mm" 를 노린 역산이고, 실제로 114.9 mm 가 나왔다 (목표 대비 0.1 mm).
+#
+# ⚠️ walk_com_height 는 **CoM 높이**지 몸통 높이가 아니다. 새 CAD 는 질량이
+# 몸통·머리로 늘어 CoM 이 몸통 원점 위 35.2 -> 53.1 mm 로 올라갔고, placo 는
+# URDF 링크 질량에서 CoM 을 계산하므로(placo_walk_engine.py 의 robot.com_world())
+# **같은 walk_com_height 가 다른 자세를 만든다.** 옛 ref_h175 의 0.175 를 그대로
+# 쓰면 안 되는 이유다. 지렛대도 약하다 — CoM 목표 +1 mm 당 몸통 +0.47 mm.
+READY_JOINT_POS_G115 = {
+    "left_hip_yaw": -0.0031,
+    "left_hip_roll": 0.0208,
+    "left_hip_pitch": 0.9915,
+    "left_knee": -1.7483,
+    "left_ankle": 0.8273,
+    "neck_pitch": 0.0,
+    "head_pitch": 0.0,
+    "head_yaw": 0.0,
+    "head_roll": 0.0,
+    "right_hip_yaw": -0.0038,
+    "right_hip_roll": -0.0088,
+    "right_hip_pitch": 1.0269,
+    "right_knee": 1.7744,
+    "right_ankle": -0.8180,
+}
+
+# Z 자 목 = 45도. neck 은 위로, head 는 아래로 도는 축이라 같은 값을 주면 서로
+# 상쇄되고 **얼굴은 수평**을 유지한다 (FK 로 코 기울기 0.0도 확인). 머리에 카메라를
+# 달 것이므로 시선이 수평인 게 중요하다.
+#
+# head_pitch 의 URDF 한계는 원래 정확히 45도(0.7854)여서 45도가 리밋 위에
+# 얹혔다. 사용자 확인 결과 **실제 설계 가동범위는 ±60도** 이고 45도는 CAD 상
+# 클램프였을 뿐이다. robot/robot.urdf 의 head_pitch limit 을 ±0.872665(±50도) 로
+# 넓혀 두었다 — 45도 자세에 5도 여유.
+#
+# ⚠️ 다만 시뮬은 USD 에서 관절 한계를 읽는다. USD 를 재변환하지 않으면 시뮬 안에서는
+# 여전히 45도가 상한이라 관절이 리밋에 얹힌 채로 돈다 — v33 이 그 상태로 663 iter
+# 를 돌았고 곡선은 건강했다(경고 없음). 60도를 시뮬에 반영하려면
+# `ISAACLAB_PATH=... ./scripts/setup/convert_urdf.sh --headless` 를 한 번 돌리면 된다.
+#
+# ⚠️ `odm import` 로 CAD 를 다시 받으면 이 한계가 45도로 되돌아간다. 영구히 하려면
+# OnShape 어셈블리의 메이트 한계를 고쳐야 한다.
+READY_JOINT_POS_G115_ZNECK = dict(READY_JOINT_POS_G115)
+READY_JOINT_POS_G115_ZNECK.update({"neck_pitch": 0.7854, "head_pitch": 0.7854})
+
+# settle_height.py 실측 (2026-08-07, 16 envs x 400 steps, 200 mm 에서 낙하).
+#   안착 138.3 mm (표준편차 1.6) · 최소/최대 135.0 / 154.1
+#   스폰은 최대 안착 + 4 mm 여유. 레퍼런스 위상마다 다리 높이가 달라서
+#   평균이 아니라 **최댓값** 기준으로 잡아야 어떤 위상에서도 관통이 없다.
+# 키 변화: 136 mm (h175, 구 모델) -> 138.3 mm (g115, 신 모델).
+READY_BASE_HEIGHT_G115 = 0.1383
+SPAWN_BASE_HEIGHT_G115 = 0.1581
+
+
+@configclass
+class JoystickEnvCfg_V33N(JoystickEnvCfg_ZNeck):
+    """imitation_v33n — v33 에서 **CAD 모델과 보행 궤적만** 새것으로 바꾼 것.
+
+    v33 은 iter 663 에서 멈췄지만 곡선은 건강했다 (경고 없음, 최근 500 iter
+    +24.8% 상승, 같은 시점 v32 대비 리워드 +7% / 에피소드 +12%). 즉 Z 자 목
+    자세 자체는 문제가 아니었다. 다만 그 뒤로 로봇이 바뀌어서 이어 돌릴 수 없다:
+
+        총질량      2.3388 -> 2.7140 kg  (+16%)
+        IMU 위치    (-80, 0, +50) -> (-38.5, 0, +89.6) mm   ← 관측이 바뀐다
+        레퍼런스    ref_h175 -> ref_g115
+
+    IMU offset 은 원본 Open Duck Mini 의 MJCF 에서 복사돼 있던 값이었고 이 로봇의
+    CAD 값으로 고쳤다 (imu_map.MOUNT_POS). lin_acc_b 에 원심·접선 항이 섞이므로
+    **그 이전 체크포인트는 이 설정과 호환되지 않는다.**
+
+    v33 대비 바뀐 것은 위 셋 + head_pitch 를 하드 리밋에서 떼어낸 것뿐이다.
+    나머지(안쪽 고관절 이탈 벌점, lock_head_joints, 큰 네트워크, gamma 0.97)는 같다.
+
+    비교 기준: v32 는 추종 0.0200 · 5 mm 위반 1.0% · 에피소드 674.
+    질량이 16% 늘었으니 **에피소드 길이(넘어짐 빈도)를 같이 볼 것.**
+    """
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_g115.pkl"
+
+    robot = OPEN_DUCK_MINI_V2_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G115),
+            joint_pos=dict(READY_JOINT_POS_G115_ZNECK),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_G115

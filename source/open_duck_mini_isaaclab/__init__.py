@@ -117,6 +117,17 @@ try:
         },
     )
 
+    # v33 에서 CAD 모델(2.7140 kg)과 레퍼런스(ref_g115)만 새것으로 바꾼 것.
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-V33N-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V33N",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
     # 안전 필터를 켠 변형 (학습용이 아니라 평가용).
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-TallSafe-v0",

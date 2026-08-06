@@ -3628,7 +3628,7 @@
     <parent link="neck_pitch_assembly"/>
     <child link="head_pitch_assembly"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-0.785398" upper="0.785398"/>
+    <limit effort="10" velocity="10" lower="-0.872665" upper="0.872665"/>
   </joint>
   <!-- Joint from trunk_assembly to neck_pitch_assembly -->
   <joint name="neck_pitch" type="revolute">
