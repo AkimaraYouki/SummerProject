@@ -21,31 +21,48 @@ robot/
 Mini 클론에서 가져온 `assets/robot/open_duck_mini_v2/`, 그리고 한때 있었던 최상위 `assets/usd/`는
 이제 안 쓴다.
 
-## 사전 준비 (랩 PC, 한 번만)
+## 사전 준비 — **이제 이 PC 에서 다 된다** (2026-08-07)
 
-- `onshape-to-robot`은 `pip install --user onshape-to-robot`로 이미 설치돼 있음
-  (`~/.local/bin`, `~/.bashrc`에 PATH 등록됨)
-- OnShape API 키는 `~/.onshape_env`에 저장돼 있음 (⚠️ `.bashrc`에 넣으면 비대화형 SSH
-  세션에서는 상단의 "비대화형이면 종료" 가드 때문에 안 읽힌다 — 그래서 별도 파일로 분리함).
-  `source ~/.onshape_env`로 명시적으로 불러와야 함.
+예전에는 랩PC(`do@192.168.137.111`)에만 도구와 키가 있어서 원격으로 돌리고 결과를
+가져와야 했다. 둘 다 이 PC 로 옮겼다:
+
+- 도구: `~/.odm-tools/bin/onshape-to-robot` (`~/.odm-tools/bin/pip install onshape-to-robot`)
+- 키:   `~/.onshape_env` (랩PC 에서 복사, 권한 600)
+
+같은 워크스페이스를 랩PC 와 이 PC 에서 각각 임포트해 **총질량·링크·관절 원점·색이
+전부 동일**함을 확인했다 (2.7140 kg, 차이 0개). 랩PC 는 더 이상 필요 없다.
+
+> ⚠️ 키를 `.bashrc` 에 넣지 말 것. 비대화형 SSH 세션에서는 `.bashrc` 상단의
+> "비대화형이면 종료" 가드 때문에 안 읽힌다. 그래서 별도 파일로 둔다.
 
 ## 새 임포트 실행 절차
 
-1. `robot/config.json`의 `url`을 원하는 OnShape 어셈블리 URL로 교체
-   (OnShape에서 **어셈블리 탭**을 연 상태의 브라우저 주소창 URL을 그대로 복사)
-   ```json
-   {
-     "url": "https://cad.onshape.com/documents/.../w/.../e/...",
-     "output_format": "urdf"
-   }
-   ```
-2. 랩 PC에서 실행:
-   ```bash
-   ssh do@192.168.137.111
-   source ~/.onshape_env
-   cd "/media/do/Extreme SSD/parksuho/open_duck_mini_isaaclab/robot"
-   onshape-to-robot .
-   ```
+**한 줄로:**
+
+```bash
+odm import          # 백업 -> 임포트 -> 경고 집계 -> USD 변환 -> 색상 주입
+```
+
+`robot/config.json` 의 `url` 만 바꿔 두면 된다. OnShape 에서 **어셈블리 탭**을 연
+상태의 주소창 URL 을 그대로 복사한다:
+
+```json
+{
+  "url": "https://cad.onshape.com/documents/<문서>/w/<워크스페이스>/e/<엘리먼트>",
+  "output_format": "urdf"
+}
+```
+
+> ⚠️ **워크스페이스(`w/`) 를 반드시 확인할 것.** 2026-08-07 에 문서·엘리먼트 ID 가
+> 같고 `w/` 만 다른 옛 워크스페이스를 임포트해서, URL 이 안 바뀐 것처럼 보이는 채로
+> 몇 달 전 형상을 받아온 적이 있다. 질량이 안 변하면 이걸 먼저 의심할 것.
+
+수동으로 돌리려면:
+
+```bash
+set -a; . ~/.onshape_env; set +a
+~/.odm-tools/bin/onshape-to-robot robot
+```
 3. `robot.urdf`와 `assets/*.stl`이 갱신된다. 관절 이름은 아래로 확인:
 
    **참고 (2026-07-26)**: `reference_motion_generator/open_duck_reference_motion_generator/robots/open_duck_mini_v2/{open_duck_mini_v2.urdf,assets}`는 이 `robot/robot.urdf`·`robot/assets`를 가리키게 돼있다 —

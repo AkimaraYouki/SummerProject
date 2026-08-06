@@ -212,6 +212,52 @@ test)
   exit "$fail"
   ;;
 
+import)
+  # OnShape -> URDF -> USD -> 색상, 한 번에. 예전에는 랩PC(do@192.168.137.111)에만
+  # onshape-to-robot 과 API 키가 있어서 원격으로 돌려야 했는데, 2026-08-07 에
+  # 둘 다 이 PC 로 옮겼다 (키는 ~/.onshape_env, 도구는 ~/.odm-tools).
+  # 같은 워크스페이스로 양쪽에서 돌려 질량·링크·관절·색이 전부 동일함을 확인했다.
+  TOOLS="$HOME/.odm-tools/bin"
+  [ -f "$HOME/.onshape_env" ] || { echo "API 키가 없다: ~/.onshape_env" >&2; exit 1; }
+  [ -x "$TOOLS/onshape-to-robot" ] || { echo "도구가 없다: $TOOLS/onshape-to-robot" >&2; exit 1; }
+  cd "$PROJ"
+  BK="$HOME/odm_out/robot_backup_$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "$(dirname "$BK")"; cp -r robot "$BK"
+  echo "백업: $BK"
+  echo "워크스페이스: $(grep -o 'w/[a-f0-9]*' robot/config.json)"
+  set -a; . "$HOME/.onshape_env"; set +a
+  "$TOOLS/onshape-to-robot" robot 2>&1 | tee "$RUNLOG/import.log" | tail -3
+  echo
+  L="$RUNLOG/import.log"
+  # 무해한 same-name(STL 이름 자동 구분)만 남아야 정상이다. multiple base link 는
+  # 어셈블리에 메이트 안 된 인스턴스가 있다는 뜻이고, 그 서브트리는 통째로 버려진다.
+  printf "ERROR %s · no-mass %s · multiple-base %s · same-name %s · Traceback %s\n" \
+    "$(grep -ci error "$L")" "$(grep -ci 'no mass' "$L")" \
+    "$(grep -ci 'multiple base' "$L")" "$(grep -ci 'same name' "$L")" "$(grep -c Traceback "$L")"
+  if [ "$(grep -ci 'multiple base' "$L")" != "0" ]; then
+    echo "⚠️  메이트 안 된 인스턴스가 있다. Part Studio 의 Boolean 으로는 안 고쳐진다 —"
+    echo "    어셈블리에서 Fastened mate 를 걸거나 인스턴스를 지울 것."
+  fi
+  "$TOOLS/python" - <<'PYEOF'
+import xml.etree.ElementTree as ET
+r = ET.parse("robot/robot.urdf").getroot()
+links = r.findall("link")
+jt = [j for j in r.findall("joint") if j.get("type") != "fixed"]
+tot = sum(float(l.find("inertial").find("mass").get("value"))
+          for l in links if l.find("inertial") is not None)
+print(f"총질량 {tot:.4f} kg · 링크 {len(links)} · 가동관절 {len(jt)}")
+PYEOF
+  echo
+  echo "USD 변환 중..."
+  ISAACLAB_PATH="$(dirname "$IL")" ./scripts/setup/convert_urdf.sh --headless >/dev/null 2>&1 \
+    && echo "USD 변환 완료" || { echo "USD 변환 실패" >&2; exit 1; }
+  "$TOOLS/python" scripts/setup/inject_materials.py | grep -E "색 입힘|URDF 색"
+  echo
+  echo "다음: odm teleop --no-robot 으로 형상·색 확인, 그리고"
+  echo "      ~/.odm-tools/bin/python scripts/diag/leg_trunk_clearance.py \\"
+  echo "        --npz ~/odm_out/gait_v32.npz --urdf robot/robot.urdf --mesh-dir robot --stride 25"
+  ;;
+
 teleop)
   # 웹 슬라이더로 CAD 모델을 움직이고 실기가 따라오는지 보는 도구.
   # Isaac 이 아니라 pinocchio/meshcat 이 든 ~/.odm-tools 로 돈다.
@@ -272,6 +318,8 @@ odm — OpenDuck Mini 원스톱
   odm stop                          학습/재생 정리
   odm list                          런과 체크포인트 목록
   odm test                          테스트 전부 실행 (Isaac Sim 불필요)
+
+  odm import                        OnShape -> URDF -> USD -> 색상 (백업 후 교체)
 
   ── 실기 (Jetson 192.168.137.7 의 U2D2. 로봇은 매달아 놓을 것) ──
   odm teleop [--no-robot]           웹 슬라이더로 CAD 를 움직이고 실기와 대조
