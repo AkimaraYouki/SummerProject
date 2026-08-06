@@ -212,6 +212,35 @@ test)
   exit "$fail"
   ;;
 
+teleop)
+  # 웹 슬라이더로 CAD 모델을 움직이고 실기가 따라오는지 보는 도구.
+  # Isaac 이 아니라 pinocchio/meshcat 이 든 ~/.odm-tools 로 돈다.
+  #
+  # 여기 있는 이유: 레포가 SSD 에 있고 경로에 공백이 들어 있어서, 홈에서
+  # `python scripts/hw/cad_teleop.py` 를 치면 파일을 못 찾는다. 실제로 그렇게
+  # 한 번 막혔다. 어디서 쳐도 되게 하려는 것.
+  TOOLS="$HOME/.odm-tools/bin/python"
+  [ -x "$TOOLS" ] || { echo "도구 파이썬이 없다: $TOOLS  (./demo.sh setup)" >&2; exit 1; }
+  cd "$PROJ"
+  echo "먼저 잿슨에서 브리지를 띄워야 실기가 움직인다 (로봇은 매달아 놓을 것):"
+  echo "  ssh -t parksuho@192.168.137.7 'python3 ~/dxl_bridge.py --arm'"
+  echo "실기 없이 UI 만 보려면: odm teleop --no-robot"
+  echo
+  exec "$TOOLS" scripts/hw/cad_teleop.py "$@"
+  ;;
+
+refgait)
+  # 레퍼런스 보행 한 주기를 실기 재생용 JSON 으로 뽑아 잿슨으로 보낸다.
+  #   odm refgait               제자리
+  #   odm refgait --vx 0.15     전진
+  cd "$PROJ"
+  out="/tmp/ref_gait.json"
+  env -u PYTHONPATH "$IL" -p scripts/hw/export_ref_gait.py --out "$out" "$@" || exit 1
+  scp -q "$out" scripts/hw/play_ref_gait.py parksuho@192.168.137.7:~/ \
+    && echo && echo "잿슨으로 전송했다. 로봇을 매달아 놓고:" \
+    && echo "  ssh -t parksuho@192.168.137.7 'python3 ~/play_ref_gait.py --speed 0.25 --cycles 3'"
+  ;;
+
 stop)
   pkill -9 -f "train.py" 2>/dev/null || true
   pkill -9 -f "play_fixed" 2>/dev/null || true
@@ -243,6 +272,10 @@ odm — OpenDuck Mini 원스톱
   odm stop                          학습/재생 정리
   odm list                          런과 체크포인트 목록
   odm test                          테스트 전부 실행 (Isaac Sim 불필요)
+
+  ── 실기 (Jetson 192.168.137.7 의 U2D2. 로봇은 매달아 놓을 것) ──
+  odm teleop [--no-robot]           웹 슬라이더로 CAD 를 움직이고 실기와 대조
+  odm refgait [--vx 0.15 ...]       레퍼런스 보행을 뽑아 잿슨으로 전송
 
 버전은 v13 v17 v24 v25 v26 처럼 주면 태스크가 자동으로 붙습니다.
 GPU에 Isaac Sim 두 개가 동시에 뜨면 한쪽이 조용히 죽으므로 자동으로 막습니다.
