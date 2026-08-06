@@ -34,6 +34,7 @@ from open_duck_mini_isaaclab.joint_order import (
     RIGHT_FOOT_BODY_NAME,
     ROOT_BODY_NAME,
 )
+from open_duck_mini_isaaclab.imu_map import MOUNT_POS as IMU_MOUNT_POS
 from open_duck_mini_isaaclab.robot_cfg import OPEN_DUCK_MINI_V2_CFG
 
 from .events import randomize_default_joint_pos as randomize_default_joint_pos_event
@@ -254,16 +255,27 @@ class JoystickEnvCfg(DirectRLEnvCfg):
         track_air_time=True,
     )
 
-    # IMU offset matches the MJCF <site name="imu" pos="-0.08 -0.0 0.05"/>
-    # relative to the root body. Playground's original MJCF called that body
-    # "base"; this OnShape-derived URDF calls it ROOT_BODY_NAME
-    # ("trunk_assembly") instead — confirmed via `robot/robot.urdf` and the
-    # converted USD (2026-07-25), no link literally named "base" exists.
-    # Mount the IMU on ROOT_BODY_NAME, not a hardcoded "base" string, so this
-    # can't silently drift out of sync with joint_order.py again.
+    # IMU 는 ROOT_BODY_NAME ("trunk_assembly") 에 붙인다. Playground 의 원본 MJCF
+    # 는 그 바디를 "base" 라 불렀지만 이 OnShape URDF 에는 그런 링크가 없다
+    # (2026-07-25 확인). 하드코딩된 "base" 대신 상수를 쓰는 이유다.
+    #
+    # offset 은 **이 로봇의 CAD 값**이다 — robot/robot.urdf 의 `imu_frame` 고정관절
+    # (부모 trunk_assembly 기준) 에서 읽었다. imu_map.MOUNT_POS 와 같은 값이다.
+    #
+    # 2026-08-06 정정: 그 전까지 (-0.08, 0.0, 0.05) 를 썼는데, 그건 **원본 Open Duck
+    # Mini 의 MJCF <site name="imu" pos="-0.08 -0.0 0.05"/> 에서 복사한 값**이었다.
+    # 이 로봇은 IMU 의 브랜드와 장착 위치가 바뀌었고 실제 CAD 값은 41 mm 씩 다르다:
+    #     원본 MJCF  (-80.0, 0, +50.0) mm
+    #     이 로봇 CAD (-38.8, 0, +91.4) mm
+    # 위치만 다르고 방향은 같다 (URDF rpy=0, 실기 실측 축맵도 항등 — imu_map.py).
+    #
+    # ⚠️ 이 값을 바꾸면 관측이 바뀐다. ang_vel_b 는 위치와 무관하지만 lin_acc_b 에는
+    # 원심·접선 항 (ω×(ω×r), α×r) 이 섞이고, r 이 58 mm 움직이면 보행 과도구간에서
+    # 최대 1~2 m/s^2 차이가 난다 (9.81 대비 10~20 %). 즉 **이 커밋 이전에 학습된
+    # 체크포인트는 이 offset 과 맞지 않는다** — 재학습이 필요하다.
     imu: ImuCfg = ImuCfg(
         prim_path=f"/World/envs/env_.*/Robot/{ROOT_BODY_NAME}",
-        offset=ImuCfg.OffsetCfg(pos=(-0.08, 0.0, 0.05)),
+        offset=ImuCfg.OffsetCfg(pos=IMU_MOUNT_POS),
         update_period=0.0,
     )
 

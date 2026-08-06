@@ -1,0 +1,86 @@
+{
+  "head_pitch": {
+    "confirmed": true,
+    "id": 12,
+    "offset_tick": 2048,
+    "sign": 1
+  },
+  "head_roll": {
+    "confirmed": true,
+    "id": 14,
+    "offset_tick": 2048,
+    "sign": -1
+  },
+  "head_yaw": {
+    "confirmed": true,
+    "id": 13,
+    "offset_tick": 2048,
+    "sign": -1
+  },
+  "left_ankle": {
+    "confirmed": true,
+    "id": 11,
+    "offset_tick": 2048,
+    "sign": 1
+  },
+  "left_hip_pitch": {
+    "confirmed": true,
+    "id": 9,
+    "offset_tick": 2048,
+    "sign": -1
+  },
+  "left_hip_roll": {
+    "confirmed": true,
+    "id": 8,
+    "offset_tick": 2048,
+    "sign": -1
+  },
+  "left_hip_yaw": {
+    "confirmed": true,
+    "id": 3,
+    "offset_tick": 2048,
+    "sign": -1
+  },
+  "left_knee": {
+    "confirmed": true,
+    "id": 10,
+    "offset_tick": 2048,
+    "sign": 1
+  },
+  "neck_pitch": {
+    "confirmed": true,
+    "id": 2,
+    "offset_tick": 2048,
+    "sign": -1
+  },
+  "right_ankle": {
+    "confirmed": true,
+    "id": 7,
+    "offset_tick": 2048,
+    "sign": -1
+  },
+  "right_hip_pitch": {
+    "confirmed": true,
+    "id": 5,
+    "offset_tick": 2048,
+    "sign": 1
+  },
+  "right_hip_roll": {
+    "confirmed": true,
+    "id": 4,
+    "offset_tick": 2048,
+    "sign": 1
+  },
+  "right_hip_yaw": {
+    "confirmed": true,
+    "id": 1,
+    "offset_tick": 2048,
+    "sign": -1
+  },
+  "right_knee": {
+    "confirmed": true,
+    "id": 6,
+    "offset_tick": 2048,
+    "sign": -1
+  }
+}
