@@ -83,14 +83,31 @@ cmd="${1:-help}"; shift || true
 
 case "$cmd" in
 train)
-  ver="${1:-v26}"; iters="${2:-3000}"; envs="${3:-4096}"
+  # odm train v34c 3000 4096              처음부터
+  # odm train v34c 1500 4096 --resume     최신 체크포인트에서 이어서
+  #
+  # 재개는 rsl-rl 이 체크포인트에 저장한 iter 를 복원하고
+  # total_it = start_it + max_iterations 로 도는 구조다 (on_policy_runner.py:78).
+  # 즉 1500 에서 끊겼으면 max_iterations 를 **남은 만큼**(1500) 주어야 3000 에서 끝난다.
+  # train.py 에 --resume CLI 는 없고 hydra 오버라이드로 넣는다.
+  ver="${1:-v26}"; iters="${2:-3000}"; envs="${3:-4096}"; shift 3 2>/dev/null || true
   task="$(task_of "$ver")"; [ -z "$task" ] && { echo "알 수 없는 버전 $ver" >&2; exit 1; }
+  extra=()
+  if [ "${1:-}" = "--resume" ]; then
+    run="$(latest_run "$ver")"
+    [ -n "$run" ] || { echo "재개할 런이 없다: $ver" >&2; exit 1; }
+    ck="$(ls -t "$run"/model_*.pt 2>/dev/null | head -1)"
+    [ -n "$ck" ] || { echo "체크포인트 없음: $run" >&2; exit 1; }
+    extra=(agent.resume=true "agent.load_run=$(basename "$run")" "agent.load_checkpoint=$(basename "$ck")")
+    echo "재개: $(basename "$run")/$(basename "$ck")  -> $iters iter 더"
+    shift
+  fi
   require_free_gpu
   cd "$PROJ"
   setsid nohup "$IL" -p scripts/_isaaclab_launch.py \
     "$HOME/Desktop/IsaacLab/scripts/reinforcement_learning/rsl_rl/train.py" \
     --task "$task" --num_envs "$envs" --max_iterations "$iters" \
-    --headless --run_name "imitation_$ver" \
+    --headless --run_name "imitation_$ver" "${extra[@]}" "$@" \
     > "$RUNLOG/train_$ver.log" 2>&1 < /dev/null &
   echo "학습 시작: $ver ($task, envs=$envs, iters=$iters)"
   echo "로그: $RUNLOG/train_$ver.log     진행: odm watch $ver"

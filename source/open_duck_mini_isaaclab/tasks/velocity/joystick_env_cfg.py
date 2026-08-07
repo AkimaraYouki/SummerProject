@@ -1101,11 +1101,17 @@ READY_JOINT_POS_G135 = {
 READY_JOINT_POS_G135_ZNECK = dict(READY_JOINT_POS_G135)
 READY_JOINT_POS_G135_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
 
-# 잠정값. 학습 직전에 settle_height.py 로 재서 갱신한다.
-READY_BASE_HEIGHT_G125 = 0.1383
-SPAWN_BASE_HEIGHT_G125 = 0.1581
-READY_BASE_HEIGHT_G135 = 0.1383
-SPAWN_BASE_HEIGHT_G135 = 0.1581
+# settle_height.py 실측 (2026-08-07, 16 envs x 400 steps, 200 mm 낙하).
+#   g125: 안착 148.5 mm (표준편차 1.3) · 최소/최대 146.5 / 150.8
+READY_BASE_HEIGHT_G125 = 0.1485
+SPAWN_BASE_HEIGHT_G125 = 0.1548
+#   g135: 안착 158.4 mm (표준편차 1.4) · 최소/최대 156.8 / 160.9
+# 처음 스폰 210 mm 로 쟀을 때는 한 환경이 안착하지 못해 최대값이 스폰 높이
+# 그대로 210 으로 찍혔다. 그 값을 스폰 기준(최대+4mm)으로 쓰면 214 mm 에서
+# 떨어뜨리게 된다 — 스폰을 175 mm 로 낮춰 다시 쟀고 표준편차가 2.2 -> 1.4 로
+# 조여졌다. **안착 최대값이 스폰 높이와 같으면 오염된 측정이다.**
+READY_BASE_HEIGHT_G135 = 0.1584
+SPAWN_BASE_HEIGHT_G135 = 0.1649
 
 
 @configclass
