@@ -353,6 +353,11 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     torques_scale = -1.0e-3
     action_rate_scale = -0.5
     stand_still_scale = -0.2
+
+    # 정지 명령(cmd_norm <= 0.01)에서 보행 위상을 0 에 묶는다.
+    # 기본은 꺼짐 — v33n 이하를 그대로 재현할 수 있어야 한다.
+    # 자세한 근거는 joystick_env.py 의 해당 지점 주석.
+    standstill_hold = False
     # alive_scale (2026-07-26): Playground's/Disney's original value is 20.0.
     # A whole night's worth of experiments (see docs/training_log.md) showed
     # this only works when `imitation` is active to counterbalance it —
@@ -972,14 +977,15 @@ READY_JOINT_POS_G115 = {
     "right_ankle": -0.8180,
 }
 
-# Z 자 목 = 45도. neck 은 위로, head 는 아래로 도는 축이라 같은 값을 주면 서로
+# Z 자 목 = 30도. neck 은 위로, head 는 아래로 도는 축이라 같은 값을 주면 서로
 # 상쇄되고 **얼굴은 수평**을 유지한다 (FK 로 코 기울기 0.0도 확인). 머리에 카메라를
 # 달 것이므로 시선이 수평인 게 중요하다.
 #
 # head_pitch 의 URDF 한계는 원래 정확히 45도(0.7854)여서 45도가 리밋 위에
 # 얹혔다. 사용자 확인 결과 **실제 설계 가동범위는 ±60도** 이고 45도는 CAD 상
 # 클램프였을 뿐이다. robot/robot.urdf 의 head_pitch limit 을 ±0.872665(±50도) 로
-# 넓혀 두었다 — 45도 자세에 5도 여유.
+# 넓혀 두었다. 자세는 30도라 여유가 20도다
+# (45도로 돌려봤다가 30도로 낮췄다 — 2026-08-07 사용자 판단).
 #
 # ⚠️ 다만 시뮬은 USD 에서 관절 한계를 읽는다. USD 를 재변환하지 않으면 시뮬 안에서는
 # 여전히 45도가 상한이라 관절이 리밋에 얹힌 채로 돈다 — v33 이 그 상태로 663 iter
@@ -989,7 +995,7 @@ READY_JOINT_POS_G115 = {
 # ⚠️ `odm import` 로 CAD 를 다시 받으면 이 한계가 45도로 되돌아간다. 영구히 하려면
 # OnShape 어셈블리의 메이트 한계를 고쳐야 한다.
 READY_JOINT_POS_G115_ZNECK = dict(READY_JOINT_POS_G115)
-READY_JOINT_POS_G115_ZNECK.update({"neck_pitch": 0.7854, "head_pitch": 0.7854})
+READY_JOINT_POS_G115_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
 
 # settle_height.py 실측 (2026-08-07, 16 envs x 400 steps, 200 mm 에서 낙하).
 #   안착 138.3 mm (표준편차 1.6) · 최소/최대 135.0 / 154.1
@@ -1033,3 +1039,111 @@ class JoystickEnvCfg_V33N(JoystickEnvCfg_ZNeck):
         ),
     )
     ready_base_height = READY_BASE_HEIGHT_G115
+
+
+@configclass
+class JoystickEnvCfg_V34C(JoystickEnvCfg_V33N):
+    """imitation_v34c — v33n 그대로 + **정지에서 보행 위상 고정** 하나만.
+
+    실기 배포에서 "정지하면 가만히 서 있을 것" 이 요구사항인데, v33n 은 정지
+    명령에서도 몸통이 움찔거린다. 2026-08-07 실측으로 원인을 좁혔다:
+
+      * 정지 명령 실측 속도가 (-0.019, +0.003) m/s — 뒤로 1.9 cm/s 흐른다.
+      * `reward_imitation` 은 정지에서 이미 완전히 꺼진다 (`* (cmd_norm > 0.01)`).
+      * 그런데 관측의 `imitation_phase` 는 명령과 무관하게 계속 돈다.
+      * 붙잡아 줄 것은 `cost_stand_still`(-0.2) 뿐이고 imitation(+0.19)의 1/30 이다.
+
+    즉 정책은 "정지" 라는 상태를 나타내는 안정된 입력을 받지 못한 채 회전하는
+    위상 신호를 계속 받는다. 여기서는 **그 구조만** 고친다 — 정지면 위상을 0 으로
+    묶어 (cos,sin)=(1,0) 한 점으로 만든다.
+
+    `stand_still_scale` 은 일부러 -0.2 그대로 둔다. 이 프로젝트의 교훈이
+    "리워드 계수보다 구조가 먼저" 이고, 계수까지 같이 바꾸면 어느 쪽이 들었는지
+    알 수 없다. 위상 고정만으로 부족하면 그때 계수를 올린다.
+
+    비교 기준 (v33n, 2026-08-07 실측):
+        정지 실측 속도   (-0.019, +0.003) m/s
+        추종 평균        0.0271 m/s
+        리워드 / 에피소드  399.49 / 729.1
+        짧은 접촉        27.4 %
+    **판정은 정지 속도가 0 에 얼마나 가까워지는가로 한다.**
+    """
+
+    standstill_hold = True
+
+
+# ── 레퍼런스 높이 +10 mm / +20 mm 변형 ──────────────────────────────────
+# v34c 로 정지가 잡히면, 같은 정지 수정을 유지한 채 몸통 높이만 올려 추종을
+# 되찾는 실험이다. v28(추종 최고 0.0171)의 실제 보행 높이가 141 mm 였고
+# v33n 은 130 mm 라, 높이가 추종에 유리할 가능성이 있다.
+#
+# READY 자세는 각 레퍼런스에서 calc_home.py 로 뽑았다. 필요 최대 액션은
+# g125 1.78 / g135 1.96 — v1~v9 를 죽인 8.1 대비 여유가 있다.
+# 안착/스폰 높이는 settle_height.py 로 **실측해서** 채운다 (추측 금지).
+
+READY_JOINT_POS_G125 = {
+    "left_hip_yaw": -0.0031, "left_hip_roll": 0.0207, "left_hip_pitch": 0.8952,
+    "left_knee": -1.5693, "left_ankle": 0.7444,
+    "neck_pitch": 0.0, "head_pitch": 0.0, "head_yaw": 0.0, "head_roll": 0.0,
+    "right_hip_yaw": -0.0037, "right_hip_roll": -0.0104, "right_hip_pitch": 0.9315,
+    "right_knee": 1.6000, "right_ankle": -0.7388,
+}
+READY_JOINT_POS_G125_ZNECK = dict(READY_JOINT_POS_G125)
+READY_JOINT_POS_G125_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
+
+READY_JOINT_POS_G135 = {
+    "left_hip_yaw": -0.0031, "left_hip_roll": 0.0204, "left_hip_pitch": 0.7897,
+    "left_knee": -1.3732, "left_ankle": 0.6538,
+    "neck_pitch": 0.0, "head_pitch": 0.0, "head_yaw": 0.0, "head_roll": 0.0,
+    "right_hip_yaw": -0.0036, "right_hip_roll": -0.0111, "right_hip_pitch": 0.8264,
+    "right_knee": 1.4084, "right_ankle": -0.6522,
+}
+READY_JOINT_POS_G135_ZNECK = dict(READY_JOINT_POS_G135)
+READY_JOINT_POS_G135_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
+
+# 잠정값. 학습 직전에 settle_height.py 로 재서 갱신한다.
+READY_BASE_HEIGHT_G125 = 0.1383
+SPAWN_BASE_HEIGHT_G125 = 0.1581
+READY_BASE_HEIGHT_G135 = 0.1383
+SPAWN_BASE_HEIGHT_G135 = 0.1581
+
+
+@configclass
+class JoystickEnvCfg_V34C10(JoystickEnvCfg_V34C):
+    """imitation_v34c10 — v34c(정지 위상 고정) + 레퍼런스 높이 +10 mm (ref_g125)."""
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_g125.pkl"
+    robot = OPEN_DUCK_MINI_V2_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G125),
+            joint_pos=dict(READY_JOINT_POS_G125_ZNECK),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_G125
+
+
+@configclass
+class JoystickEnvCfg_V34C20(JoystickEnvCfg_V34C):
+    """imitation_v34c20 — v34c(정지 위상 고정) + 레퍼런스 높이 +20 mm (ref_g135)."""
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_g135.pkl"
+    robot = OPEN_DUCK_MINI_V2_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G135),
+            joint_pos=dict(READY_JOINT_POS_G135_ZNECK),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_G135
+
+
+@configclass
+class JoystickEnvCfg_V34C2(JoystickEnvCfg_V34C):
+    """imitation_v34c2 — v34c 로 부족할 때 쓸 후속: 정지 벌점을 5배로.
+
+    구조(위상 고정)만으로 정지가 안 잡히면 그때 계수를 올린다. 순서를 지키는
+    이유는 둘을 같이 바꾸면 어느 쪽이 들었는지 알 수 없기 때문이다.
+    """
+
+    stand_still_scale = -1.0

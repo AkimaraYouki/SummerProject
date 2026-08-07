@@ -330,6 +330,24 @@ class JoystickEnv(DirectRLEnv):
         # advance gait phase (drives the imitation_phase observation always;
         # drives the reference-motion lookup only when use_imitation=True)
         self._imitation_i = (self._imitation_i + 1) % self._gait_period_steps
+        # 정지 명령에서는 위상을 0 에 묶는다 (standstill_hold).
+        #
+        # 왜: 정지에서 reward_imitation 은 이미 `* (cmd_norm > 0.01)` 로 완전히
+        # 꺼진다(rewards.py:178). 그런데 **관측의 imitation_phase 는 계속 돈다** —
+        # 위 한 줄이 명령과 무관하게 증가하기 때문이다. 정책은 "가만히 있어라"
+        # 대신 주기적으로 변하는 입력을 받고, 붙잡아 줄 것은 stand_still(-0.2)
+        # 하나뿐이라 imitation(+0.19)의 1/30 이다. 실기에서 정지 중 몸통이
+        # 움찔거리는 원인으로 지목된 지점이다 (2026-08-07 실측: 정지 명령인데
+        # 뒤로 0.019 m/s 흐름).
+        #
+        # 0 으로 리셋하는 이유: 그냥 얼어붙이면 멈춘 위상이 매번 달라져
+        # 관측이 에피소드마다 다른 상수가 된다. 0 으로 묶으면 (cos,sin)=(1,0)
+        # 한 점이라 정책이 "이 값 = 정지" 를 배울 수 있다.
+        if getattr(self.cfg, "standstill_hold", False):
+            still = torch.linalg.norm(self._command[:, :3], dim=-1) <= 0.01
+            self._imitation_i = torch.where(
+                still, torch.zeros_like(self._imitation_i), self._imitation_i
+            )
         if self.cfg.use_imitation:
             self._current_reference_motion = self._prm.get_reference_motion(
                 self._command[:, 0], self._command[:, 1], self._command[:, 2], self._imitation_i

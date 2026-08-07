@@ -28,6 +28,10 @@ task_of() {
     v32|hipinward) echo "Isaac-OpenDuckMini-Joystick-HipInward-v0" ;;
     v33|zneck) echo "Isaac-OpenDuckMini-Joystick-ZNeck-v0" ;;
     v33n) echo "Isaac-OpenDuckMini-Joystick-V33N-v0" ;;
+    v34c) echo "Isaac-OpenDuckMini-Joystick-V34C-v0" ;;
+    v34c10) echo "Isaac-OpenDuckMini-Joystick-V34C10-v0" ;;
+    v34c20) echo "Isaac-OpenDuckMini-Joystick-V34C20-v0" ;;
+    v34c2) echo "Isaac-OpenDuckMini-Joystick-V34C2-v0" ;;
     # 안전 필터를 켠 변형. 정책은 같고 환경만 다르므로 체크포인트는 원본 것을 쓴다
     # (아래 ckpt_ver 참조). 실기 후보 조합이 v32s 다.
     v28s) echo "Isaac-OpenDuckMini-Joystick-TallSafe-v0" ;;
@@ -186,7 +190,17 @@ tb)
     n="$(basename "$d" | sed 's/.*_imitation_v//; s/[^0-9].*//')"
     [ -n "$n" ] || continue
     [ "$n" -ge "$from" ] 2>/dev/null || continue
-    ln -sfn "$d" "/tmp/tb/$(basename "$d" | sed 's/.*_imitation/imitation/')"
+    # 링크 이름에서 타임스탬프를 뗀다. 다만 **같은 버전을 여러 번 돌렸으면 이름이
+    # 충돌해서 마지막 하나만 남는다** — ln -sfn 이 덮어쓰기 때문이다. 실제로
+    # v33n 을 네 번 돌렸더니 텐서보드에 하나만 뜨고, 그것도 진행 중인 런이 아니라
+    # 예전 것이었다 (2026-08-07). 중복이면 시각을 붙여 구분한다.
+    base="$(basename "$d" | sed 's/.*_imitation/imitation/')"
+    same=$(ls -d "$LOGROOT"/*"_${base#imitation_}" 2>/dev/null | wc -l)
+    if [ "$same" -gt 1 ]; then
+      # 2026-08-07_05-11-49_imitation_v33n -> imitation_v33n@0511
+      base="${base}@$(basename "$d" | sed 's/^[0-9-]*_//; s/-[0-9]*_imitation.*//; s/-//')"
+    fi
+    ln -sfn "$d" "/tmp/tb/$base"
   done
   setsid nohup "$IL" -p -m tensorboard.main --logdir /tmp/tb --bind_all --port 6006 \
     > "$RUNLOG/tb.log" 2>&1 < /dev/null &
