@@ -98,6 +98,12 @@ class HWI:
     def __init__(self, port="/dev/ttyUSB0", current_limit=350):
         self.current_limit = current_limit
         self.io = rustypot.Xl430PyController(port, BAUD, 0.05)
+        # Shutdown 레지스터(addr 63, EEPROM)에 켜진 비트만 실제로 토크를 끊는다.
+        # 여기 없는 에러 비트는 상태 기록일 뿐 모터는 계속 돈다. 이 로봇은
+        # 0b00110100 = 과열(2)/전기충격(4)/과부하(5) 이고 **Input Voltage(0)는
+        # 빠져 있다** — 2026-08-09 확인. 이걸 모르고 전압 비트에 반응해 리부팅
+        # 하다가 보행 중 1초마다 400ms 씩 제어를 멈추는 사고를 냈다.
+        self.shutdown_mask = [b[0] for b in self.io.sync_read_raw_data(IDS, 63, 1)]
 
     def arm(self):
         """토크 켜기 전 준비: 토크 끄고 -> 전류제한위치제어 모드 -> 전류상한 -> 토크 켜기.
@@ -231,6 +237,15 @@ class HWI:
             return first
         second = list(self.io.sync_read_hardware_error_status(IDS))
         return [a if (a and b) else 0 for a, b in zip(first, second)]
+
+    def get_fatal_errors(self):
+        """get_hw_errors() 를 각 축의 Shutdown 마스크로 걸러, **실제로 토크가
+        끊기는 에러만** 남긴 14-길이 리스트. 정지 판단은 이걸로 해야 한다.
+
+        마스크 밖 비트(이 로봇에서는 Input Voltage)는 모터가 계속 도는 상태라
+        멈출 이유가 없다 — 알고 싶으면 get_hw_errors() 원본을 따로 보면 된다.
+        """
+        return [e & m for e, m in zip(self.get_hw_errors(), self.shutdown_mask)]
 
     def recover_input_voltage_errors(self, raw_errors):
         """get_hw_errors() 결과 중 **Input Voltage Error(bit0)만 단독으로** 켜진

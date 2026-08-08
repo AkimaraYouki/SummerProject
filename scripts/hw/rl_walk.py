@@ -345,6 +345,7 @@ def main():
         over_budget_worst = 0.0
         t_window0 = time.time()
         max_delta = MAX_MOTOR_VEL * DT
+        nonfatal_seen = set()
         HW_ERR_PERIOD = 10  # 이 버스에서 SyncRead 하나가 ~16-28ms 라 매 루프 3번 읽으면 예산을 못 맞춘다.
         # 위치+속도는 매 루프 필수(관측벡터에 직접 들어감) — 한 번의 SyncRead로 묶는다.
         # hw_error 는 안전 확인용이라 몇 루프에 한 번이면 충분하다.
@@ -362,20 +363,24 @@ def main():
             contact = np.array(feet.get(), dtype=np.float32)
 
             if step % HW_ERR_PERIOD == 0:
-                errs = hwi.get_hw_errors()
-                if any(errs):
-                    # Input Voltage Error(bit0) 단독이면 자동 reboot+복구 시도
-                    # (2026-08-09: 램프인 직후 반복 재현, 재부팅으로 풀리는 걸
-                    # 확인함 — rustypot_hwi.recover_input_voltage_errors 참고).
-                    # 과열/과부하/전기충격/인코더 등 다른 비트가 섞였으면 그건
-                    # 진짜 문제일 수 있어 그대로 정지한다.
-                    recovered, remaining = hwi.recover_input_voltage_errors(errs)
-                    if recovered:
-                        print(f"[rl_walk] !! Input Voltage Error 자동복구: {recovered}")
-                        hwi.set_position_vec(motor_targets)  # reboot로 풀린 목표를 즉시 되잡음
-                    if remaining:
-                        print(f"[rl_walk] !! 진짜 하드웨어 에러 감지 {remaining} — 정지한다")
-                        break
+                # Shutdown 마스크에 걸린 에러(과열/전기충격/과부하)만 정지 사유다.
+                # 마스크 밖 비트는 모터가 계속 도는 상태라 멈출 이유가 없다.
+                #
+                # 2026-08-09: 이 자리에서 Input Voltage(bit0) 를 보고 서보를
+                # reboot 했었는데, 그 비트는 이 로봇 Shutdown 마스크에 없어서
+                # 토크를 끊지도 않는 정보성 비트였다. 불필요한 복구가 보행 중
+                # 1초에 한 번씩 400ms 씩 제어를 멈춰 로봇이 발을 구르며 주저앉는
+                # 원인이 됐다. 이제 세지만 하고 넘어간다.
+                fatal = hwi.get_fatal_errors()
+                if any(fatal):
+                    bad = [(n, e) for n, e in zip(NAMES, fatal) if e]
+                    print(f"[rl_walk] !! 치명 하드웨어 에러 {bad} — 정지한다")
+                    break
+                nonfatal = [n for n, e in zip(NAMES, hwi.get_hw_errors()) if e]
+                if nonfatal and not nonfatal_seen:
+                    nonfatal_seen = set(nonfatal)
+                    print(f"[rl_walk] (참고) 비치명 에러 비트 — {sorted(nonfatal_seen)}. "
+                          f"토크는 안 끊긴다. 보행 부하로 전압이 처진 흔적일 수 있다.")
 
             joint_pos_rel = pos - READY_ARR
             joint_vel_scaled = vel * DOF_VEL_SCALE
