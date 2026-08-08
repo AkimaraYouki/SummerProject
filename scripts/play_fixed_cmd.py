@@ -36,6 +36,10 @@ parser.add_argument("--joystick", nargs="?", const="/dev/input/js0", default=Non
                     metavar="DEV",
                     help="Xbox 패드로 실시간 조종한다 (기본 장치 /dev/input/js0). "
                          "--cycle 보다 우선한다")
+parser.add_argument("--terrain", type=str, default="plane",
+                    help="평지 대신 다른 지형에서 재생한다. 목록은 "
+                         "open_duck_mini_isaaclab/terrains.py 의 TERRAIN_CHOICES. "
+                         "학습은 전부 평지에서 했으므로 제로샷이다")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 app_launcher = AppLauncher(args_cli)
@@ -66,6 +70,16 @@ import isaaclab.sim as sim_utils  # noqa: E402
 
 env_cfg = env_cfg_for(args_cli.task)
 env_cfg.scene.num_envs = args_cli.num_envs
+
+if args_cli.terrain != "plane":
+    from open_duck_mini_isaaclab.terrains import TERRAIN_CHOICES, apply_terrain  # noqa: E402
+
+    if args_cli.terrain not in TERRAIN_CHOICES:
+        raise SystemExit(f"모르는 지형: {args_cli.terrain}\n"
+                         + "\n".join(f"  {k:14} {v}" for k, v in TERRAIN_CHOICES.items()))
+    apply_terrain(env_cfg, args_cli.terrain)
+    print(f"[play] 지형: {args_cli.terrain} — {TERRAIN_CHOICES[args_cli.terrain]}", flush=True)
+    print("[play] ⚠️ 학습은 전부 평지에서 했다. 지형을 보는 관측도 없다 (제로샷)", flush=True)
 
 if args_cli.cam is not None:
     # asset_root 기준이라 로봇이 걸어가도 시점이 따라간다.
