@@ -284,6 +284,7 @@ def main():
             ["t", "step"] + [f"pos_{n}" for n in NAMES] + [f"vel_{n}" for n in NAMES]
             + [f"action_{n}" for n in NAMES] + [f"target_{n}" for n in NAMES]
             + ["contact_l", "contact_r", "gyro_x", "gyro_y", "gyro_z",
+               "accel_x", "accel_y", "accel_z", "proj_grav_x", "proj_grav_y", "proj_grav_z",
                "phase_cos", "phase_sin"])
         t_start = time.time()
         step = 0
@@ -354,6 +355,8 @@ def main():
                 [f"{time.time()-t_start:.4f}", step] + list(pos) + list(vel)
                 + list(action) + list(motor_targets)
                 + [contact[0], contact[1], gyro[0], gyro[1], gyro[2],
+                   accel_arr[0], accel_arr[1], accel_arr[2],
+                   projected_gravity[0], projected_gravity[1], projected_gravity[2],
                    imitation_phase[0], imitation_phase[1]])
 
             last_last_last_act = last_last_act
