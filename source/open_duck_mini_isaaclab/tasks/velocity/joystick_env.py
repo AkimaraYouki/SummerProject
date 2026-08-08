@@ -55,6 +55,7 @@ from open_duck_mini_isaaclab.joint_order import (
     ACT_LEG_JOINT_IDX,
     ACTUATOR_JOINT_NAMES,
     LEFT_FOOT_BODY_NAME,
+    LEG_MIRROR_PAIRS,
     REF_LEG_JOINT_IDX,
     RIGHT_FOOT_BODY_NAME,
     ROOT_BODY_NAME,
@@ -65,6 +66,7 @@ from .joystick_env_cfg import JoystickEnvCfg
 from .observations import DelayBuffer, apply_uniform_noise
 from .rewards import (
     cost_action_rate,
+    cost_leg_symmetry,
     cost_stand_still,
     cost_torques,
     cost_upright_standstill,
@@ -168,6 +170,10 @@ class JoystickEnv(DirectRLEnv):
         self._action_delay_buf = DelayBuffer(n, nj, max(cfg.action_max_delay, 1), dev)
         # 액션 저역통과(떨림 억제)의 상태. alpha=0 이면 항등이라 비용도 없다.
         self._act_filt = torch.zeros(n, nj, device=dev)
+        # 좌우 대칭 벌점용 인덱스. joint_order 가 URDF FK 로 확정한 거울 규칙이다.
+        self._sym_l = torch.tensor([p[0] for p in LEG_MIRROR_PAIRS], dtype=torch.long, device=dev)
+        self._sym_r = torch.tensor([p[1] for p in LEG_MIRROR_PAIRS], dtype=torch.long, device=dev)
+        self._sym_s = torch.tensor([p[2] for p in LEG_MIRROR_PAIRS], dtype=torch.float32, device=dev)
 
         self._command = torch.zeros(n, 7, device=dev)
         self._imitation_i = torch.zeros(n, dtype=torch.long, device=dev)
@@ -554,6 +560,12 @@ class JoystickEnv(DirectRLEnv):
             "upright_standstill": cost_upright_standstill(
                 self._command, self._robot.data.projected_gravity_b,
             ) * cfg.upright_standstill_scale,
+            # 정지에서만 좌우 다리 자세가 거울이 되게. 보행은 이미 대칭이고
+            # (실측 1.03도 이내) 애초에 반주기 어긋난 운동이라 걸면 안 된다.
+            # 기본 계수는 0 이라 기존 태스크의 리워드는 한 항도 안 바뀐다.
+            "leg_symmetry": cost_leg_symmetry(
+                self._command, joint_pos, self._sym_l, self._sym_r, self._sym_s,
+            ) * cfg.leg_symmetry_scale,
         }
         # Stage 1 (use_imitation=False): omitted entirely, not just
         # zero-weighted — reward_imitation would divide-by-nothing-useful

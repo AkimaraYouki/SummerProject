@@ -85,6 +85,41 @@ def cost_upright_standstill(
     return tilt * (cmd_norm < 0.01).float()
 
 
+def cost_leg_symmetry(
+    commands: torch.Tensor,
+    qpos: torch.Tensor,
+    left_idx: torch.Tensor,
+    right_idx: torch.Tensor,
+    mirror_sign: torch.Tensor,
+) -> torch.Tensor:
+    """정지 명령일 때 **좌우 다리 자세가 거울이 아닌 만큼** 벌한다.
+
+    왜 정지에서만인가. 실측해 보면 **보행은 이미 거의 완벽히 대칭**이고
+    (모든 관절 1.03 도 이내) **정지만 크게 어긋난다** — 무릎 15.2 도,
+    hip_roll 12.3 도. env 별 표준편차가 2.0~2.3 도로 좁아서 무작위가 아니라
+    32 개 환경이 전부 같은 쪽으로 치우친 일관된 편향이다. 좌 무릎이 보행 때보다
+    17 도 더 굽으므로 한쪽 다리에 기대어 서는 자세다.
+
+    이유는 구조적이다. 정지에서는 imitation 이 꺼지고(`cmd_norm > 0.01` 게이트)
+    위상도 0 에 묶이며, 남는 것은 `cost_stand_still`(-0.2) 뿐인데 그 목표 자세
+    (레퍼런스 평균)조차 2 도 비대칭이다. **좌우 대칭을 요구하는 항이 하나도
+    없어서** 정책이 편한 짝다리를 찾은 것이다. 보행이 멀쩡한 건 imitation 이
+    켜져서 레퍼런스가 양쪽을 다 붙잡아 주기 때문이다.
+
+    보행에도 걸지 않는 이유: 보행은 원래 좌우가 **반주기 어긋난** 운동이라
+    같은 시각의 좌우 관절각이 거울이면 안 된다. 정지에서만 의미가 있다.
+
+    거울 부호는 joint_order.LEG_MIRROR_PAIRS — URDF 에서 FK 로 확정한 것이고,
+    그 규칙에서 로봇 모델 자체는 대칭이다(발 위치 오차 0.5 mm, 질량 동일).
+
+    제곱을 쓰는 이유는 `cost_upright_standstill` 과 같다 — 대칭 근처에서
+    기울기가 죽어 마지막 1 도를 두고 다른 항과 싸우지 않는다.
+    """
+    cmd_norm = torch.linalg.norm(commands[:, :3], dim=-1)
+    err = qpos[:, right_idx] - mirror_sign * qpos[:, left_idx]
+    return torch.sum(err * err, dim=-1) * (cmd_norm < 0.01).float()
+
+
 def reward_imitation(
     base_lin_vel_w: torch.Tensor,  # [N,3] — see docs/decisions.md frame note below
     base_ang_vel_w: torch.Tensor,  # [N,3]
