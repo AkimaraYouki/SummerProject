@@ -223,16 +223,32 @@ def main():
         if os.path.exists(meta_path):
             with open(meta_path) as f:
                 meta = json.load(f)
+    # v37 부터 알파가 **명령 크기에 따라 갈린다** (정지 0.7 / 보행 0.0). 시뮬의
+    # joystick_env._pre_physics_step 과 같은 공식으로 섞는다:
+    #   t = smoothstep(clamp((‖cmd‖ - lo) / (hi - lo), 0, 1))
+    #   alpha = a_still + (a_move - a_still) * t
+    # 이 스크립트는 실행 중 명령이 고정이라 한 번만 계산하면 된다.
+    a_move = float(meta.get("action_lowpass_alpha", 0.0))
+    a_still = float(meta.get("action_lowpass_alpha_standstill", a_move))
+    blend_lo, blend_hi = meta.get("action_lowpass_blend", [0.01, 0.05])
+    cmd_norm = float(np.linalg.norm([args.vx, args.vy, args.wz]))
+    _t = min(1.0, max(0.0, (cmd_norm - blend_lo) / max(blend_hi - blend_lo, 1e-6)))
+    _t = _t * _t * (3.0 - 2.0 * _t)
+    alpha_auto = a_still + (a_move - a_still) * _t
+
     if args.action_lpf_alpha is None:
-        args.action_lpf_alpha = float(meta.get("action_lowpass_alpha", 0.0))
-        src = f"policy.meta.json ({meta.get('run', '?')})" if meta else "기본값"
+        args.action_lpf_alpha = alpha_auto
+        if meta:
+            src = (f"policy.meta.json ({meta.get('run', '?')}: 정지 {a_still} / 보행 "
+                   f"{a_move}, ‖cmd‖={cmd_norm:.3f})")
+        else:
+            src = "meta 없음 -> 0"
     else:
         src = "CLI"
-        trained = meta.get("action_lowpass_alpha")
-        if trained is not None and abs(float(trained) - args.action_lpf_alpha) > 1e-9:
-            print(f"[rl_walk] !! 경고: 이 정책은 α={trained} 로 학습됐는데 α="
+        if meta and abs(alpha_auto - args.action_lpf_alpha) > 1e-9:
+            print(f"[rl_walk] !! 경고: 이 명령에서 학습 시 알파는 {alpha_auto:.2f} 인데 "
                   f"{args.action_lpf_alpha} 로 돌린다 — 학습/배포 불일치다.")
-    print(f"[rl_walk] 액션 저역필터 α={args.action_lpf_alpha} ({src})")
+    print(f"[rl_walk] 액션 저역필터 α={args.action_lpf_alpha:.3f} ({src})")
     if zero_action:
         print("[rl_walk] !! zero-action 모드 — 정책 추론 없음. action=0 (READY 유지). "
               "IMU/모터/GPIO/타이밍 파이프라인만 검증한다.")
