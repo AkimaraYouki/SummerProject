@@ -618,6 +618,21 @@ class JoystickEnv(DirectRLEnv):
                       * (joint_pos[:, self._hip_in_act]
                          - self._current_reference_motion[:, 0:14][:, self._hip_in_ref]))
             over = torch.clamp(inward - cfg.hip_inward_thresh, min=0.0).sum(dim=-1)
+            if getattr(cfg, "hip_inward_walking_only", False):
+                # 정지에서는 끈다. 이 항은 **레퍼런스를 기준**으로 삼는데, 정지에서는
+                # standstill_hold 가 위상을 0 에 묶으므로 그 기준이 "걷는 중 한쪽 발을
+                # 든 순간" 의 고관절 자세가 된다 (위상 0 의 hip_roll: 좌 -7.69 / 우
+                # +5.50, 13.19 도 벌어짐). 그래서 정지에서 좌우 대칭을 요구하는
+                # leg_symmetry(-3.0) 와 정면으로 싸우고, 계수가 8배(-25) 라 이긴다.
+                #
+                # 실제로 v36 에서 그 균형점이 그대로 나왔다: 대칭이 요구하는 값은
+                # R_roll = L_roll = +1.60 도인데 hip_inward 경계가 +2.50 도라 정책이
+                # +6.26 도에서 멈췄고, 어긋남 4.66 도가 측정값과 정확히 일치한다.
+                #
+                # 정지에서 꺼도 되는 이유: 이 항의 목적은 보행 중 다리-몸통
+                # 자가충돌 방지인데(접촉 = 액추에이터 파손), 정지에서는 양발이 땅에
+                # 붙어 거의 기본 자세이고 실측 최소 간격이 62 mm 다 (위험선 5 mm).
+                over = over * (torch.linalg.norm(self._command[:, :3], dim=-1) > 0.01).float()
             terms["hip_inward"] = over * cfg.hip_inward_scale
 
         if cfg.use_path_frame and cfg.path_tracking_scale != 0.0:

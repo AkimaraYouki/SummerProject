@@ -207,6 +207,10 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # 안 묶이고 자세만 무너졌다. 여기서는 실측 관절각에, 안쪽 한 방향만 건다.
     hip_inward_thresh = None
     hip_inward_scale = -25.0
+    # hip_inward 를 보행 중에만 걸지. 기본 False = 종전대로 정지에서도 건다.
+    # 이 항은 레퍼런스를 기준으로 삼는데 정지에서는 그 기준이 "걷는 중 한쪽 발을
+    # 든 순간" 이라, 정지 좌우대칭을 요구하는 leg_symmetry 와 정면으로 싸운다.
+    hip_inward_walking_only = False
 
     # 런타임 안전 필터 (safety_filter.py). 경로를 주면 켜진다.
     # 리워드는 위반을 줄일 뿐 0 을 보장하지 못한다 -- 액추에이터 파손이 걸린
@@ -1270,6 +1274,35 @@ class JoystickEnvCfg_V37(JoystickEnvCfg_V36):
 
     action_lowpass_alpha = 0.0              # 보행 중에는 끈다
     action_lowpass_alpha_standstill = 0.7   # 정지에서만 건다
+
+
+@configclass
+class JoystickEnvCfg_V38(JoystickEnvCfg_V37):
+    """imitation_v38 — v37 에서 **hip_inward 를 보행 중에만** 건다. 한 가지만 바뀐다.
+
+    v36 에 남은 정지 좌우 비대칭(hip_roll +4.66도)의 정체를 숫자까지 맞췄다.
+    `hip_inward`(-25.0)는 레퍼런스를 기준으로 고관절 4축(L/R yaw·roll)이 안쪽으로
+    3도 넘게 벗어나는 것을 벌하는데, **cmd_norm 게이트가 없어 정지에서도 산다.**
+    그리고 정지에서는 standstill_hold 가 위상을 0 에 묶으므로 그 기준이 "걷는 중
+    한쪽 발을 든 순간" 의 자세다 — 위상 0 의 hip_roll 이 좌 -7.69 / 우 +5.50 으로
+    13.19도 벌어져 있다.
+
+    그래서 정지에서 두 항이 정면으로 싸운다. leg_symmetry(-3.0)는 R_roll 을 L_roll
+    (+1.60도)과 같게 하라 하고, hip_inward(-25.0)는 R_roll 이 +2.50도 아래로 가면
+    벌한다. 계수가 8배라 hip_inward 가 이기고, 정책은 +6.26도에서 멈춘다.
+    **어긋남 6.26 - 1.60 = 4.66도, 측정값과 정확히 일치한다.**
+
+    정지에서 꺼도 되는 이유: 이 항의 목적은 보행 중 다리-몸통 자가충돌 방지인데
+    (접촉 = 액추에이터 파손), 정지에서는 양발이 땅에 붙어 거의 기본 자세이고
+    재생 실측 최소 간격이 62 mm 다 (위험선 5 mm).
+
+    비교 기준 (v36 @2999): 정지 hip_roll 어긋남 +4.66도 · hip_yaw -3.15도
+      · 몸통피치 +0.52도(표준편차 6.05) · 정지속력 0.0020 · 추종 0.0210
+    **판정: hip_roll 어긋남이 줄되 보행 대칭과 자가충돌 여유가 안 나빠지는가.**
+    (`scripts/diag/leg_symmetry.py` 와 `leg_trunk_clearance.py` 로 본다.)
+    """
+
+    hip_inward_walking_only = True
 
 
 @configclass
