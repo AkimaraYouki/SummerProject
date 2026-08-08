@@ -323,8 +323,18 @@ def main():
             if step % HW_ERR_PERIOD == 0:
                 errs = hwi.get_hw_errors()
                 if any(errs):
-                    print(f"[rl_walk] !! 하드웨어 에러 감지 {list(zip(NAMES, errs))} — 정지한다")
-                    break
+                    # Input Voltage Error(bit0) 단독이면 자동 reboot+복구 시도
+                    # (2026-08-09: 램프인 직후 반복 재현, 재부팅으로 풀리는 걸
+                    # 확인함 — rustypot_hwi.recover_input_voltage_errors 참고).
+                    # 과열/과부하/전기충격/인코더 등 다른 비트가 섞였으면 그건
+                    # 진짜 문제일 수 있어 그대로 정지한다.
+                    recovered, remaining = hwi.recover_input_voltage_errors(errs)
+                    if recovered:
+                        print(f"[rl_walk] !! Input Voltage Error 자동복구: {recovered}")
+                        hwi.set_position_vec(motor_targets)  # reboot로 풀린 목표를 즉시 되잡음
+                    if remaining:
+                        print(f"[rl_walk] !! 진짜 하드웨어 에러 감지 {remaining} — 정지한다")
+                        break
 
             joint_pos_rel = pos - READY_ARR
             joint_vel_scaled = vel * DOF_VEL_SCALE

@@ -19,6 +19,7 @@ play_ref_gait.py 도 같은 날 전부 맞춰 고쳤다 — 이제 네 파일 �
 
 import math
 import struct
+import time
 
 import rustypot
 
@@ -187,8 +188,58 @@ class HWI:
         return pos, vel
 
     def get_hw_errors(self):
-        """NAMES 순서의 14-길이 리스트. 0이 아니면 해당 축에 하드웨어 에러가 떴다는 뜻."""
-        return list(self.io.sync_read_hardware_error_status(IDS))
+        """NAMES 순서의 14-길이 리스트. 값은 원본 hw_error_status 비트마스크
+        (0=정상, bit0=Input Voltage, bit2=Overheating, bit3=MotorEncoder,
+        bit4=ElectricalShock, bit5=Overload).
+
+        두 번 연속 읽어서 같은 축이 에러일 때만 믿는다 — sync_read_raw_data 처럼
+        길이체크가 있는 게 아니라 rustypot 내장 파서라, 응답이 쪼개져 도착하면
+        예외 없이 조용히 틀린 값을 만들 수 있어서다.
+
+        2026-08-09 실기 확인: 램프인 직후 첫 체크에서 여러 축에 Input Voltage
+        Error(bit0)가 반복적으로 뜬다(그때그때 다른 조합) — 전압 자체는 재보면
+        14축 다 11.7~11.8V 로 정상이라, 급격해진 다축 동시 가감속의 역기전력
+        스파이크가 래치되는 것으로 추정(latency_timer 를 낮춰 루프가 빨라진 뒤
+        생겼다). reboot 로 풀리는 걸 확인했다 — recover_input_voltage_errors() 참고.
+        """
+        first = list(self.io.sync_read_hardware_error_status(IDS))
+        if not any(first):
+            return first
+        second = list(self.io.sync_read_hardware_error_status(IDS))
+        return [a if (a and b) else 0 for a, b in zip(first, second)]
+
+    def recover_input_voltage_errors(self, raw_errors):
+        """get_hw_errors() 결과 중 **Input Voltage Error(bit0)만 단독으로** 켜진
+        축을 reboot 후 재설정해서 복구한다. 다른 비트가 섞였으면 안 건드리고
+        그대로 돌려준다 — 과열/과부하/전기충격/인코더 에러는 진짜 문제일 수
+        있으니 호출자가 정지 여부를 판단해야 한다.
+
+        reboot 은 그 축의 RAM 설정(토크/모드/전류상한, head_roll 이면 P/D 게인)을
+        전부 날리므로 arm() 과 같은 순서로 다시 건다.
+
+        반환: (recovered_names, remaining_names).
+        """
+        recovered_names, remaining_names, recovered_ids = [], [], []
+        for name, err in zip(NAMES, raw_errors):
+            if not err:
+                continue
+            if err == 1:  # bit0 단독
+                recovered_names.append(name)
+                recovered_ids.append(BY_NAME[name][1])
+            else:
+                remaining_names.append(name)
+        if recovered_ids:
+            for i in recovered_ids:
+                self.io.reboot(i)
+            time.sleep(0.3)
+            self.io.sync_write_torque_enable(recovered_ids, [0] * len(recovered_ids))
+            self.io.sync_write_operating_mode(recovered_ids, [MODE_CURRENT_POSITION] * len(recovered_ids))
+            self.io.sync_write_current_limit(recovered_ids, [self.current_limit] * len(recovered_ids))
+            self.io.sync_write_torque_enable(recovered_ids, [1] * len(recovered_ids))
+            if BY_NAME["head_roll"][1] in recovered_ids:
+                self.io.write_position_p_gain(14, 200)
+                self.io.write_position_d_gain(14, 0)
+        return recovered_names, remaining_names
 
     def hold_here(self):
         """현재 위치를 목표로 덮어써 그 자리에 고정한다 (토크는 켠 채)."""
