@@ -196,12 +196,14 @@ def main():
     ap.add_argument("--vx", type=float, default=0.0, help="전후 속도 명령 [-0.15, 0.15]")
     ap.add_argument("--vy", type=float, default=0.0, help="좌우 속도 명령 [-0.2, 0.2]")
     ap.add_argument("--wz", type=float, default=0.0, help="회전 명령 [-1.0, 1.0]")
-    ap.add_argument("--action-lpf-alpha", type=float, default=0.0,
-                     help="액션 1차 저역필터 계수(0=끔, 학습 시와 동일). docs/reports/"
-                          "lowpass_2026-08-09.md 실험 A 기준: 정지(vx=vy=wz=0)에서는 "
-                          "대가 없이 떨림이 줄지만(0.5~0.8 추천), 전진 명령에서는 "
-                          "추종이 단조롭게 나빠진다 — vx/vy/wz 가 0이 아니면 쓰지 말 것. "
-                          "v36(필터를 학습에 포함시킨 버전) 나오면 이 옵션은 필요 없어진다.")
+    ap.add_argument("--action-lpf-alpha", type=float, default=None,
+                     help="액션 1차 저역필터 계수 a_f=α·a_f_prev+(1-α)·a. 생략하면 "
+                          "정책 옆의 policy.meta.json 에 적힌 값(=그 정책이 학습된 값)을 "
+                          "쓰고, 그것도 없으면 0(끔). **학습 때 쓴 값과 같아야 한다** — "
+                          "v36 처럼 필터를 학습 환경에 넣은 정책은 반드시 켜야 하고"
+                          "(α=0.5), v35 처럼 무필터로 학습된 정책에 켜면 정지에서만 "
+                          "이득이고 보행에서는 추종이 나빠진다 "
+                          "(docs/reports/lowpass_2026-08-09.md 실험 A).")
     ap.add_argument("--seconds", type=float, default=20.0, help="정책 루프 실행 시간(초)")
     ap.add_argument("--dry-run", action="store_true", help="모터/IMU 안 건드리고 로드만 확인")
     args = ap.parse_args()
@@ -211,6 +213,26 @@ def main():
     if args.onnx is not None:
         sess = ort.InferenceSession(args.onnx, providers=["CPUExecutionProvider"])
         print(f"[rl_walk] 정책 로드: {args.onnx}")
+
+    # 저역필터 계수는 **정책마다 다르다**(학습 환경에 넣었는지에 따라). 손으로
+    # 매번 맞춰 주면 언젠가 깜빡하고 조용히 train/test 불일치가 나므로, 정책 옆
+    # policy.meta.json 에 적어두고 그걸 기본값으로 읽는다. CLI 로 주면 그게 이긴다.
+    meta = {}
+    if args.onnx is not None:
+        meta_path = os.path.join(os.path.dirname(os.path.abspath(args.onnx)), "policy.meta.json")
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                meta = json.load(f)
+    if args.action_lpf_alpha is None:
+        args.action_lpf_alpha = float(meta.get("action_lowpass_alpha", 0.0))
+        src = f"policy.meta.json ({meta.get('run', '?')})" if meta else "기본값"
+    else:
+        src = "CLI"
+        trained = meta.get("action_lowpass_alpha")
+        if trained is not None and abs(float(trained) - args.action_lpf_alpha) > 1e-9:
+            print(f"[rl_walk] !! 경고: 이 정책은 α={trained} 로 학습됐는데 α="
+                  f"{args.action_lpf_alpha} 로 돌린다 — 학습/배포 불일치다.")
+    print(f"[rl_walk] 액션 저역필터 α={args.action_lpf_alpha} ({src})")
     if zero_action:
         print("[rl_walk] !! zero-action 모드 — 정책 추론 없음. action=0 (READY 유지). "
               "IMU/모터/GPIO/타이밍 파이프라인만 검증한다.")
@@ -283,10 +305,13 @@ def main():
         command = np.array([args.vx, args.vy, args.wz, 0, 0, 0, 0], dtype=np.float32)
         action_filt = np.zeros(14, dtype=np.float32)  # EMA 저역필터 상태 (--action-lpf-alpha)
 
-        if args.action_lpf_alpha > 0 and np.linalg.norm(command[:3]) > STANDSTILL_HOLD_THRESH:
-            print(f"[rl_walk] !! 경고: action-lpf-alpha={args.action_lpf_alpha} 인데 "
-                  f"vx/vy/wz 가 0이 아니다 — lowpass_2026-08-09.md 실험 A 기준 전진 "
-                  f"명령에서는 이 필터가 추종을 단조롭게 악화시킨다. 정지 테스트 전용.")
+        # 무필터로 학습된 정책(v35 등)에 필터를 켠 채 보행 명령을 주면 추종이
+        # 나빠진다 (실험 A). 학습 때부터 필터가 있던 정책(v36)에는 해당 없다.
+        if (args.action_lpf_alpha > 0 and meta.get("action_lowpass_alpha") is None
+                and np.linalg.norm(command[:3]) > STANDSTILL_HOLD_THRESH):
+            print(f"[rl_walk] !! 경고: 이 정책이 필터로 학습됐는지 알 수 없는데(meta 없음) "
+                  f"α={args.action_lpf_alpha} 로 보행 명령을 준다 — 무필터 학습 정책이면 "
+                  f"추종이 나빠진다 (lowpass_2026-08-09.md 실험 A).")
 
         print(f"[rl_walk] 정책 시작 — cmd=({args.vx:+.2f},{args.vy:+.2f},{args.wz:+.2f}) "
               f"· Ctrl+C 로 즉시 정지")
