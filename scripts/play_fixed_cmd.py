@@ -65,7 +65,8 @@ import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
 
 
 from open_duck_mini_isaaclab.joint_order import (  # noqa: E402
-    ACTUATOR_JOINT_NAMES, ACT_LEG_JOINT_IDX, REF_LEG_JOINT_IDX, READY_BASE_HEIGHT,
+    ACTUATOR_JOINT_NAMES, ACT_LEG_JOINT_IDX, LEG_MIRROR_PAIRS, REF_LEG_JOINT_IDX,
+    READY_BASE_HEIGHT,
 )
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
 import isaaclab.utils.math as math_utils  # noqa: E402
@@ -329,7 +330,28 @@ def _draw_overlay():
 _hud = None
 _hud_plots = {}
 _HIST = 150  # 최근 3초 (0.02 s/step)
-_hist = {"vx": [], "vy": [], "yaw": [], "err": []}
+_hist = {"vx": [], "vy": [], "yaw": [], "err": [], "pitch": [], "chat": []}
+
+# ── sim2real 진단 상태 ──────────────────────────────────────────────────
+# 여기 있는 항목은 전부 **실기 로그(~/rl_walk_log.csv)와 같은 정의**로 잰다.
+# 그래야 "시뮬 0.63도 vs 실기 7도" 처럼 같은 자로 비교할 수 있다. 정의가
+# 조금이라도 다르면 갭인지 측정 방법 차이인지 못 가린다.
+_S2R_WIN = 100                  # 떨림 통계 창 (2 초)
+_prev_act = None
+_dsign_hist = []                # 액션 변화의 부호 (관절별), 최근 _S2R_WIN 스텝
+
+# HUD 한 줄에 관절 이름을 다 못 넣으므로 줄인다 (L/R + 관절 약자).
+_SHORT = [n.replace("left_", "L.").replace("right_", "R.")
+           .replace("hip_yaw", "hy").replace("hip_roll", "hr").replace("hip_pitch", "hp")
+           .replace("knee", "kn").replace("ankle", "an")
+           .replace("neck_pitch", "npi").replace("head_pitch", "hpi")
+           .replace("head_yaw", "hya").replace("head_roll", "hro")
+          for n in ACTUATOR_JOINT_NAMES]
+# 거울 규칙은 joint_order 가 URDF FK 로 확정한 것을 그대로 쓴다 (여기서 재정의하지 않는다).
+_SYM_L = torch.tensor([p[0] for p in LEG_MIRROR_PAIRS], dtype=torch.long)
+_SYM_R = torch.tensor([p[1] for p in LEG_MIRROR_PAIRS], dtype=torch.long)
+_SYM_S = torch.tensor([float(p[2]) for p in LEG_MIRROR_PAIRS])
+_SYM_NAME = [ACTUATOR_JOINT_NAMES[p[1]].replace("right_", "") for p in LEG_MIRROR_PAIRS]
 if args_cli.hud:
     try:
         import omni.ui as ui
@@ -356,6 +378,8 @@ if args_cli.hud:
                                 ("vy", "vy", 0xFF44FF88),
                                 ("yaw", "yaw", 0xFFFF8844),
                                 ("err", "jnt err", 0xFF8888FF),
+                                ("pitch", "tilt", 0xFF44FFFF),
+                                ("chat", "chatter", 0xFF4444FF),
                             ):
                                 with ui.HStack(height=ui.Pixel(26)):
                                     ui.Spacer(width=8)
@@ -413,6 +437,68 @@ def _update_ghost():
     _ghost.write_root_velocity_to_sim(torch.zeros(_ghost.num_instances, 6, device=u.device), env_ids=ids)
 
 
+def _hist_push(key, val):
+    h = _hist[key]
+    h.append(max(-1.0, min(1.0, val)))
+    if len(h) > _HIST:
+        del h[0]
+    if key in _hud_plots and len(h) == _HIST:
+        _hud_plots[key].set_data(*h)
+
+
+def _sim2real_stats():
+    """실기와 **같은 정의**로 잰 진단 수치. 정의가 어긋나면 갭인지 측정 차이인지
+    못 가리므로, 여기 있는 것은 전부 `~/rl_walk_log.csv` 로 재현 가능해야 한다."""
+    global _prev_act
+    import math as _m
+
+    # 몸통 기울기 — projected_gravity 기준. 직립이면 (0,0,-1) 이므로 x,y 가 기울기.
+    # 실기는 imu_map.projected_gravity(accel) 이 같은 벡터를 준다.
+    g = u._robot.data.projected_gravity_b[0]
+    pitch = _m.degrees(_m.atan2(float(g[0]), -float(g[2])))   # + 앞으로 숙임
+    roll = _m.degrees(_m.atan2(-float(g[1]), -float(g[2])))
+
+    w = u._robot.data.root_ang_vel_b[0]
+
+    # 떨림 — 액션 변화 부호가 뒤집히는 비율. 실기 정지에서 68.3% 가 나왔다.
+    # 백색잡음이면 50%, 그보다 높으면 음의 자기상관 = 능동 진동.
+    act = u._actions[0].detach()
+    chat = 0.5
+    if _prev_act is not None:
+        s = torch.sign(act - _prev_act)
+        _dsign_hist.append(s)
+        if len(_dsign_hist) > _S2R_WIN:
+            del _dsign_hist[0]
+        if len(_dsign_hist) > 1:
+            S = torch.stack(_dsign_hist)
+            chat = float((S[1:] * S[:-1] < 0).float().mean())
+    _prev_act = act.clone()
+
+    # 처짐 — 보낸 목표각 대비 실제 위치. 실기 좌 hip_pitch 가 6.77 deg 였다.
+    jp = u._robot.data.joint_pos[0, u._joint_ids]
+    sag = (u._motor_targets[0] - jp).abs()
+    si = int(torch.argmax(sag))
+
+    # 좌우 대칭 — joint_order 가 URDF FK 로 확정한 거울 규칙 기준.
+    # 인덱스 텐서는 모듈 상단에서 CPU 로 만들어졌으므로 한 번만 옮긴다.
+    global _SYM_L, _SYM_R, _SYM_S
+    if _SYM_L.device != jp.device:
+        _SYM_L, _SYM_R, _SYM_S = _SYM_L.to(jp.device), _SYM_R.to(jp.device), _SYM_S.to(jp.device)
+    sym = (jp[_SYM_R] - _SYM_S * jp[_SYM_L]).abs()
+    yi = int(torch.argmax(sym))
+
+    tq = float(u._robot.data.applied_torque[0, u._joint_ids].abs().max())
+    return {
+        "pitch": pitch, "roll": roll,
+        "gyro": float(torch.linalg.norm(w)),
+        "gx": float(w[0]), "gy": float(w[1]), "gz": float(w[2]),
+        "chat": chat,
+        "sag": _m.degrees(float(sag[si])), "sag_j": _SHORT[si],
+        "sym": _m.degrees(float(sym[yi])), "sym_j": _SYM_NAME[yi],
+        "tq": tq,
+    }
+
+
 def _update_hud(tag, cx, cy, cw):
     if _hud is None:
         return
@@ -439,7 +525,24 @@ def _update_hud(tag, cx, cy, cw):
         pe = u._path_error()[0]
         yaw_err = float(torch.atan2(pe[2], pe[1])) * 57.2958
         lines += ["", f"PATH ERR  lat {float(pe[0])*1000:+.0f} mm   yaw {yaw_err:+.1f} deg"]
+
+    s2r = _sim2real_stats()
+    lines += [
+        "",
+        "── sim2real ──────────────────",
+        # IMU 기준 몸통 기울기. 실기의 imu_map.projected_gravity() 와 같은 정의다.
+        f"TILT      pitch {s2r['pitch']:+6.2f} deg   roll {s2r['roll']:+6.2f}",
+        f"GYRO      |w| {s2r['gyro']:5.3f}  x{s2r['gx']:+.2f} y{s2r['gy']:+.2f} z{s2r['gz']:+.2f}",
+        # 실기에서 68.3% 가 나온 그 지표. 50% = 백색잡음, 높을수록 자기진동.
+        f"CHATTER   {s2r['chat']*100:4.1f} %   (50%=noise)",
+        # 실기 좌 hip_pitch 가 6.77 deg 처져 있었다. 시뮬은 얼마인가.
+        f"SAG       max {s2r['sag']:5.2f} deg  @{s2r['sag_j']}",
+        f"SYMMETRY  max {s2r['sym']:5.2f} deg  @{s2r['sym_j']}",
+        f"TORQUE    max {s2r['tq']:5.2f} Nm ({s2r['tq']/4.1*100:3.0f}% of 4.1)",
+    ]
     _hud.text = "\n".join(lines)
+    _hist_push("pitch", s2r["pitch"] / 15.0)
+    _hist_push("chat", (s2r["chat"] - 0.5) * 2.0)
 
     # 최근 3초 궤적. 숫자만으로는 "순간적으로 얼마나 튀는지"가 안 보이는데,
     # 좌우 명령에서 요가 ±1.5 rad/s로 요동치면서 평균은 0에 가까웠던 것이

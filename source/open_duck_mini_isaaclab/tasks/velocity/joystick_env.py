@@ -317,8 +317,27 @@ class JoystickEnv(DirectRLEnv):
         #    생겨 접지 타이밍이 밀린다. alpha 를 올릴수록 조용해지는 대신 반응이
         #    굼떠진다 — 재생으로 눈으로 보고 고를 것. 근본 해법은 이 값을 켠 채로
         #    학습하거나 action_rate 벌점을 키우는 쪽이다.
-        alpha = float(getattr(self.cfg, "action_lowpass_alpha", 0.0))
-        if alpha > 0.0:
+        # 정지와 보행의 최적 alpha 가 완전히 다르다는 것이 스윕에서 나왔다.
+        #   정지 — 올릴수록 계속 좋아진다. 떨림도 줄고 **정지 속력 오차까지 같이**
+        #          준다 (v35 기준 0.0148 -> 0.0056 @0.8). 대가가 없다.
+        #   보행 — 추종이 단조롭게 나빠진다 (+2% @0.5, +26% @0.7). 위상 지연이
+        #          접지 타이밍을 밀기 때문이다.
+        # 명령은 우리가 알고 있으므로 굳이 하나로 타협할 이유가 없다. 정지에서만
+        # 세게 걸고 걸을 때는 푼다.
+        #
+        # 딱딱하게 켜고 끄면 명령이 문턱을 넘는 순간 필터 상태가 튀어 덜컥거린다.
+        # cmd_norm 이 blend_lo ~ blend_hi 를 지나는 동안 smoothstep 으로 섞는다.
+        a_move = float(getattr(self.cfg, "action_lowpass_alpha", 0.0))
+        a_still = getattr(self.cfg, "action_lowpass_alpha_standstill", None)
+        if a_still is None:
+            a_still = a_move
+        a_still = float(a_still)
+        if a_move > 0.0 or a_still > 0.0:
+            lo, hi = getattr(self.cfg, "action_lowpass_blend", (0.01, 0.05))
+            cmd_norm = torch.linalg.norm(self._command[:, :3], dim=-1, keepdim=True)
+            t = ((cmd_norm - lo) / max(hi - lo, 1e-6)).clamp(0.0, 1.0)
+            t = t * t * (3.0 - 2.0 * t)                 # smoothstep
+            alpha = a_still + (a_move - a_still) * t    # [N,1]
             self._act_filt = alpha * self._act_filt + (1.0 - alpha) * action_w_delay
             action_w_delay = self._act_filt
 
