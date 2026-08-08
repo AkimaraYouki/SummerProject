@@ -39,6 +39,32 @@ def cost_action_rate(act: torch.Tensor, last_act: torch.Tensor) -> torch.Tensor:
     return torch.sum((act - last_act) ** 2, dim=-1)
 
 
+def cost_action_jerk(act: torch.Tensor, last_act: torch.Tensor, last2_act: torch.Tensor) -> torch.Tensor:
+    """액션의 **2차차분**을 벌한다 — 진동 그 자체를 겨냥한 항.
+
+    `cost_action_rate`(1차차분)로는 진동을 못 잡는다. 1차차분은 "빠른 움직임" 을
+    벌하는 것이라 정상 보행도 똑같이 벌받고, 진동만 골라 누를 수가 없다.
+    2차차분은 방향이 뒤집힐 때만 커진다 — 같은 크기의 두 신호를 비교하면:
+
+        매끄러운 램프        1차차분^2 0.0001   2차차분^2 0.0000
+        매 스텝 부호 반전    1차차분^2 1.0000   2차차분^2 4.0000
+
+    **매끄러운 궤적은 2차차분이 정확히 0 이다.** 그래서 보행을 깎지 않으면서
+    진동만 벌할 수 있다.
+
+    실기 로그(정지 10 초)에서 실측한 값: 1차차분^2 0.148 / 2차차분^2 0.441.
+    진동 성분이 지배적이고, 이것이 액션 방향 반전 68.3% 의 정체다.
+
+    저역통과 필터 대신 이것을 쓰는 이유:
+      * 필터는 결과를 흡수해 정책을 게으르게 만든다. 실제로 필터로 학습한 v36 의
+        원시 액션 요동이 0.0638 로 무필터 v35(0.0537)보다 **컸다**.
+      * 필터는 위상 지연(20~47 ms)을 낳아 추종을 깎고 외란 극복의 여유를 먹는다.
+        이 항은 지연이 0 이다.
+      * 배포 때 필터를 실기에 복제할 필요가 없다 (정책-필터 결합이 사라진다).
+    """
+    return torch.sum((act - 2.0 * last_act + last2_act) ** 2, dim=-1)
+
+
 def reward_alive(num_envs: int, device: torch.device) -> torch.Tensor:
     return torch.ones(num_envs, device=device)
 

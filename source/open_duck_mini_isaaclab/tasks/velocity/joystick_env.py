@@ -65,6 +65,7 @@ from open_duck_mini_isaaclab.reference_motion.poly_reference_motion import REF_F
 from .joystick_env_cfg import JoystickEnvCfg
 from .observations import DelayBuffer, apply_uniform_noise
 from .rewards import (
+    cost_action_jerk,
     cost_action_rate,
     cost_leg_symmetry,
     cost_stand_still,
@@ -565,6 +566,12 @@ class JoystickEnv(DirectRLEnv):
             * cfg.tracking_ang_vel_scale,
             "torques": cost_torques(self._robot.data.applied_torque[:, self._joint_ids]) * cfg.torques_scale,
             "action_rate": cost_action_rate(self._actions, self._last_act) * cfg.action_rate_scale,
+            # 진동(액션 방향 반전) 그 자체를 겨냥한 2차차분 항. 1차차분인
+            # action_rate 는 "빠른 움직임" 을 벌하는 것이라 정상 보행도 같이
+            # 벌하고 진동만 골라 누르지 못한다. 기본 계수 0 = 꺼짐.
+            "action_jerk": cost_action_jerk(
+                self._actions, self._last_act, self._last_last_act,
+            ) * cfg.action_jerk_scale,
             "alive": reward_alive(self.num_envs, self.device) * cfg.alive_scale,
             # 정지 목표 자세는 액션 원점(default_joint_pos)과 분리한다.
             # default 는 보행 평균이라 placo 의 walk_trunk_pitch=-4 도가 배어
