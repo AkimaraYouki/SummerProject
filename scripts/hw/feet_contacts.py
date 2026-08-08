@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""발바닥 접촉 스위치 (GPIO 29=left, 31=right). Jetson.GPIO 버전.
+"""발바닥 접촉 스위치 (GPIO 31=left, 29=right). Jetson.GPIO 버전.
+
+2026-08-09: 처음엔 29=left/31=right로 배선했다고 가정했는데 실기로 확인하니
+반대였다(사용자 확인) — 물리적으로 GPIO31이 왼발, GPIO29가 오른발에 붙어있다.
 
 원본 리포(Open_Duck_Mini_Runtime)의 feet_contacts.py 는 라즈베리파이용
 `digitalio`/`board` (Blinka) 로 짜여 있어 Jetson 에서 못 쓴다. 여기선 이미
@@ -17,8 +20,8 @@ import time
 
 import Jetson.GPIO as GPIO
 
-LEFT = 29
-RIGHT = 31
+LEFT = 31
+RIGHT = 29
 
 DEBOUNCE_SEC = 0.03  # 이 시간 이상 안정돼야 실제 변화로 인정 (foot_contact_test.py 로 검증됨)
 
