@@ -124,6 +124,28 @@ class HWI:
         raw = self.io.sync_read_present_velocity(IDS)
         return [BY_NAME[NAMES[k]][2] * raw[k] * VEL_UNIT_RAD_S for k in range(14)]
 
+    def _sync_read_pos_vel_raw(self, ids, retries=2):
+        """sync_read_raw_data(ids, 128, 8) 을 하되, 응답이 손상된(8바이트가 아닌)
+        축이 있으면 몇 번 재시도한다.
+
+        2026-08-08 실기에서 겪음: arm() 직후 램프인(연속 SyncWrite)이 끝나자마자
+        첫 SyncRead 가 struct.unpack 에서 죽었다 — 축 하나의 응답이 8바이트가
+        아니었다(버스 전환 시점의 일시적 충돌로 추정, 재현은 못 함). 한 축
+        읽기가 가끔 깨지는 것 때문에 전체 루프가 죽으면 안 되니 재시도로
+        흡수한다. 재시도로도 안 되면 진짜 문제이니 그대로 예외를 던진다 —
+        조용히 stale 값을 쓰는 것보다 멈추는 게 안전하다.
+        """
+        for attempt in range(retries + 1):
+            raw = self.io.sync_read_raw_data(ids, 128, 8)
+            bad = [i for i, r in enumerate(raw) if len(r) != 8]
+            if not bad:
+                return raw
+            if attempt == retries:
+                raise RuntimeError(
+                    f"SyncRead 응답 손상 (ID {[ids[i] for i in bad]}, "
+                    f"바이트수 {[len(raw[i]) for i in bad]}) — 재시도 {retries}회 실패")
+        return raw  # unreachable
+
     def get_present_pos_vel(self):
         """위치+속도를 한 번의 SyncRead 로. (positions_rad, velocities_rad_s) 튜플, 둘 다 NAMES 순서.
 
@@ -133,7 +155,7 @@ class HWI:
         14축 SyncRead 하나가 ~16-28ms 걸리는 게 실측됐다(2026-08-08) — 50Hz(20ms)
         예산 안에서 read를 여러 번 쪼개면 못 맞춘다.
         """
-        raw = self.io.sync_read_raw_data(IDS, 128, 8)
+        raw = self._sync_read_pos_vel_raw(IDS)
         pos, vel = [], []
         for k in range(14):
             v_raw, p_raw = struct.unpack("<ii", raw[k])
@@ -151,7 +173,7 @@ class HWI:
         넘겼다. 머리 4축(lock_head_joints=True 라 정책이 안 씀)을 빼면 ID 수가
         10/14 로 줄어 버스 시간도 대략 그 비율로 준다.
         """
-        raw = self.io.sync_read_raw_data(LEG_IDS, 128, 8)
+        raw = self._sync_read_pos_vel_raw(LEG_IDS)
         pos, vel = [], []
         for k, name in enumerate(LEG_NAMES):
             v_raw, p_raw = struct.unpack("<ii", raw[k])
