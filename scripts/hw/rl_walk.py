@@ -12,10 +12,13 @@
 
 이 스크립트는 데스크탑 `open_duck_mini_isaaclab` 리포의 joystick_env.py /
 joystick_env_cfg.py / joint_order.py / imu_map.py 를 실기용으로 이식한 것이다.
-2026-08-07 학습 실행 `imitation_v34u` (JoystickEnvCfg_V34U 계열: v34c2 이후로
-물리량이 거의 고정된 계열 — 사용자 확인, 2026-08-07) 기준으로 관측벡터
-순서/스케일을 맞췄다. 이 계열은 observation_space=107, state_space=211,
-lock_head_joints=true, use_path_frame=true, use_gravity_obs=true.
+2026-08-08 `docs/handoff/onnx_deploy_2026-08-08.md`(데스크탑, 배포 계약 문서)
++ 실제 소스(joystick_env.py/joystick_env_cfg.py) 대조로 검증 완료. 대상은
+`imitation_v34c10`(JoystickEnvCfg_V34C10, iter 2999, 현재 최고 성능) — v34u 는
+v34c10 을 상속하고 관측/액션 계약이 완전히 같으므로 v34u 로 바뀌어도 이 스크립트는
+그대로 쓴다. 이 계열은 observation_space=107, state_space=211,
+lock_head_joints=true, use_path_frame=true, use_gravity_obs=true,
+gait_period_steps=27(ref_g125, 0.54s@50Hz), standstill_hold=true.
 다른 체크포인트를 쓰면 이 값들이 안 맞을 수 있으니 params/env.yaml 을
 다시 확인할 것.
 
@@ -77,13 +80,15 @@ from smbus2 import SMBus, i2c_msg
 from feet_contacts import FeetContacts
 from rustypot_hwi import HWI, NAMES, LEG_NAMES
 
-# ── 관절 상수 (source: open_duck_mini_isaaclab/joint_order.py, 2026-07-28) ──
+# ── 관절 상수 (source: joystick_env_cfg.py READY_JOINT_POS_G125_ZNECK, 2026-08-08
+# 데스크탑에서 직접 대조 확인 — joint_order.py 의 7/28 자 READY_JOINT_POS 는
+# ref_g125/Z넥 이전 값이라 다리 쪽이 최대 26° 까지 어긋난다. 쓰지 말 것). ──
 READY_JOINT_POS = {
-    "left_hip_yaw": 0.0004, "left_hip_roll": 0.0213, "left_hip_pitch": 1.1069,
-    "left_knee": -2.0143, "left_ankle": 0.9785,
+    "left_hip_yaw": -0.0031, "left_hip_roll": 0.0207, "left_hip_pitch": 0.8952,
+    "left_knee": -1.5693, "left_ankle": 0.7444,
     "neck_pitch": 0.5236, "head_pitch": 0.5236, "head_yaw": 0.0, "head_roll": 0.0,
-    "right_hip_yaw": -0.0010, "right_hip_roll": -0.0018, "right_hip_pitch": 1.1197,
-    "right_knee": 2.0320, "right_ankle": -0.9832,
+    "right_hip_yaw": -0.0037, "right_hip_roll": -0.0104, "right_hip_pitch": 0.9315,
+    "right_knee": 1.6000, "right_ankle": -0.7388,
 }
 READY_ARR = np.array([READY_JOINT_POS[n] for n in NAMES], dtype=np.float32)
 HEAD_IDX = [NAMES.index(n) for n in ("neck_pitch", "head_pitch", "head_yaw", "head_roll")]
@@ -91,8 +96,9 @@ LEG_IDX = [NAMES.index(n) for n in LEG_NAMES]
 
 ACTION_SCALE = 0.25
 DOF_VEL_SCALE = 0.05
-MAX_MOTOR_VEL = 4.82        # rad/s, params/env.yaml (imitation_v16r)
-GAIT_PERIOD_STEPS = 50
+MAX_MOTOR_VEL = 4.82        # rad/s, joystick_env_cfg.py max_motor_velocity (전 계열 공통)
+GAIT_PERIOD_STEPS = 27      # ref_g125 레퍼런스 주기, 0.54s @ 50Hz (joystick_env.py._gait_period_steps)
+STANDSTILL_HOLD_THRESH = 0.01  # ‖command[:3]‖ 이하면 위상을 0(=cos,sin=1,0)에 고정
 CONTROL_HZ = 50.0
 DT = 1.0 / CONTROL_HZ
 NUM_COMMANDS = 7             # vx, vy, wz, neck_pitch, head_pitch, head_yaw, head_roll (뒤 4개 항상 0)
@@ -336,6 +342,11 @@ def main():
             last_last_act = last_act
             last_act = action.astype(np.float32)
             imitation_i = (imitation_i + 1) % GAIT_PERIOD_STEPS
+            if np.linalg.norm(command[:3]) <= STANDSTILL_HOLD_THRESH:
+                # 정지 명령에서는 위상을 0에 묶는다(joystick_env.py standstill_hold) —
+                # 안 묶으면 정지 중에도 관측의 imitation_phase 가 계속 돌아, 학습 때
+                # 없던 입력이 된다(정지 성능 2.7배 개선 조건, 실기서도 필수).
+                imitation_i = 0
 
             step += 1
             took = time.time() - t0
