@@ -196,6 +196,12 @@ def main():
     ap.add_argument("--vx", type=float, default=0.0, help="전후 속도 명령 [-0.15, 0.15]")
     ap.add_argument("--vy", type=float, default=0.0, help="좌우 속도 명령 [-0.2, 0.2]")
     ap.add_argument("--wz", type=float, default=0.0, help="회전 명령 [-1.0, 1.0]")
+    ap.add_argument("--action-lpf-alpha", type=float, default=0.0,
+                     help="액션 1차 저역필터 계수(0=끔, 학습 시와 동일). docs/reports/"
+                          "lowpass_2026-08-09.md 실험 A 기준: 정지(vx=vy=wz=0)에서는 "
+                          "대가 없이 떨림이 줄지만(0.5~0.8 추천), 전진 명령에서는 "
+                          "추종이 단조롭게 나빠진다 — vx/vy/wz 가 0이 아니면 쓰지 말 것. "
+                          "v36(필터를 학습에 포함시킨 버전) 나오면 이 옵션은 필요 없어진다.")
     ap.add_argument("--seconds", type=float, default=20.0, help="정책 루프 실행 시간(초)")
     ap.add_argument("--dry-run", action="store_true", help="모터/IMU 안 건드리고 로드만 확인")
     args = ap.parse_args()
@@ -275,6 +281,12 @@ def main():
         motor_targets = READY_ARR.copy()
         imitation_i = 0
         command = np.array([args.vx, args.vy, args.wz, 0, 0, 0, 0], dtype=np.float32)
+        action_filt = np.zeros(14, dtype=np.float32)  # EMA 저역필터 상태 (--action-lpf-alpha)
+
+        if args.action_lpf_alpha > 0 and np.linalg.norm(command[:3]) > STANDSTILL_HOLD_THRESH:
+            print(f"[rl_walk] !! 경고: action-lpf-alpha={args.action_lpf_alpha} 인데 "
+                  f"vx/vy/wz 가 0이 아니다 — lowpass_2026-08-09.md 실험 A 기준 전진 "
+                  f"명령에서는 이 필터가 추종을 단조롭게 악화시킨다. 정지 테스트 전용.")
 
         print(f"[rl_walk] 정책 시작 — cmd=({args.vx:+.2f},{args.vy:+.2f},{args.wz:+.2f}) "
               f"· Ctrl+C 로 즉시 정지")
@@ -345,7 +357,14 @@ def main():
             else:
                 action = sess.run(None, {"obs": obs.reshape(1, 107)})[0].reshape(14)
 
-            target = READY_ARR + action * ACTION_SCALE
+            # 액션 저역필터 (docs/reports/lowpass_2026-08-09.md 실험 A). alpha=0이면
+            # action_filt == action 그대로라 no-op. last_act(obs 이력)은 v35가 학습
+            # 때 겪은 그대로 raw action 을 쓴다 — 필터는 target 계산에만 넣는다
+            # (env 자체에 필터가 없는 v35 로는 이게 원 논문 실험 A 와 같은 구조).
+            alpha = args.action_lpf_alpha
+            action_filt = alpha * action_filt + (1.0 - alpha) * action
+
+            target = READY_ARR + action_filt * ACTION_SCALE
             target[HEAD_IDX] = READY_ARR[HEAD_IDX]  # lock_head_joints=true
 
             motor_targets = np.clip(target, motor_targets - max_delta, motor_targets + max_delta)
