@@ -36,6 +36,10 @@ parser.add_argument("--joystick", nargs="?", const="/dev/input/js0", default=Non
                     metavar="DEV",
                     help="Xbox 패드로 실시간 조종한다 (기본 장치 /dev/input/js0). "
                          "--cycle 보다 우선한다")
+parser.add_argument("--smooth", type=float, default=None, metavar="ALPHA",
+                    help="몸통 떨림 억제 — 액션에 1차 저역통과를 건다 (0~0.9). "
+                         "50 Hz 기준 -3 dB: 0.3->11 Hz, 0.5->5.8 Hz, 0.7->2.9 Hz, 0.8->1.8 Hz. "
+                         "보행이 1.85 Hz 라 0.8 은 이미 보행보다 낮다 — 0.5~0.7 이 상한")
 parser.add_argument("--terrain", type=str, default="plane",
                     help="평지 대신 다른 지형에서 재생한다. 목록은 "
                          "open_duck_mini_isaaclab/terrains.py 의 TERRAIN_CHOICES. "
@@ -70,6 +74,21 @@ import isaaclab.sim as sim_utils  # noqa: E402
 
 env_cfg = env_cfg_for(args_cli.task)
 env_cfg.scene.num_envs = args_cli.num_envs
+
+if args_cli.smooth is not None:
+    if not 0.0 <= args_cli.smooth < 1.0:
+        raise SystemExit(f"--smooth 는 0 이상 1 미만이어야 한다: {args_cli.smooth}")
+    env_cfg.action_lowpass_alpha = args_cli.smooth
+    import math as _m
+    # 1차 EMA 의 -3 dB 차단주파수: fc = fs/(2*pi) * acos(1 - (1-a)^2/(2a))
+    _a, _fs = args_cli.smooth, 1.0 / (env_cfg.sim.dt * env_cfg.decimation)
+    if _a > 0.0:
+        _c = 1.0 - (1.0 - _a) ** 2 / (2.0 * _a)
+        _fc = _fs / (2 * _m.pi) * _m.acos(max(-1.0, min(1.0, _c)))
+        print(f"[play] 액션 저역통과 alpha={_a} → 차단 약 {_fc:.1f} Hz "
+              f"(제어 {_fs:.0f} Hz, 보행 1.85 Hz)", flush=True)
+        print("[play] ⚠️ 학습 때는 꺼져 있던 필터다. 위상 지연으로 접지 타이밍이 밀릴 수 있다",
+              flush=True)
 
 if args_cli.terrain != "plane":
     from open_duck_mini_isaaclab.terrains import TERRAIN_CHOICES, apply_terrain  # noqa: E402

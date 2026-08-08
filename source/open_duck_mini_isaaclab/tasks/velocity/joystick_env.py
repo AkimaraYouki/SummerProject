@@ -166,6 +166,8 @@ class JoystickEnv(DirectRLEnv):
         self._motor_targets = torch.zeros(n, nj, device=dev)
 
         self._action_delay_buf = DelayBuffer(n, nj, max(cfg.action_max_delay, 1), dev)
+        # 액션 저역통과(떨림 억제)의 상태. alpha=0 이면 항등이라 비용도 없다.
+        self._act_filt = torch.zeros(n, nj, device=dev)
 
         self._command = torch.zeros(n, 7, device=dev)
         self._imitation_i = torch.zeros(n, dtype=torch.long, device=dev)
@@ -293,6 +295,26 @@ class JoystickEnv(DirectRLEnv):
         self._actions = actions.clone()
         self._action_delay_buf.push(self._actions)
         action_w_delay = self._action_delay_buf.sample(self.cfg.action_min_delay, self.cfg.action_max_delay)
+
+        # 몸통 떨림 억제 — 액션에 1차 저역통과(EMA)를 건다.
+        #   a_f[t] = alpha*a_f[t-1] + (1-alpha)*a[t]
+        # 목표각은 default + action*scale 인 아핀 변환이라, 액션을 거르는 것과
+        # 목표각을 거르는 것이 같다. 액션 쪽에 걸어야 아래의 고관절 클램프와
+        # 속도 제한이 **필터 뒤에** 걸린다 (순서를 바꾸면 필터가 안전 한계를 다시
+        # 넘길 수 있다).
+        #
+        # 이미 있는 속도 제한(max_motor_velocity*dt = 0.0964 rad/step)은 큰 도약만
+        # 막지, 그 안에서 매 스텝 부호가 바뀌는 떨림은 그대로 통과시킨다. 그래서
+        # 따로 필요하다.
+        #
+        # ⚠️ 학습 때 안 쓰던 걸 추론에서만 켜면 train/test 불일치이고, 위상 지연이
+        #    생겨 접지 타이밍이 밀린다. alpha 를 올릴수록 조용해지는 대신 반응이
+        #    굼떠진다 — 재생으로 눈으로 보고 고를 것. 근본 해법은 이 값을 켠 채로
+        #    학습하거나 action_rate 벌점을 키우는 쪽이다.
+        alpha = float(getattr(self.cfg, "action_lowpass_alpha", 0.0))
+        if alpha > 0.0:
+            self._act_filt = alpha * self._act_filt + (1.0 - alpha) * action_w_delay
+            action_w_delay = self._act_filt
 
         if self.cfg.lock_head_joints:
             # Hold the head at its READY pose and let the policy shape only the
@@ -630,6 +652,9 @@ class JoystickEnv(DirectRLEnv):
         self._last_last_act[env_ids] = 0.0
         self._last_last_last_act[env_ids] = 0.0
         self._action_delay_buf.reset_idx(env_ids)
+        # 필터 상태도 같이 지운다. 안 지우면 넘어지기 직전의 값이 새 에피소드
+        # 첫 스텝에 그대로 섞여 들어간다.
+        self._act_filt[env_ids] = 0.0
         self._command[env_ids] = self._sample_command(env_ids)
 
         # Reference State Initialization (RSI, DeepMimic/Peng et al. 2018):

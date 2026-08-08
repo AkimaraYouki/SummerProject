@@ -297,6 +297,16 @@ class JoystickEnvCfg(DirectRLEnvCfg):
 
     action_min_delay = 0  # env steps
     action_max_delay = 3
+
+    # 액션 저역통과(EMA) 계수. 0 = 끔(기존 동작 그대로), 1 에 가까울수록 부드럽다.
+    #   a_f[t] = alpha*a_f[t-1] + (1-alpha)*a[t]
+    # 몸통 떨림을 줄이려고 넣었다. 기존 속도 제한(0.0964 rad/step)은 큰 도약만
+    # 막고 그 안에서 매 스텝 부호가 바뀌는 떨림은 통과시킨다.
+    # 50 Hz 기준 -3 dB 차단주파수: alpha 0.3 -> 11.0 Hz, 0.5 -> 5.8 Hz,
+    #                              0.6 -> 4.2 Hz, 0.7 -> 2.9 Hz, 0.8 -> 1.8 Hz.
+    # 보행 주기가 0.54 s(1.85 Hz)이므로 **0.8 은 이미 보행 주파수보다 낮다** —
+    # 떨림만 걷어내려면 0.5~0.7 이 상한이다.
+    action_lowpass_alpha = 0.0
     imu_min_delay = 0
     imu_max_delay = 3
 
