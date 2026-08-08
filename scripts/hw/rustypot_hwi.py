@@ -124,7 +124,7 @@ class HWI:
         raw = self.io.sync_read_present_velocity(IDS)
         return [BY_NAME[NAMES[k]][2] * raw[k] * VEL_UNIT_RAD_S for k in range(14)]
 
-    def _sync_read_pos_vel_raw(self, ids, retries=2):
+    def _sync_read_pos_vel_raw(self, ids, retries=6):
         """sync_read_raw_data(ids, 128, 8) 을 하되, 응답이 손상된(8바이트가 아닌)
         축이 있으면 몇 번 재시도한다.
 
@@ -134,6 +134,10 @@ class HWI:
         읽기가 가끔 깨지는 것 때문에 전체 루프가 죽으면 안 되니 재시도로
         흡수한다. 재시도로도 안 되면 진짜 문제이니 그대로 예외를 던진다 —
         조용히 stale 값을 쓰는 것보다 멈추는 게 안전하다.
+
+        2026-08-09: FTDI latency_timer 를 16->1ms 로 낮추자 이 손상이 훨씬 잦아졌다
+        (응답 패킷이 USB 전송 여러 개로 쪼개져 도착하는 빈도가 늘어난 것으로 추정).
+        2ms 로 절충하고, 재시도 횟수도 2->6 으로 올려 여유를 더 뒀다.
         """
         for attempt in range(retries + 1):
             raw = self.io.sync_read_raw_data(ids, 128, 8)
