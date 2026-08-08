@@ -62,6 +62,24 @@ HEAD_NAMES = ("neck_pitch", "head_pitch", "head_yaw", "head_roll")
 LEG_NAMES = [n for n in NAMES if n not in HEAD_NAMES]
 LEG_IDS = [BY_NAME[n][1] for n in LEG_NAMES]
 
+# 머리 3축(head_pitch 12 / head_yaw 13 / head_roll 14) 위치 PID 게인.
+#
+# 2026-08-08 에 head_roll 떨림을 잡겠다고 P=800->200, D=4700->0 으로 낮췄었는데
+# **그게 틀렸다.** 그때는 평형 위치에서만 봐서 조용해 보였을 뿐, D=0 은 감쇠를
+# 완전히 없앤 것이라 외란(런 중 몸통 진동)이 들어오면 크게 출렁인다.
+#
+# 2026-08-09 계단응답 실측(+100 tick, 정착 후 잔여 변동):
+#     축          P=200/D=0    P=200/D=2000   P=800/D=4700(공장)
+#     head_pitch    9 tick        1 tick          1 tick
+#     head_yaw     66 tick        0 tick          1 tick
+#     head_roll    95 tick        1 tick          3 tick
+# P=200/D=2000 이 세 축 모두에서 잔여 진동이 가장 작고 오버슈트도 작다
+# (head_roll +4 tick). 공장값도 안정적이지만 강성이 높아 전류를 더 쓴다.
+# neck_pitch(ID2)는 요청 범위 밖이라 공장값 그대로 둔다.
+HEAD_GAIN_IDS = (12, 13, 14)
+HEAD_P = 200
+HEAD_D = 2000
+
 
 def tick_of(name, rad):
     _, _, sign, lo, hi = BY_NAME[name]
@@ -92,12 +110,18 @@ class HWI:
         self.io.sync_write_current_limit(IDS, [self.current_limit] * 14)
         self.io.sync_write_torque_enable(IDS, [1] * 14)
 
-        # head_roll(ID14) 는 공장 기본 P=800/D=4700 에서 목표 근처 limit-cycle
-        # 로 떨었다 (2026-08-08 실측: present_current 가 ±30~40 unit 로 계속
-        # 부호 반전). P=200/D=0 으로 낮추니 멈췄다. P/D 게인은 RAM 레지스터라
-        # 전원 재인가 시 초기화되므로 매 arm() 마다 다시 걸어준다.
-        self.io.write_position_p_gain(14, 200)
-        self.io.write_position_d_gain(14, 0)
+        self._apply_head_gains()
+
+    def _apply_head_gains(self, ids=None):
+        """머리 3축(head_pitch/yaw/roll)의 위치 PID 게인을 HEAD_P/HEAD_D 로 건다.
+
+        P/D 는 RAM 레지스터라 전원 재인가·reboot 시 공장값으로 돌아간다 —
+        arm() 과 reboot 복구에서 매번 다시 걸어야 한다.
+        """
+        for i in (ids if ids is not None else HEAD_GAIN_IDS):
+            if i in HEAD_GAIN_IDS:
+                self.io.write_position_p_gain(i, HEAD_P)
+                self.io.write_position_d_gain(i, HEAD_D)
 
     def disarm(self):
         self.io.sync_write_torque_enable(IDS, [0] * 14)
@@ -236,9 +260,7 @@ class HWI:
             self.io.sync_write_operating_mode(recovered_ids, [MODE_CURRENT_POSITION] * len(recovered_ids))
             self.io.sync_write_current_limit(recovered_ids, [self.current_limit] * len(recovered_ids))
             self.io.sync_write_torque_enable(recovered_ids, [1] * len(recovered_ids))
-            if BY_NAME["head_roll"][1] in recovered_ids:
-                self.io.write_position_p_gain(14, 200)
-                self.io.write_position_d_gain(14, 0)
+            self._apply_head_gains(recovered_ids)
         return recovered_names, remaining_names
 
     def hold_here(self):
