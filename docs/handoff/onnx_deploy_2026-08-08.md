@@ -1,0 +1,217 @@
+# ONNX 익스포트 & 실기 배포 계약 (2026-08-08)
+
+이 문서는 **잿슨에 붙은 에이전트가 검증**하라고 쓴 것이다. 시뮬에서 뽑은 정책이
+실기에서 같은 입력을 받는지가 전부다 — sim2real 이 조용히 깨지는 지점은 거의 항상
+"관측 벡터를 시뮬과 다르게 채웠다" 이다.
+
+작성 시점에 `imitation_v35` 학습이 돌고 있다. 아래 숫자는 **v34c10**(현재 최고 성능,
+iter 2999) 기준이고, v35 도 관측/액션 계약은 완전히 같다.
+
+---
+
+## 1. 익스포트 방법
+
+```bash
+# Isaac Sim 없이 CPU 로만 돈다 — 학습 중에도 병행 가능
+scripts/hw/export_onnx.py --ver v34c10
+# 또는
+scripts/hw/export_onnx.py --checkpoint <run>/model_2999.pt --out /tmp/policy.onnx
+```
+
+산출물 (체크포인트 옆 `exported/`):
+
+| 파일 | 내용 |
+|---|---|
+| `policy.onnx` | 866.6 KB, opset 17, 입력 `obs` [batch,107] → 출력 `actions` [batch,14] |
+| `policy.obs.json` | 관측 구간표 (아래 3절과 같은 내용, 기계가 읽는 형태) |
+
+**왜 별도 스크립트인가.** IsaacLab 의 `play.py` 는 실행할 때마다 자동으로
+`exported/policy.onnx` 를 만든다. 그런데 이 레포는 재생을 `odm play`
+(= `scripts/play_fixed_cmd.py`) 로 하고 그건 익스포트를 안 한다. 그래서 7월 런
+(v3~v16)에는 onnx 가 있고 **v28 이후로는 하나도 없었다**. 게다가 `play.py` 를 쓰려면
+Isaac Sim 이 떠야 해서 학습 중에는 못 돌린다(GPU 에 두 개 동시 금지).
+
+### 정규화가 그래프 안에 들어 있다
+
+체크포인트에는 `obs_normalizer`(러너 설정 `empirical_normalization = True`)의
+mean/std 가 들어 있다. 이걸 빼먹고 원시 관측을 MLP 에 바로 넣으면 정책이 전혀 다른
+입력을 받는다. 익스포터는 `(obs - mean) / std` 를 **ONNX 그래프 안에** 넣었다.
+
+> **잿슨 쪽은 정규화를 하지 마라.** 원시 관측을 그대로 넣는다.
+
+검증 결과 (torch vs onnxruntime, 정규화기 자신의 분포에서 뽑은 입력 64개):
+최대 절대차 **4.768e-07**, 상대 **2.537e-07** → OK.
+float64 기준으로 재면 torch 5.57e-07 / onnx 5.85e-07 로 **동등하게 정확**하다.
+
+---
+
+## 2. 네트워크
+
+```
+obs(107) → [정규화] → Linear 512 → ELU → Linear 256 → ELU → Linear 128 → ELU → Linear 14
+```
+
+출력은 **결정적(평균) 액션**이다. 체크포인트의 `distribution.std_param` 은 학습 중
+탐색용이라 배포에는 안 쓴다.
+
+---
+
+## 3. 관측 벡터 107차원 — 채우는 순서
+
+인덱스 하나만 밀려도 정책은 터지지 않고 **조용히 이상하게 걷는다.** 순서는
+`joystick_env.py` 의 `state` 조립과 정확히 같아야 한다.
+
+| 구간 | 이름 | 크기 | 내용 / 단위 |
+|---|---|---|---|
+| `[0:3]` | gyro | 3 | IMU 각속도, **trunk 프레임** (rad/s) |
+| `[3:6]` | accel | 3 | IMU 가속도 = **비력**(중력 포함), trunk 프레임 (m/s²) |
+| `[6:13]` | command | 7 | `lin_x, lin_y, ang_yaw, neck_pitch, head_pitch, head_yaw, head_roll` |
+| `[13:27]` | joint_pos_rel | 14 | `측정 관절각 − default_joint_pos` (rad) |
+| `[27:41]` | joint_vel_scaled | 14 | `관절속도 × 0.05` |
+| `[41:55]` | last_act | 14 | 직전 스텝의 정책 출력(액션 원값) |
+| `[55:69]` | last_last_act | 14 | 2 스텝 전 |
+| `[69:83]` | last_last_last_act | 14 | 3 스텝 전 |
+| `[83:97]` | motor_targets | 14 | 직전에 **실제로 보낸** 목표각 (rad, 속도제한 적용 후) |
+| `[97:99]` | foot_contact | 2 | 좌/우 발 접지 0/1 |
+| `[99:101]` | imitation_phase | 2 | `cos(phase), sin(phase)` |
+| `[101:104]` | path_error | 3 | `[횡방향오차, cos(방향오차), sin(방향오차)]` — **4절 참고** |
+| `[104:107]` | projected_gravity | 3 | 직립이면 `(0,0,-1)` |
+
+관절 순서는 `source/open_duck_mini_isaaclab/joint_order.py` 의
+`ACTUATOR_JOINT_NAMES` 14개 그대로다. 프레임은 **+x 앞 / +y 왼쪽 / +z 위**.
+
+IMU 축 변환과 `projected_gravity` 계산은 `source/open_duck_mini_isaaclab/imu_map.py`
+에 있다 (BNO055, i2c-7 @ 0x28, 축 맵 = 항등, 세 가지 방법으로 교차 확인함).
+`to_trunk()` 와 `projected_gravity()` 를 그대로 쓸 것.
+
+### default_joint_pos (v34c10 / v35 = `READY_JOINT_POS_G125_ZNECK`)
+
+`joint_pos_rel` 과 액션 변환에 **둘 다** 쓰이므로 이 값이 틀리면 전부 틀어진다.
+
+| 관절 | rad | deg | | 관절 | rad | deg |
+|---|---|---|---|---|---|---|
+| left_hip_yaw | −0.0031 | −0.18° | | right_hip_yaw | −0.0037 | −0.21° |
+| left_hip_roll | +0.0207 | +1.19° | | right_hip_roll | −0.0104 | −0.60° |
+| left_hip_pitch | +0.8952 | +51.29° | | right_hip_pitch | +0.9315 | +53.37° |
+| left_knee | −1.5693 | −89.91° | | right_knee | +1.6000 | +91.67° |
+| left_ankle | +0.7444 | +42.65° | | right_ankle | −0.7388 | −42.33° |
+| **neck_pitch** | **+0.5236** | **+30.00°** | | head_yaw | 0.0 | 0° |
+| **head_pitch** | **+0.5236** | **+30.00°** | | head_roll | 0.0 | 0° |
+
+### ⚠️ 목 각도: "명령 0" 과 "관절 30°" 는 다른 얘기다
+
+헷갈리기 쉬운 지점이라 따로 적는다.
+
+- **command 의 머리 4칸** (`obs[9:13]` = neck_pitch, head_pitch, head_yaw, head_roll
+  *명령*) 은 **0 을 넣는다.** 학습 내내 0 이었다 — 정규화기의 std 를 보면 이 4개
+  차원만 정확히 0 이다(상수였다는 뜻). 다른 값을 넣으면 정책이 본 적 없는 입력이 된다.
+- **실제 목/머리 관절은 30° 로 잡고 있어야 한다.** Z 자 목 자세(neck +30°, head +30°)
+  가 `default_joint_pos` 에 들어 있고, 두 축이 서로 반대로 돌아 **얼굴은 수평**을
+  유지한다(FK 로 코 기울기 0.0° 확인).
+- 이 설정 계열은 `lock_head_joints = True` 라서 **정책의 머리 액션 4칸은 쓰기 전에
+  0 으로 강제**된다. 즉 머리 목표각은 항상 default(30°/30°/0/0) 고정이고, 정책은
+  다리 10 관절만 움직인다. 실기도 그렇게 하면 된다.
+- 따라서 `joint_pos_rel` 의 목 항목은 목이 30° 에 잘 붙어 있으면 ≈0 이 된다.
+  여기서 큰 값이 나오면 목이 처졌다는 뜻이고, 정책 입력이 오염된다.
+
+### imitation_phase
+
+보행 주기 = **27 스텝 = 0.54 s** (레퍼런스 `ref_g125`, 50 Hz). 매 스텝
+`i = (i+1) % 27`, `phase = 2π·i/27`, `[cos, sin]`.
+
+**정지 명령일 때는 `i` 를 0 으로 묶는다** (`standstill_hold = True`, v34c 이후).
+즉 `‖command[0:3]‖ ≤ 0.01` 이면 `(cos,sin) = (1,0)` 고정. 이게 정지 성능을 2.7배
+개선한 변경이라 실기에서도 반드시 같이 해야 한다.
+
+---
+
+## 4. ⚠️ path_error — 실기에 대응물이 없다
+
+`obs[101:104]` 는 "명령 속도를 적분해 만든 가상 경로" 대비 로봇의 횡방향 오차와
+방향 오차다. 시뮬은 `root_pos_w`(전역 위치)로 계산하는데 **실기에는 오도메트리가
+없다.**
+
+- 당장은 **0,1,0 을 넣는 것**이 유일한 실용적 선택이다
+  (`lateral=0, cos(yaw_err)=1, sin(yaw_err)=0` = "경로 위에 정확히 있음").
+- 위험: 정책은 학습 중 이 값이 흔들리는 걸 봤는데 실기에선 항상 0 이다. 명목값이라
+  파국은 아닐 가능성이 높지만 **검증이 필요한 1순위 항목**이다.
+- 근본 해결은 둘 중 하나: (a) 배포용 cfg 에서 `use_path_frame = False` 로 두고 재학습
+  (관측 104 차원이 된다), (b) 잿슨에서 IMU+관절로 오도메트리를 추정.
+
+---
+
+## 5. 액션 → 모터 목표각
+
+```
+raw        = onnx(obs)                       # [14]
+raw[head]  = 0                               # lock_head_joints=True (neck_pitch, head_pitch, head_yaw, head_roll)
+target     = default_joint_pos + raw * 0.25  # action_scale = 0.25
+target     = clamp(target, prev_target - 0.0964, prev_target + 0.0964)   # 속도 제한
+```
+
+- `action_scale = 0.25`
+- 속도 제한: `max_motor_velocity = 4.82 rad/s × ctrl_dt 0.02 s = 0.0964 rad/step`
+- `prev_target` 은 **직전에 보낸 목표각**이고, 이게 그대로 `obs[83:97] motor_targets` 이다.
+- 시뮬의 `action_min_delay=0 / action_max_delay=3` 은 **도메인 랜덤화**다. 실기에서는
+  흉내내지 말고 현재 액션을 그대로 쓴다.
+- 이 계열엔 안전 필터(`_safety`)가 없다 (그건 `*Safe` 변형 전용).
+
+---
+
+## 6. 제어 주기 — 현재 최대 걸림돌
+
+정책은 **50 Hz (ctrl_dt = 0.02 s)** 로 학습됐다. `decimation 10 × sim_dt 0.002`.
+
+실측한 실기 통신은 **10.8 Hz** 다 (SyncWrite 13.4 ms / SyncRead 64 ms, 14축).
+**5배 느리다.** 이대로면 정책이 본 적 없는 상황이다. 알려진 개선 경로:
+
+1. U2D2 의 `latency_timer` 를 1 로 (+ udev 규칙 영구화)
+2. Dynamixel 통신속도 57600 → 1 Mbps
+
+이거 둘을 하기 전에는 보행 배포를 시도하지 말 것. 정지(서 있기)만이라도 먼저.
+
+---
+
+## 7. 잿슨 에이전트 검증 체크리스트
+
+- [ ] `onnxruntime` 로 `policy.onnx` 를 열고 입력 `[1,107]` / 출력 `[1,14]` 확인
+- [ ] `policy.obs.json` 의 구간표와 잿슨 코드의 관측 조립 순서를 **한 칸씩** 대조
+- [ ] 관절 순서가 `ACTUATOR_JOINT_NAMES` 와 같은지 (부호·좌우 포함).
+      실기 부호의 정본은 **잿슨에 저장된 값**이다 (`hardware_map.py` 도 그걸 옮긴 것)
+- [ ] IMU: `imu_map.to_trunk()` 통과 후 gyro/accel 이 trunk 프레임인지,
+      로봇을 세웠을 때 `projected_gravity ≈ (0,0,-1)` 인지
+- [ ] 목/머리를 30°/30°/0/0 으로 잡고 `joint_pos_rel` 의 목 항목이 ≈0 인지
+- [ ] command 의 머리 4칸이 0 인지
+- [ ] 정지 명령에서 `imitation_phase == (1,0)` 으로 고정되는지
+- [ ] `path_error` 를 `(0,1,0)` 으로 넣고 있는지, 그리고 그 상태에서 정책 출력이
+      발산하지 않는지 (**로봇을 매달아 놓고** 확인할 것)
+- [ ] 액션 → 목표각 변환에서 `default_joint_pos` 와 `action_scale 0.25`,
+      스텝당 0.0964 rad 제한이 들어갔는지
+- [ ] 루프 주기 실측 — 50 Hz 에 얼마나 못 미치는지 숫자로
+
+### 안전
+
+- 로봇은 **매달아 놓고** 시작한다.
+- 자가충돌이 액추에이터를 부순다 — 다리↔몸통 5 mm 기준. 첫 통전 때 다리가 몸통으로
+  파고들면 즉시 끊을 것.
+- 무릎 토크가 이미 높다. 무릎을 더 굽히는 방향의 임시방편은 쓰지 말 것.
+
+---
+
+## 8. 참고 — 이 정책이 어떤 것인가
+
+`v34c10` = 정지 위상 고정 + 레퍼런스 높이 +10 mm (`ref_g125`), iter 2999.
+
+| | 정지 (m/s) | 추종 | 리워드 | 에피 |
+|---|---|---|---|---|
+| v28 | 0.0146 | 0.0171 | — | — |
+| v32 | 0.0041 | 0.0190 | 372.1 | 674.0 |
+| v33n | 0.0192 | 0.0271 | 399.5 | 729.1 |
+| **v34c10** | **0.0058** | **0.0166** | **426.2** | **778.7** |
+
+남은 약점: 정지 시 몸통이 **+8.19° 앞으로 기운다**(이걸 고치려고 v35 를 학습 중),
+좌측 사이드스텝 추종 0.0394 (v28 의 0.0181 보다 나쁨), 접촉 채터링 23.9%
+(레퍼런스는 2~3%).
+
+로봇은 이제 **2.7430 kg** 이다 (body tail 실측 113 g 을 밀도로 반영, 2026-08-08).
+v34c10 은 2.7140 kg 로 학습된 정책이므로 실기와 1.07% 차이가 있다. v35 부터 일치한다.

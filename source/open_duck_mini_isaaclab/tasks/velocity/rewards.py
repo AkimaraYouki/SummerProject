@@ -49,11 +49,40 @@ def cost_stand_still(
     qvel: torch.Tensor,
     default_pose: torch.Tensor,
 ) -> torch.Tensor:
-    """ignore_head=False path only (the one joystick.py actually calls)."""
+    """ignore_head=False path only (the one joystick.py actually calls).
+
+    `default_pose` 는 호출부가 정한다. 보통은 env 의 default_joint_pos 지만,
+    cfg.standstill_joint_pos 가 있으면 그쪽이 들어온다 — 액션의 원점(보행 평균
+    자세)과 정지 목표 자세는 목적이 달라서 분리했다 (joystick_env_cfg.py 주석).
+    """
     cmd_norm = torch.linalg.norm(commands[:, :3], dim=-1)
     pose_cost = torch.sum(torch.abs(qpos - default_pose), dim=-1)
     vel_cost = torch.sum(torch.abs(qvel), dim=-1)
     return (pose_cost + vel_cost) * (cmd_norm < 0.01).float()
+
+
+def cost_upright_standstill(
+    commands: torch.Tensor,
+    projected_gravity_b: torch.Tensor,
+) -> torch.Tensor:
+    """정지 명령일 때 **몸통이 수직에서 벗어난 만큼** 벌한다.
+
+    왜 관절각이 아니라 중력벡터인가. v34u 는 "정지 목표 관절각" 을 몸통이 수직이
+    되도록 FK 로 풀어서 넣었는데, 실측 몸통 피치가 오히려 +8.19 -> +20.93 도로
+    나빠졌다. 관절각은 몸통 기울기의 **간접** 손잡이다 — 발바닥이 지면에 눕도록
+    물리가 몸통을 돌려버리면 목표 관절각을 맞춰도 몸통은 안 선다. 게다가
+    `cost_stand_still` 계수(-0.2)는 imitation 의 1/30 이라 자세를 강제할 힘도 없다.
+
+    `projected_gravity_b` 는 직립일 때 정확히 (0,0,-1) 이므로 x,y 성분이 그대로
+    기울기다 (g_x = sin(pitch), g_y = -sin(roll)cos(pitch)). 이걸 직접 벌하면
+    어느 관절로 세우든 정책이 알아서 고른다.
+
+    제곱을 쓰는 이유: 수직 근처에서 기울기가 0 으로 죽어 마지막 1 도를 두고
+    다른 항과 싸우지 않는다. 8.19 도에서 0.0203, 20.93 도에서 0.1276 이다.
+    """
+    cmd_norm = torch.linalg.norm(commands[:, :3], dim=-1)
+    tilt = projected_gravity_b[:, 0] ** 2 + projected_gravity_b[:, 1] ** 2
+    return tilt * (cmd_norm < 0.01).float()
 
 
 def reward_imitation(

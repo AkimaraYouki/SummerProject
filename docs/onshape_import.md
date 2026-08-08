@@ -84,6 +84,45 @@ set -a; . ~/.onshape_env; set +a
    ISAACLAB_PATH=~/IsaacLab ./scripts/convert_urdf.sh --headless
    ```
 
+## 부품 질량을 실측값으로 맞추기 (밀도로)
+
+방침은 **오버라이드가 아니라 밀도**다 — CAD 부피는 그대로 두고
+`밀도 = 실측 질량 / CAD 부피` 를 재질에 넣는다. 부피와 질량이 항상 일관되므로
+관성 텐서도 같이 맞고, 오버라이드처럼 "밀도로 구한 질량"과 "적어 넣은 질량"이
+따로 노는 일이 없다.
+
+이 로봇은 **부품마다 개별 커스텀 재질**이 붙어 있다(이름이 `1234234` 처럼
+임의라 겉보기엔 헷갈리지만, 서로 공유하지 않으므로 한 부품만 안전하게 고칠 수
+있다). 밀도 property 는 `57f3fb8efa3416c06701d615` (`DENS`, 단위 kg/m^3).
+
+API 로 읽고 쓰는 법 (키는 `~/.onshape_env`):
+
+```
+GET  /api/v10/parts/d/{did}/w/{wid}/e/{eid}/partid/{pid}/massproperties   # 부피·질량
+GET  /api/v10/metadata/d/{did}/w/{wid}/e/{eid}/p/{pid}?inferMetadataOwner=true
+POST /api/v10/metadata/d/{did}/w/{wid}/e/{eid}/p/{pid}
+     {"jsonType":"metadata-part","properties":[{"propertyId":"57f3fb8efa3416c06701d615","value":<재질객체>}]}
+```
+
+고치기 전 metadata 를 통째로 백업해 둘 것. 고친 뒤에는 massproperties 를 다시
+읽어 의도한 질량이 나오는지 확인하고, **재임포트해야** URDF/USD 에 반영된다.
+
+실제 사례 (2026-08-08): body tail 실측 113 g. CAD 부피 62.068 cm^3 이므로
+밀도 1352.7 -> **1820.6 kg/m^3**. 결과: 부품 83.96 -> 113.00 g,
+trunk_assembly 1.13596 -> 1.16500 kg, 로봇 총질량 2.7140 -> **2.7430 kg**,
+전체 CoM 이 **뒤로 1.06 mm**. (1.82 g/cm^3 는 solid PLA 1.24 보다 무겁다 —
+CAD 부피에 없는 체결류·전장을 밀도로 뭉뚱그린 결과이고, 이는 의도된 방침이다.)
+
+## ⚠️ 임포트는 로컬 수정을 덮어쓴다
+
+`odm import` 는 URDF 를 통째로 새로 쓴다. CAD 에 없고 여기서만 고쳐 둔 값은
+매번 조용히 사라진다 — 2026-08-08 에 head_pitch 한계 ±50도가 CAD 의 ±45도로
+되돌아갔고, **시뮬은 URDF 가 아니라 USD 에서 관절 한계를 읽으므로** USD 를
+재변환하기 전에는 티도 나지 않는다.
+
+그래서 `scripts/setup/apply_local_urdf_overrides.py` 에 표로 모아 두고
+임포트 파이프라인에 묶었다(멱등). 새로 손댈 값이 생기면 그 표에 추가할 것.
+
 ## ⚠️ 임포트 결과가 실행마다 다르다 — 근본 원인 (2026-07-25, 여러 차례 재현 후 확정)
 
 같은 `config.json`으로 여러 번 재임포트해본 결과, **매번 파츠 구성이 달라졌다**:

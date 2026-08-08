@@ -41,14 +41,19 @@
 
 ## 레퍼런스 보행을 새로 만들 때
 
-    scripts/setup/gen_reference_remote.sh --height 0.175 --out ref_h175
+    odm refgen --height 0.175 --out ref_h175
 
 로봇 키 손잡이는 medium 프리셋의 `walk_com_height` 다 (0.16 -> 서는 높이 121 mm).
 `fast.json` 의 0.21 은 `auto_waddle` 이 `preset_speeds = ["medium"]` 로 고정돼
 있어 **쓰이지 않는다** — 그걸 고쳐봐야 아무 일도 안 일어난다.
 
-이 PC 에는 placo 를 못 깐다(의존성이 소스 빌드로 빠져 실패). 랩PC 에 검증된
-환경이 있어 원격으로 돌린다. 순수 CPU 라 GPU 학습과 병행된다.
+**이 PC 에서 돈다 (2026-08-08 부터).** 전에 "placo 를 못 깐다" 고 적어둔 건 원인
+진단이 틀렸다 — 설치하려던 `~/.odm-tools` 의 numpy 가 2.x 라서 cmeel 스택이
+wheel 을 못 고르고 소스 빌드로 떨어진 것이었다. numpy==1.26.4 를 먼저 박은 전용
+venv(`~/.placo-env`)에 깔면 42개가 전부 wheel 로 들어온다. 랩PC 와 같은 프리셋·
+같은 URDF 로 생성해 비교했더니 **500x55 프레임이 비트 단위로 일치**했다.
+순수 CPU(32코어, `-j16`) 라 GPU 학습과 병행된다.
+랩PC 원격판은 `scripts/setup/gen_reference_remote.sh` 로 남겨 뒀다.
 
 **레퍼런스만 바꿔서는 키가 안 바뀐다.** 이어서:
   1. `scripts/diag/calc_home.py --pkl <새pkl>` -> READY_JOINT_POS
@@ -118,9 +123,11 @@ RL 환경과 정책 설정. **고칠 게 있으면 십중팔구 여기다.**
 
 **scripts/setup/ — 자산 준비.** 로봇을 처음 들여올 때 한 번.
 
-    gen_reference_remote.sh                레퍼런스 보행 생성 (랩PC 원격)
+    gen_reference_local.sh                 레퍼런스 보행 생성 (이 PC, odm refgen)
+    gen_reference_remote.sh                레퍼런스 보행 생성 (랩PC 원격, 예비)
     convert_urdf.sh / convert_urdf_cd.py   URDF -> USD (cd 는 convex decomposition)
     patch_urdf_for_placo.py                Placo 가 요구하는 프레임 별칭 확인
+    apply_local_urdf_overrides.py          임포트가 덮어쓰는 로컬 수정 재적용
     generate_reference_motion.sh           레퍼런스 보행 생성 (placo 필요)
 
 **scripts/legacy/ — 더 나은 것으로 대체됐다.** 지우지 않고 남겼을 뿐,

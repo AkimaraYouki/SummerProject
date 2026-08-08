@@ -67,6 +67,7 @@ from .rewards import (
     cost_action_rate,
     cost_stand_still,
     cost_torques,
+    cost_upright_standstill,
     reward_alive,
     reward_imitation,
     reward_path_tracking,
@@ -168,6 +169,15 @@ class JoystickEnv(DirectRLEnv):
 
         self._command = torch.zeros(n, 7, device=dev)
         self._imitation_i = torch.zeros(n, dtype=torch.long, device=dev)
+        # 정지 목표 자세 (cfg.standstill_joint_pos). ACTUATOR_JOINT_NAMES 순서로
+        # 펼쳐 [1,14] 로 두면 브로드캐스트로 전 환경에 적용된다.
+        _ss = getattr(self.cfg, "standstill_joint_pos", None)
+        if _ss is None:
+            self._standstill_pose = None
+        else:
+            self._standstill_pose = torch.tensor(
+                [[float(_ss[nm]) for nm in ACTUATOR_JOINT_NAMES]], dtype=torch.float32, device=dev
+            )
 
         # Path frame (Disney BD-X, 2026-07-29). The paper keeps "a path frame
         # that integrates these velocity commands over time" and expresses the
@@ -509,7 +519,19 @@ class JoystickEnv(DirectRLEnv):
             "torques": cost_torques(self._robot.data.applied_torque[:, self._joint_ids]) * cfg.torques_scale,
             "action_rate": cost_action_rate(self._actions, self._last_act) * cfg.action_rate_scale,
             "alive": reward_alive(self.num_envs, self.device) * cfg.alive_scale,
-            "stand_still": cost_stand_still(self._command, joint_pos, joint_vel, default_joint_pos) * cfg.stand_still_scale,
+            # 정지 목표 자세는 액션 원점(default_joint_pos)과 분리한다.
+            # default 는 보행 평균이라 placo 의 walk_trunk_pitch=-4 도가 배어
+            # 있고, 그대로 세우면 몸통이 4.03 도 앞으로 기운다 (FK 실측).
+            "stand_still": cost_stand_still(
+                self._command, joint_pos, joint_vel,
+                self._standstill_pose if self._standstill_pose is not None else default_joint_pos,
+            ) * cfg.stand_still_scale,
+            # 정지했을 때 몸통을 수직으로. 관절각 우회(v34u)가 실패한 뒤 넣은
+            # 직접 항이다 — rewards.cost_upright_standstill 주석 참고.
+            # 기본 계수는 0 이라 기존 태스크의 리워드는 한 항도 안 바뀐다.
+            "upright_standstill": cost_upright_standstill(
+                self._command, self._robot.data.projected_gravity_b,
+            ) * cfg.upright_standstill_scale,
         }
         # Stage 1 (use_imitation=False): omitted entirely, not just
         # zero-weighted — reward_imitation would divide-by-nothing-useful

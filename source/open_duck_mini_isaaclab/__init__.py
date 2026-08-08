@@ -149,6 +149,28 @@ try:
         },
     )
 
+    # v34c10 + 정지 목표 자세를 몸통 수직으로.
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-V34U-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V34U",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
+    # v34c10 + 정지 시 몸통 수직을 중력벡터로 직접 요구. 로봇은 새 CAD(2.7430 kg).
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-V35-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V35",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-V34C20-v0",
         entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",

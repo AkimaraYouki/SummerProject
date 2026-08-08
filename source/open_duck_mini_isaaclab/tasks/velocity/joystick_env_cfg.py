@@ -354,10 +354,25 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     action_rate_scale = -0.5
     stand_still_scale = -0.2
 
+    # 정지했을 때 몸통 기울기(projected_gravity 의 x,y)를 직접 벌하는 계수.
+    # 기본 0 = 꺼짐 — v34 이하의 리워드를 한 항도 안 바꾸고 그대로 재현한다.
+    upright_standstill_scale = 0.0
+
     # 정지 명령(cmd_norm <= 0.01)에서 보행 위상을 0 에 묶는다.
     # 기본은 꺼짐 — v33n 이하를 그대로 재현할 수 있어야 한다.
     # 자세한 근거는 joystick_env.py 의 해당 지점 주석.
     standstill_hold = False
+
+    # 정지했을 때 `cost_stand_still` 이 목표로 삼을 자세 (14 관절, rad).
+    # None 이면 default_joint_pos(=보행 평균 자세)를 그대로 쓴다 — v34c10 까지의 동작.
+    #
+    # 왜 따로 두는가. default_joint_pos 는 **액션의 원점**이다
+    # (target = default + action * action_scale). 그래서 보행 궤적의 평균에
+    # 맞춰져 있어야 액션이 도달 가능한 범위에 들어온다 — v1~v9 를 아홉 번
+    # 실패시킨 지점이다. 그런데 그 평균 자세는 placo 의 walk_trunk_pitch=-4 도가
+    # 배어 있어서 **몸통이 4 도 앞으로 기운 자세**다. 정지 목표로는 부적절하다.
+    # 둘은 목적이 다르므로 분리한다.
+    standstill_joint_pos = None
     # alive_scale (2026-07-26): Playground's/Disney's original value is 20.0.
     # A whole night's worth of experiments (see docs/training_log.md) showed
     # this only works when `imitation` is active to counterbalance it —
@@ -1130,6 +1145,38 @@ class JoystickEnvCfg_V34C10(JoystickEnvCfg_V34C):
 
 
 @configclass
+class JoystickEnvCfg_V35(JoystickEnvCfg_V34C10):
+    """imitation_v35 — v34c10 + **정지 시 몸통 수직**을 중력벡터로 직접 요구.
+
+    목표는 사용자가 한 문장으로 준 것 그대로다: "정지시 몸통 수직".
+
+    왜 v34u 방식이 아닌가. v34u 는 같은 목표를 **정지 목표 관절각**으로 우회해서
+    풀었는데(FK 로 몸통이 수직이 되는 관절각을 계산해 cost_stand_still 의 목표로
+    넣음), 실측 몸통 피치가 +8.19 -> **+20.93 도로 2.5배 나빠졌다**. 관절각은
+    간접 손잡이라서다 — 발바닥이 지면에 눕도록 물리가 몸통을 돌려버리면 목표
+    관절각을 맞춰도 몸통은 안 선다. 그래서 이번엔 `projected_gravity` 의 x,y 를
+    직접 벌한다 (rewards.cost_upright_standstill).
+
+    계수 -20 의 근거: tilt = sin^2(theta) 이므로 8.19 도에서 0.41, 20.93 도에서
+    2.55 의 벌점이 된다. tracking(2.5/6.0) 과 같은 자릿수이고 alive(20) 보다는
+    작다 — 자세를 잡되 서 있는 것 자체를 포기하게 만들지는 않는 크기.
+    무릎은 건드리지 않는다 (사용자: 지금도 무릎 토크가 높다).
+
+    ⚠️ 로봇도 새 CAD 다. body tail 실측 113 g 을 밀도로 반영해 총질량
+    2.7140 -> 2.7430 kg (+1.07%), 전체 CoM 이 뒤로 1.06 mm. USD 를 백업본과
+    대조해 그 외에는 아무것도 안 바뀌었음을 확인했다(head_pitch 한계는 구 USD 도
+    이미 ±50도). 질량은 도메인 랜덤화 범위 안이지만 v34c10 과의 비교에는
+    섞여 있으니, 판정이 애매하면 계수만 0 으로 둔 순수 새-CAD 기준선을 따로 잰다.
+
+    비교 기준 (v34c10 @2999): 정지 0.0058 · 추종 0.0166 · 리워드 426.2 · 에피 778.7
+                    (@1500): 정지 0.0041 · 추종 0.0165
+    몸통 피치 @1500:  v34c10 +8.19 도 · v34u +20.93 도  <- **이걸 0 에 가깝게**
+    """
+
+    upright_standstill_scale = -20.0
+
+
+@configclass
 class JoystickEnvCfg_V34C20(JoystickEnvCfg_V34C):
     """imitation_v34c20 — v34c(정지 위상 고정) + 레퍼런스 높이 +20 mm (ref_g135)."""
 
@@ -1153,3 +1200,60 @@ class JoystickEnvCfg_V34C2(JoystickEnvCfg_V34C):
     """
 
     stand_still_scale = -1.0
+
+
+# ── 정지 전용 자세: 몸통 수직 ──────────────────────────────────────────────
+# 보행 평균 자세(READY_JOINT_POS_G125)를 몸통 수직으로 놓고 FK 로 재면 **발이
+# 4.03 도 기울어 있다.** placo 프리셋의 walk_trunk_pitch=-4 도가 관절각에 배어
+# 있기 때문이다. 시뮬에서는 발바닥이 지면에 눕도록 물리가 몸통을 그만큼 돌리므로,
+# 서 있을 때 몸통이 4 도 앞으로 기운다.
+#
+# "발 피치" 는 관절이 아니라 발 링크의 기울기다 — hip_pitch + knee + ankle 의
+# 합으로 정해진다. 그 합이 0 이면 발바닥이 지면과 평행하고 몸통이 수직으로 선다.
+#
+# 그래서 **무릎은 그대로 두고 hip_pitch 에서 ankle 로 6.3 도만 옮긴다.**
+# hip_pitch = ankle = knee/2 인 완전 대칭 자세가 된다:
+#
+#                     무릎    hip    ankle   발피치   높이     무릎토크
+#   현재 READY_G125   89.9   51.3    42.6   +4.03   145.4    0.871 N·m
+#   이 자세           89.9   45.0    45.0    0.00   146.1    0.840 N·m
+#
+# 무릎 각도는 그대로인데 토크가 3.5 % **줄어든다**. 높이도 0.7 mm 올라간다.
+# CoM 은 발 지지면 안에서 앞여유 56.7 / 뒤여유 47.2 mm 로 거의 정중앙이다
+# (현재는 45.4 / 58.5 로 앞으로 치우쳐 있다). 좌우도 완전 대칭이라 레퍼런스의
+# 좌우 비대칭(0.03 rad)도 함께 사라진다.
+#
+# ⚠️ 처음엔 "CoM 을 지지면 정중앙에" 라는 조건까지 넣어 풀었다가 무릎이
+# 89.9 -> 101.7 도로 늘고 토크가 0.925 N·m 로 올랐다. 목표 높이를 133.8 mm
+# (ref_g115 값) 로 잘못 넣은 탓이었다 — ref_g125 의 실제 높이는 145.4 다.
+# 무릎은 이 로봇에서 토크가 가장 큰 관절이라(평균 1.6 N·m, 스톨의 39 %)
+# 더 굽히는 방향은 피해야 한다.
+STANDSTILL_JOINT_POS_UP = {
+    "left_hip_yaw": 0.0, "left_hip_roll": 0.0,
+    "left_hip_pitch": 0.7846, "left_knee": -1.5693, "left_ankle": 0.7846,
+    "neck_pitch": 0.5236, "head_pitch": 0.5236, "head_yaw": 0.0, "head_roll": 0.0,
+    "right_hip_yaw": 0.0, "right_hip_roll": 0.0,
+    "right_hip_pitch": 0.7846, "right_knee": 1.5693, "right_ankle": -0.7846,
+}
+
+
+@configclass
+class JoystickEnvCfg_V34U(JoystickEnvCfg_V34C10):
+    """imitation_v34u — v34c10 + **정지 목표 자세를 몸통 수직으로**.
+
+    v34c10 은 정지 속력 0.0058 m/s 로 잘 서지만, 서 있는 **자세**가 몸통이 4 도
+    앞으로 기운 채다. `cost_stand_still` 이 default_joint_pos(보행 평균)를 목표로
+    삼는데 그 자세에 placo 의 walk_trunk_pitch=-4 도가 배어 있기 때문이다.
+
+    무릎은 건드리지 않는다 — hip_pitch 에서 ankle 로 6.3 도를 옮길 뿐이고,
+    그 결과 무릎 토크는 0.871 -> 0.840 N·m 로 오히려 준다.
+
+    액션 원점(default_joint_pos)은 그대로 둔다 — 그건 보행 궤적 평균에 맞춰져
+    있어야 액션이 도달 가능하고, 건드리면 v1~v9 를 아홉 번 실패시킨 상황이 된다.
+    바뀌는 것은 **정지했을 때 무엇을 목표로 삼는가** 하나뿐이다.
+
+    비교 기준 (v34c10): 정지 0.0058 · 추종 0.0166 · 리워드 426.2 · 에피 778.7.
+    **판정은 정지 속력이 유지되면서 몸통이 실제로 수직으로 서는가로 한다.**
+    """
+
+    standstill_joint_pos = STANDSTILL_JOINT_POS_UP
