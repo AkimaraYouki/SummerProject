@@ -65,6 +65,7 @@ gait_period_steps=27(ref_g125, 0.54s@50Hz), standstill_hold=true.
 """
 
 import argparse
+import csv
 import json
 import math
 import os
@@ -105,6 +106,10 @@ NUM_COMMANDS = 7             # vx, vy, wz, neck_pitch, head_pitch, head_yaw, hea
 
 # path_error 고정값 (2026-08-08 결정, docstring 참고): [lateral=0, cos(yaw_err)=1, sin(yaw_err)=0]
 PATH_ERROR_FIXED = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+
+# 2026-08-09: 오른다리(특히 hip_roll/yaw)가 실기에서 왼다리와 다르게 움직이는
+# 문제를 사후분석하려고 매 스텝을 CSV로 남긴다. 매번 덮어쓴다 — 직전 실행만 본다.
+LOG_PATH = os.path.expanduser("~/rl_walk_log.csv")
 
 # ── IMU (BNO055, imu_check.py 와 같은 레지스터) ─────────────────────────────
 IMU_BUS = 7
@@ -273,6 +278,13 @@ def main():
 
         print(f"[rl_walk] 정책 시작 — cmd=({args.vx:+.2f},{args.vy:+.2f},{args.wz:+.2f}) "
               f"· Ctrl+C 로 즉시 정지")
+        log_f = open(LOG_PATH, "w", newline="")
+        log_w = csv.writer(log_f)
+        log_w.writerow(
+            ["t", "step"] + [f"pos_{n}" for n in NAMES] + [f"vel_{n}" for n in NAMES]
+            + [f"action_{n}" for n in NAMES] + [f"target_{n}" for n in NAMES]
+            + ["contact_l", "contact_r", "gyro_x", "gyro_y", "gyro_z",
+               "phase_cos", "phase_sin"])
         t_start = time.time()
         step = 0
         over_budget_count = 0
@@ -338,6 +350,12 @@ def main():
             motor_targets = np.clip(target, motor_targets - max_delta, motor_targets + max_delta)
             hwi.set_position_vec(motor_targets)
 
+            log_w.writerow(
+                [f"{time.time()-t_start:.4f}", step] + list(pos) + list(vel)
+                + list(action) + list(motor_targets)
+                + [contact[0], contact[1], gyro[0], gyro[1], gyro[2],
+                   imitation_phase[0], imitation_phase[1]])
+
             last_last_last_act = last_last_act
             last_last_act = last_act
             last_act = action.astype(np.float32)
@@ -368,6 +386,9 @@ def main():
         print(f"\n[rl_walk] 종료 — {step} 스텝 / {time.time()-t_start:.2f}s")
     finally:
         _hold["stop"] = True
+        if "log_f" in locals() and not log_f.closed:
+            log_f.close()
+            print(f"[rl_walk] 스텝 로그 저장: {LOG_PATH}")
         try:
             hwi.hold_here()
             print("[rl_walk] 현재 위치 홀드. 토크는 켜둔 채로 둔다 — "
