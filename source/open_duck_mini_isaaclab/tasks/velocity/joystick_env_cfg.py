@@ -1404,7 +1404,7 @@ class JoystickEnvCfg_V41(JoystickEnvCfg_V40):
     DCMotor 는 그 직선을 그대로 구현한다 (actuator_pd.py `_clip_effort`):
         torque_speed_top = saturation_effort * (1 - joint_vel / velocity_limit)
 
-    값 (robot_cfg.py 참조): 스톨 4.1 · 무부하속도 4.82 · 연속토크 3.36
+    값 (robot_cfg.py 참조): 스톨 4.1 · 무부하속도 4.82 · 연속토크 3.16
     (= 실기 전류 상한 700 틱). stiffness/damping/armature/friction 은 그대로 —
     37.65 는 실기 P 게인 800 을 넣어 BAM 실측으로 유도한 값이고, 실기에서 읽은
     P/I/D 도 다리 전 축 800/0/4700 이다. **게인은 문제가 아니었다.**
