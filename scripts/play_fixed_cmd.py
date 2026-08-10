@@ -633,6 +633,7 @@ def _send_cmd(cx: float, cy: float, cw: float, estop: bool) -> None:
 
 
 obs = env.get_observations()
+_rt_t0 = time.time()          # 실시간 배속 측정 기준
 t_end = time.time() + args_cli.seconds
 step = 0
 hold_steps = max(1, int(args_cli.hold / dt))
@@ -677,7 +678,15 @@ while simulation_app.is_running() and time.time() < t_end:
         w = u._robot.data.root_ang_vel_b[0, 2]
         tag = mode_tag
         extra = f"  다리-몸통 최소 {_selfcol_min*1000:.0f}mm" if args_cli.overlay else ""
-        print(f"[play] {tag:4} vx={v[0]:+.3f} vy={v[1]:+.3f} yaw={w:+.3f}  (cmd {cx:+.2f},{cy:+.2f},{cw:+.2f}){extra}", flush=True)
+        # 실시간 배속. 이 루프는 dt 에서 **남는 시간만** 재우므로, 렌더링과
+        # 오버레이가 dt(20 ms)를 넘으면 조용히 슬로모션이 된다. 그러면 화면의
+        # 로봇만 느려 보이고 실기는 정상 속도라, 같은 정책인데 "심은 천천히
+        # 걷는데 실기는 너무 빠르다"로 오독하게 된다 (2026-08-10 실제로 겪음).
+        _wall = time.time() - _rt_t0
+        _rtf = (100 * dt) / _wall if _wall > 0 else 0.0
+        _rt_t0 = time.time()
+        rt = f"  실시간 {_rtf:.2f}x" + ("  <<< 슬로모션" if _rtf < 0.9 else "")
+        print(f"[play] {tag:4} vx={v[0]:+.3f} vy={v[1]:+.3f} yaw={w:+.3f}  (cmd {cx:+.2f},{cy:+.2f},{cw:+.2f}){extra}{rt}", flush=True)
     sleep = dt - (time.time() - t0)
     if sleep > 0:
         time.sleep(sleep)
