@@ -361,6 +361,7 @@ def main():
         motor_targets = READY_ARR.copy()
         imitation_i = 0
         command = np.array([args.vx, args.vy, args.wz, 0, 0, 0, 0], dtype=np.float32)
+        _cmd_seen = False
         action_filt = np.zeros(14, dtype=np.float32)  # EMA 저역필터 상태 (--action-lpf-alpha)
 
         # 무필터로 학습된 정책(v35 등)에 필터를 켠 채 보행 명령을 주면 추종이
@@ -406,6 +407,9 @@ def main():
             t0 = time.time()
 
             if cmd_rx is not None:
+                if not _cmd_seen and not cmd_rx.stale:
+                    _cmd_seen = True
+                    print("[rl_walk] ** 심에서 첫 명령 도착 — 중계 연결됨 **", flush=True)
                 if cmd_rx.estopped:
                     print("\n[rl_walk] !! 패드 A 비상정지 — 즉시 홀드한다", flush=True)
                     break
@@ -546,7 +550,13 @@ def main():
                       f"contact L{int(contact[0])}R{int(contact[1])}  "
                       f"gyro=({gyro[0]:+.2f},{gyro[1]:+.2f},{gyro[2]:+.2f})"
                       + (f"  예산초과 {over_budget_count}/50 (최대 +{over_budget_worst:.3f}s)"
-                         if over_budget_count else ""),
+                         if over_budget_count else "")
+                      # UDP 명령을 쓰는 중이면 **받고 있는지**를 같이 보여준다.
+                      # 이게 없으면 로봇이 안 움직일 때 패킷이 안 오는 건지
+                      # 명령이 0 인 건지 화면만 봐서는 구별할 수 없다.
+                      + (f"  | cmd=({command[0]:+.3f},{command[1]:+.3f},{command[2]:+.3f})"
+                         f" {'STALE' if cmd_rx.stale else 'LIVE '} {cmd_rx.stats()}"
+                         if cmd_rx is not None else ""),
                       flush=True)
                 over_budget_count = 0
                 over_budget_worst = 0.0
