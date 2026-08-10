@@ -71,6 +71,29 @@ latest_ckpt() {
 # 이 PC는 유선(192.168.55.x, 기본 경로)과 무선(192.168.137.x, 맥 쪽) 둘 다 있고
 # 시청은 무선 쪽에서 하므로 기본 경로 기준으로 고르면 틀린다. 무선을 우선하되
 # 다른 데서 볼 때는 ODM_HOST_IP로 덮어쓴다.
+# 네이티브 창을 띄울 X 디스플레이. **:0 을 하드코딩하면 안 된다** — 이 PC 는
+# Wayland 세션이라 XWayland 디스플레이 번호가 로그인할 때마다 올라간다.
+# 2026-08-10 세션 재시작 뒤 :0 이 사라지고 :1 이 됐는데, odm play 가 :0 을 박아
+# 두고 있어서 Isaac Sim 이 뜨긴 뜨는데 **창이 안 보였다**
+# (로그: "Cannot setup ExternalDragDrop without a default window").
+#
+# gnome-shell 이 실제로 쓰는 DISPLAY 를 그대로 따라간다. 그게 없으면 살아 있는
+# X 소켓을 낮은 번호부터 찾아본다.
+desktop_display() {
+  if [ -n "${ODM_DISPLAY:-}" ]; then echo "$ODM_DISPLAY"; return; fi
+  local p d
+  for p in $(pgrep -u "$USER" gnome-shell 2>/dev/null | head -3); do
+    d="$(tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | sed -n 's/^DISPLAY=//p' | head -1)"
+    [ -n "$d" ] && { echo "$d"; return; }
+  done
+  for s in /tmp/.X11-unix/X*; do
+    [ -e "$s" ] || continue
+    d=":${s##*/X}"
+    DISPLAY="$d" timeout 3 xdpyinfo >/dev/null 2>&1 && { echo "$d"; return; }
+  done
+  echo ":0"   # 아무것도 못 찾으면 예전 동작 그대로
+}
+
 host_ip() {
   if [ -n "${ODM_HOST_IP:-}" ]; then echo "$ODM_HOST_IP"; return; fi
   # `hostname -I` 를 쓰지 않는다 — 이 PC 에는 Rust 판 hostname 이 깔려 있어
@@ -157,7 +180,7 @@ play)
   if [ "${1:-}" = "--stream" ]; then mode=stream; shift; fi
 
   if [ "$mode" = native ]; then
-    render=(); export DISPLAY=:0
+    render=(); export DISPLAY="$(desktop_display)"
   else
     ip="$(host_ip)"
     render=(--livestream 2 --kit_args "--/app/livestream/publicEndpointAddress=$ip")
