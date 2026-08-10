@@ -40,6 +40,13 @@ parser.add_argument("--smooth", type=float, default=None, metavar="ALPHA",
                     help="몸통 떨림 억제 — 액션에 1차 저역통과를 건다 (0~0.9). "
                          "50 Hz 기준 -3 dB: 0.3->11 Hz, 0.5->5.8 Hz, 0.7->2.9 Hz, 0.8->1.8 Hz. "
                          "보행이 1.85 Hz 라 0.8 은 이미 보행보다 낮다 — 0.5~0.7 이 상한")
+parser.add_argument("--cmd-udp", type=str, default=None, metavar="HOST:PORT",
+                    help="이 창에서 만드는 명령(vx,vy,yaw)을 UDP 로 실기에 같이 보낸다. "
+                         "예: --cmd-udp 192.168.137.7:9999 . 조이스틱이든 --cycle 이든 "
+                         "화면의 로봇이 받는 것과 **똑같은 값**이 나간다 — 심과 실기를 "
+                         "같은 입력으로 나란히 보려는 것. 잿슨 쪽은 rl_walk.py 의 "
+                         "--cmd-udp-port 로 받는다. 패킷이 끊기면 실기는 자동으로 "
+                         "정지 명령으로 떨어진다(잿슨 쪽 워치독).")
 parser.add_argument("--terrain", type=str, default="plane",
                     help="평지 대신 다른 지형에서 재생한다. 목록은 "
                          "open_duck_mini_isaaclab/terrains.py 의 TERRAIN_CHOICES. "
@@ -566,6 +573,7 @@ def _update_hud(tag, cx, cy, cw):
 _pad = None
 if args_cli.joystick:
     from open_duck_mini_isaaclab.joystick_input import (  # noqa: E402
+        BUTTON_A as _BTN_A,
         Gamepad,
         GamepadUnavailable,
         command_from_gamepad,
@@ -581,6 +589,48 @@ if args_cli.joystick:
     except GamepadUnavailable as exc:
         print(f"[play] !! {exc}", flush=True)
         print("[play] 조이스틱 없이 계속합니다.", flush=True)
+
+# ── 실기로 명령 중계 (--cmd-udp) ────────────────────────────────────────────
+# 왜 UDP 인가: 명령은 **상태가 아니라 최신값**이다. 한 패킷을 놓쳐도 다음 것이
+# 20 ms 뒤에 오므로 재전송할 이유가 없고, TCP 로 하면 끊겼을 때 재연결을 기다리며
+# 오래된 명령을 붙들고 있게 된다. 실기 쪽은 워치독으로 끊김을 정지로 처리한다.
+_cmd_sock = None
+_cmd_addr = None
+_cmd_seq = 0
+if args_cli.cmd_udp:
+    import socket as _socket
+    import struct as _struct
+
+    try:
+        _h, _p = args_cli.cmd_udp.rsplit(":", 1)
+        _cmd_addr = (_h, int(_p))
+    except ValueError:
+        raise SystemExit(f"--cmd-udp 형식은 HOST:PORT 다: {args_cli.cmd_udp!r}")
+    _cmd_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    _cmd_sock.setblocking(False)
+    print(f"[play] 명령 중계 -> {_cmd_addr[0]}:{_cmd_addr[1]}  (UDP)", flush=True)
+    print("[play] ⚠️ 실기가 같은 명령으로 함께 움직인다. 로봇을 매달아 놓았는지 확인할 것.",
+          flush=True)
+
+
+def _send_cmd(cx: float, cy: float, cw: float, estop: bool) -> None:
+    """(seq, 보낸시각, vx, vy, yaw, estop) 24 바이트. 실패는 무시한다.
+
+    보내기가 60 Hz 루프를 붙잡으면 안 되므로 논블로킹이고, 버퍼가 차서 실패해도
+    다음 스텝에 새 값이 나가니 그냥 넘긴다.
+    """
+    global _cmd_seq
+    if _cmd_sock is None:
+        return
+    _cmd_seq += 1
+    try:
+        _cmd_sock.sendto(
+            _struct.pack("<IdfffB", _cmd_seq & 0xFFFFFFFF, time.time(),
+                         float(cx), float(cy), float(cw), 1 if estop else 0),
+            _cmd_addr)
+    except OSError:
+        pass
+
 
 obs = env.get_observations()
 t_end = time.time() + args_cli.seconds
@@ -608,6 +658,11 @@ while simulation_app.is_running() and time.time() < t_end:
     u._command[:, 0] = cx
     u._command[:, 1] = cy
     u._command[:, 2] = cw
+    # 화면의 로봇에 넣는 것과 **같은 값**을 보낸다 (클램프 뒤). 조이스틱 A 는
+    # 이 스크립트에서 이미 명령을 0 으로 만드는데, 실기에는 0 이 아니라 정지
+    # 의사를 명시적으로 알려야 워치독과 구분된다.
+    if _cmd_sock is not None:
+        _send_cmd(cx, cy, cw, bool(_pad is not None and _pad.button(_BTN_A)))
     with torch.inference_mode():
         obs, _, _, _ = env.step(policy(obs))
     _draw_overlay()
