@@ -383,7 +383,10 @@ def main():
             + [f"tqen_{n}" for n in LEG_NAMES]
             + ["contact_l", "contact_r", "gyro_x", "gyro_y", "gyro_z",
                "accel_x", "accel_y", "accel_z", "proj_grav_x", "proj_grav_y", "proj_grav_z",
-               "phase_cos", "phase_sin"])
+               "phase_cos", "phase_sin",
+               # 실제로 쓴 명령. 2026-08-10: 심은 걷는데 실기는 안 걷는 걸
+               # 추적하려는데 명령이 안 남아 있어서 원인을 못 좁혔다.
+               "cmd_vx", "cmd_vy", "cmd_wz", "cmd_stale"])
         t_start = time.time()
         step = 0
         over_budget_count = 0
@@ -522,7 +525,9 @@ def main():
                 + [contact[0], contact[1], gyro[0], gyro[1], gyro[2],
                    accel_arr[0], accel_arr[1], accel_arr[2],
                    projected_gravity[0], projected_gravity[1], projected_gravity[2],
-                   imitation_phase[0], imitation_phase[1]])
+                   imitation_phase[0], imitation_phase[1],
+                   command[0], command[1], command[2],
+                   1 if (cmd_rx is not None and cmd_rx.stale) else 0])
 
             if step % 25 == 0:
                 # 2026-08-09 브라운아웃 때 로그가 0바이트였다 — open(...,"w") 가
