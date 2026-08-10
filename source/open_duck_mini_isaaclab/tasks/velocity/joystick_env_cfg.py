@@ -35,7 +35,7 @@ from open_duck_mini_isaaclab.joint_order import (
     ROOT_BODY_NAME,
 )
 from open_duck_mini_isaaclab.imu_map import MOUNT_POS as IMU_MOUNT_POS
-from open_duck_mini_isaaclab.robot_cfg import OPEN_DUCK_MINI_V2_CFG
+from open_duck_mini_isaaclab.robot_cfg import OPEN_DUCK_MINI_V2_CFG, OPEN_DUCK_MINI_V2_DC_CFG
 
 from .events import randomize_default_joint_pos as randomize_default_joint_pos_event
 
@@ -1376,6 +1376,60 @@ class JoystickEnvCfg_V40(JoystickEnvCfg_V39):
     """
 
     action_rate_scale = -0.25
+
+
+@configclass
+class JoystickEnvCfg_V41(JoystickEnvCfg_V40):
+    """imitation_v41 — 액추에이터를 **DCMotor 로**. 토크-속도 결합 하나만 바뀐다.
+
+    지금까지의 `ImplicitActuatorCfg` 는 effort_limit(4.1)과 velocity_limit(4.82)을
+    **서로 독립으로** 건다. 심의 다리는 "4.1 N·m 를 내면서 동시에 4.82 rad/s 로"
+    움직일 수 있는데 실제 DC 모터는 그 조합을 못 낸다. **정책은 존재하지 않는
+    액추에이터를 전제로 걸음을 배웠다.**
+
+    2026-08-10 실기가 이걸 정확히 짚었다 (docs/reports/hw_v40_followup...md §3).
+    전류 상한을 700 틱(1.88 A)으로 올려 **토크 포화를 0 % 로 없앤 뒤에도**
+    무릎·고관절이 지령 속도를 못 따라갔다:
+
+        관절             지령 p95   실측 최대      토크-속도 직선 사용률
+        left_knee          4.84       3.53              81 %
+        right_knee         5.17       3.98               —
+        left_hip_pitch     4.66       3.72              93 %
+        right_ankle          —          —               99 %
+        left/right hip_yaw  (오차 거의 없음)          51 / 57 %
+
+    같은 무릎이 **무부하** 계단시험에서는 4.41 rad/s (한계의 92 %) 를 낸다.
+    부하가 걸릴 때만 막히고, **직선에 붙은 축이 곧 뒤처지는 축이다.**
+
+    DCMotor 는 그 직선을 그대로 구현한다 (actuator_pd.py `_clip_effort`):
+        torque_speed_top = saturation_effort * (1 - joint_vel / velocity_limit)
+
+    값 (robot_cfg.py 참조): 스톨 4.1 · 무부하속도 4.82 · 연속토크 3.36
+    (= 실기 전류 상한 700 틱). stiffness/damping/armature/friction 은 그대로 —
+    37.65 는 실기 P 게인 800 을 넣어 BAM 실측으로 유도한 값이고, 실기에서 읽은
+    P/I/D 도 다리 전 축 800/0/4700 이다. **게인은 문제가 아니었다.**
+
+    비교 기준 (v40 @2000): 추종 0.0168 · 정지 피치 +3.26도(표준편차 2.77)
+      · 정지 hip_roll 어긋남 +0.40도 · 액션요동(정지) 0.0445 · 관절한계 0.0 %
+      · 외란 1.0 m/s 넘어짐 50.0 % · 보행 토크 제곱합 7.983
+
+    **판정: 실기가 낼 수 있는 걸음으로 바뀌는가.** 심 지표는 나빠질 수 있다 —
+    이번엔 그게 정상이다. 정책이 이제 못 내는 토크·속도를 못 쓰기 때문이다.
+    심 성능이 아니라 **실기 추종오차**(v40 무릎 28.10도)로 판정한다.
+    보행 중 관절 속도가 토크-속도 직선 안에 들어오는지도 같이 본다.
+
+    ⚠️ DCMotor 는 명시적 액추에이터라 PD 가 PhysX 에서 파이썬으로 옮겨온다.
+    같은 게인·같은 dt(0.002)라 발산할 이유는 없지만, 초반 리워드가 이전 곡선과
+    많이 다르면 액추에이터 모델 교체의 영향이므로 계수 탓으로 오독하지 말 것.
+    """
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G115),
+            joint_pos=dict(READY_JOINT_POS_G115_ZNECK),
+        ),
+    )
 
 
 @configclass

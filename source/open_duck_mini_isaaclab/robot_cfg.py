@@ -76,7 +76,7 @@ that script has been run on a machine with Isaac Sim.
 import os
 
 import isaaclab.sim as sim_utils
-from isaaclab.actuators import ImplicitActuatorCfg
+from isaaclab.actuators import DCMotorCfg, ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
 from .joint_order import (
@@ -127,6 +127,66 @@ XM430_HEAD_CFG = ImplicitActuatorCfg(
 )
 
 ##
+# DC 모터 변형 (2026-08-10, v41) — 토크-속도 직선을 넣는다.
+#
+# 위 ImplicitActuatorCfg 는 effort_limit 과 velocity_limit 을 **서로 독립으로**
+# 건다. 그래서 심의 다리는 "4.1 N·m 를 내면서 동시에 4.82 rad/s 로" 움직일 수
+# 있는데, 실제 DC 모터는 그 조합을 못 낸다 — 토크가 오르면 속도가 떨어진다.
+#
+# 2026-08-10 실기 로그가 이 갭을 정확히 짚었다 (docs/reports/
+# hw_v40_followup_2026-08-10.md §3). 전류 상한을 700 틱으로 올려 토크 포화를
+# 0 % 로 없앤 뒤에도 무릎·고관절이 지령 속도를 못 따라갔다:
+#
+#     관절              지령 p95   실측 최대
+#     left_knee           4.84       3.53
+#     right_knee          5.17       3.98
+#     left_hip_pitch      4.66       3.72
+#
+# 같은 무릎이 **무부하** 계단시험에서는 4.41 rad/s (무부하 한계의 92 %) 를 낸다.
+# 부하가 걸릴 때만 막히므로 토크-속도 직선이다. 뒤처지는 축들은 직선 사용률이
+# 81~99 % 인 반면, 오차가 거의 없는 hip_yaw 두 축은 51 / 57 % 다.
+#
+# IsaacLab 의 DCMotor 가 정확히 그 직선을 구현한다
+# (actuators/actuator_pd.py `_clip_effort`):
+#     torque_speed_top = saturation_effort * (1 - joint_vel / velocity_limit)
+#
+# stiffness/damping/armature/friction 은 **건드리지 않는다.** 37.65 는 실기
+# 서보의 Position P Gain 레지스터 800 을 그대로 넣어 BAM 실측 kt/R 로 유도한
+# 값이고 (위 헤더 주석), 실기에서 읽은 P/I/D 도 다리 전 축 800/0/4700 이다.
+#
+# 주의: DCMotor 는 **명시적(explicit) 액추에이터**라 PD 계산이 PhysX 에서
+# 파이썬으로 옮겨온다. 그래서 여기서는 `effort_limit`/`velocity_limit`(모델용)
+# 을 쓴다 — `*_limit_sim` 은 암시적 액추에이터가 PhysX 에 넘기는 값이라 의미가
+# 다르다.
+##
+
+#: 스톨 토크 (N·m) — 무부하 속도 0 에서의 최대 토크. XM430-W350 @ 12 V.
+XM430_STALL_TORQUE = 4.1
+#: 무부하 속도 (rad/s) — 토크 0 에서의 최대 속도.
+XM430_NO_LOAD_SPEED = 4.82
+#: 전류 상한이 잘라내는 연속 토크 (N·m).
+#: 실기 `rustypot_hwi.py` 의 current_limit 700 틱 × 2.69 mA = 1.883 A.
+#: 토크 ∝ 전류 이므로 4.1 × 1.883 / 2.3 = 3.36. 실기 값을 바꾸면 여기도 바꿀 것.
+XM430_CONT_TORQUE_700 = 3.36
+
+
+def _dc_cfg(joint_names, effort_limit: float) -> DCMotorCfg:
+    return DCMotorCfg(
+        joint_names_expr=joint_names,
+        stiffness=37.65,
+        damping=1.352,
+        armature=0.01432,
+        friction=0.0761,
+        saturation_effort=XM430_STALL_TORQUE,
+        effort_limit=effort_limit,
+        velocity_limit=XM430_NO_LOAD_SPEED,
+    )
+
+
+XM430_LEG_DC_CFG = _dc_cfg(_LEG_JOINT_NAMES, XM430_CONT_TORQUE_700)
+XM430_HEAD_DC_CFG = _dc_cfg(_HEAD_JOINT_NAMES, XM430_CONT_TORQUE_700)
+
+##
 # Robot config
 ##
 
@@ -158,5 +218,14 @@ OPEN_DUCK_MINI_V2_CFG = ArticulationCfg(
     actuators={
         "legs": XM430_LEG_CFG,
         "head": XM430_HEAD_CFG,
+    },
+)
+
+#: 위와 **액추에이터 모델만** 다른 로봇. 나머지(USD, 질량, init_state, 접촉센서,
+#: soft_joint_pos_limit_factor)는 전부 같으므로 비교가 성립한다.
+OPEN_DUCK_MINI_V2_DC_CFG = OPEN_DUCK_MINI_V2_CFG.replace(
+    actuators={
+        "legs": XM430_LEG_DC_CFG,
+        "head": XM430_HEAD_DC_CFG,
     },
 )
