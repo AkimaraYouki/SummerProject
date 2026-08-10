@@ -37,9 +37,14 @@ print(f"  주기 흔들림 평균 {sum(jit)/len(jit)*1000:4.1f} ms   "
 
 # ── 자세 (IMU) ────────────────────────────────────────────────────────────
 # proj_grav 는 몸통 좌표계에서 본 중력 단위벡터. 심의 projected_gravity_b 와 같다.
-# 피치 = atan2(-gx, -gz), 롤 = atan2(gy, -gz)  (수직일 때 g=(0,0,-1) -> 0,0)
-pit = [d(math.atan2(-f(r, "proj_grav_x"), -f(r, "proj_grav_z"))) for r in rows]
-rol = [d(math.atan2(f(r, "proj_grav_y"), -f(r, "proj_grav_z"))) for r in rows]
+# 부호 규약은 **scripts/diag/standstill_pose.py 와 반드시 같아야 한다** — 심 수치와
+# 나란히 놓고 읽는 게 이 스크립트의 목적이라, 부호가 다르면 앞뒤가 뒤바뀐다.
+#   projected_gravity_b = (sin(pitch), -sin(roll)cos(pitch), -cos(pitch)cos(roll))
+#   pitch = atan2(+gx, -gz)      roll = atan2(-gy, -gz)
+# (2026-08-10 수정: 처음에 둘 다 부호를 뒤집어 써서 35도 앞쏠림을 "뒤로 주저앉음"
+#  으로 읽었다. 잿슨 쪽 분석이 발 운동학과 IMU 를 교차검증해 잡아냈다.)
+pit = [d(math.atan2(f(r, "proj_grav_x"), -f(r, "proj_grav_z"))) for r in rows]
+rol = [d(math.atan2(-f(r, "proj_grav_y"), -f(r, "proj_grav_z"))) for r in rows]
 mean = lambda v: sum(v) / len(v)
 std = lambda v: math.sqrt(sum((x - mean(v)) ** 2 for x in v) / len(v))
 
