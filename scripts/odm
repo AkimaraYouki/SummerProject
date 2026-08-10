@@ -73,8 +73,15 @@ latest_ckpt() {
 # 다른 데서 볼 때는 ODM_HOST_IP로 덮어쓴다.
 host_ip() {
   if [ -n "${ODM_HOST_IP:-}" ]; then echo "$ODM_HOST_IP"; return; fi
-  local ips; ips="$(hostname -I)"
+  # `hostname -I` 를 쓰지 않는다 — 이 PC 에는 Rust 판 hostname 이 깔려 있어
+  # `-I` 를 모르고 usage 를 뱉는다 (2026-08-10 에 텐서보드 주소가 "http://:6006"
+  # 으로 찍혀서 발견). `ip` 는 iproute2 표준이라 안전하다.
+  local ips
+  ips="$(ip -4 -o addr show scope global 2>/dev/null | awk '{split($4,a,"/"); print a[1]}')"
+  # 무선(맥 쪽, 192.168.137.x)에서 보므로 그쪽을 먼저 고른다. tailscale(100.x)은
+  # 마지막 후보로도 쓰지 않는다 — LAN 에서 접속이 안 된다.
   for ip in $ips; do case "$ip" in 192.168.137.*) echo "$ip"; return ;; esac; done
+  for ip in $ips; do case "$ip" in 100.*) ;; *) echo "$ip"; return ;; esac; done
   echo "$ips" | awk '{print $1}'
 }
 
