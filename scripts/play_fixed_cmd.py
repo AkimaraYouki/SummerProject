@@ -80,6 +80,9 @@ if args_cli.smooth is not None:
     if not 0.0 <= args_cli.smooth < 1.0:
         raise SystemExit(f"--smooth 는 0 이상 1 미만이어야 한다: {args_cli.smooth}")
     env_cfg.action_lowpass_alpha = args_cli.smooth
+    # 정지용 alpha 도 같이 덮는다. v37 에서 분리된 뒤로 v39·v40 은 정지 alpha 가
+    # 0.0 이라, 이걸 빼먹으면 정작 떨림을 보려는 정지 구간에 필터가 안 걸린다.
+    env_cfg.action_lowpass_alpha_standstill = args_cli.smooth
     import math as _m
     # 1차 EMA 의 -3 dB 차단주파수: fc = fs/(2*pi) * acos(1 - (1-a)^2/(2a))
     _a, _fs = args_cli.smooth, 1.0 / (env_cfg.sim.dt * env_cfg.decimation)

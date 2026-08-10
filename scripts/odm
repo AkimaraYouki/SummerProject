@@ -86,6 +86,22 @@ require_free_gpu() {
   fi
 }
 
+# --lpf 0.5  또는  --lpf 0.0,0.7 (보행,정지) — 위치를 안 가린다 (앞에 붙여도 뒤여도).
+# 위치를 안 따지는 이유: play 는 남는 인자를 play_fixed_cmd.py 로 그대로 넘기고
+# measure 는 안 넘기는 등 서브커맨드마다 처리가 달라서, 여기서 한 번 걷어내고
+# 환경변수로 바꿔 두는 편이 안전하다. 실제 적용은 task_registry.env_cfg_for()
+# 한 곳에서만 일어난다 (스크립트 일곱 군데에 --smooth 를 복제하지 않으려고).
+_args=(); while [ $# -gt 0 ]; do
+  case "$1" in
+    --lpf)   [ $# -ge 2 ] || { echo "--lpf 뒤에 값이 필요하다 (예: --lpf 0.5)" >&2; exit 1; }
+             export ODM_LPF="$2"; shift 2 ;;
+    --lpf=*) export ODM_LPF="${1#--lpf=}"; shift ;;
+    *)       _args+=("$1"); shift ;;
+  esac
+done
+set -- ${_args+"${_args[@]}"}
+[ -n "${ODM_LPF:-}" ] && echo "저역통과 alpha = $ODM_LPF (보행,정지)"
+
 cmd="${1:-help}"; shift || true
 
 case "$cmd" in
@@ -394,6 +410,12 @@ odm — OpenDuck Mini 원스톱
   odm stop                          학습/재생 정리
   odm list                          런과 체크포인트 목록
   odm test                          테스트 전부 실행 (Isaac Sim 불필요)
+
+  --lpf 0.5                         아무 서브커맨드에나 붙는다 — 액션 저역통과를
+  --lpf 0.0,0.7                     걸고 돌린다 (하나면 보행·정지 같이, 쉼표면 따로).
+                                   예: odm play v40 --lpf 0.5 / odm measure v40 --lpf 0.5
+                                   0.3->11 Hz  0.5->5.8 Hz  0.7->2.9 Hz  0.8->1.8 Hz
+                                   보행이 1.85 Hz 라 0.8 이면 보행까지 깎인다.
 
   odm onnx   [ver] [iter]           실기용 ONNX 익스포트 (학습 중에도 가능)
 
