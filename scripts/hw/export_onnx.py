@@ -27,6 +27,7 @@ import argparse
 import glob
 import json
 import os
+import re
 
 import torch
 import torch.nn as nn
@@ -118,6 +119,54 @@ def obs_layout(obs_dim: int):
     return out
 
 
+#: policy.meta.json 에 담을 최상위 스칼라들. `!!python/tuple` 로 덤프되는
+#: action_lowpass_blend 만 리스트로 받는다.
+_META_SCALARS = ("action_lowpass_alpha", "action_lowpass_alpha_standstill",
+                 "action_scale", "dof_vel_scale", "max_motor_velocity",
+                 "lock_head_joints")
+
+
+def _read_env_yaml(path: str) -> dict:
+    """params/env.yaml 에서 실기에 필요한 값만 뽑는다 (yaml 의존 없이).
+
+    yaml.unsafe_load 를 쓰지 않는 이유: 이 덤프에는 `!!python/object:` 태그가
+    잔뜩 들어 있어 로드하려면 isaaclab 이 import 가능해야 한다. 그러면 이
+    스크립트가 Isaac Sim 없이 학습 중에도 돌아간다는 성질을 잃는다.
+    """
+    out: dict = {}
+    if not os.path.exists(path):
+        print(f"  !! {path} 가 없다 — meta 는 기본값으로 쓴다")
+        return out
+    lines = open(path, encoding="utf-8", errors="ignore").read().splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(r"^([a-z_]+):\s*(.*)$", line)
+        if not m:
+            continue
+        key, val = m.group(1), m.group(2).strip()
+        if key == "action_lowpass_blend":
+            # `!!python/tuple` 다음 두 줄이 "- 0.01" / "- 0.05" 로 온다.
+            nums = []
+            for nxt in lines[i + 1:i + 3]:
+                mm = re.match(r"^-\s*([-\d.eE+]+)\s*$", nxt)
+                if mm:
+                    nums.append(float(mm.group(1)))
+            if len(nums) == 2:
+                out[key] = nums
+            continue
+        if key not in _META_SCALARS or not val or val.startswith("!!"):
+            continue
+        if val in ("true", "false"):
+            out[key] = (val == "true")
+        elif val == "null":
+            out[key] = None
+        else:
+            try:
+                out[key] = float(val)
+            except ValueError:
+                pass
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ver", help="버전 이름 (예: v34c10). 최신 런의 최신 체크포인트를 쓴다")
@@ -166,6 +215,42 @@ def main():
                "layout": obs_layout(obs_dim)},
               open(side, "w"), ensure_ascii=False, indent=2)
     print(f"  -> {side}")
+
+    # policy.meta.json — 실기 `rl_walk.py` 가 **저역통과 알파를 여기서 읽는다.**
+    #
+    # 알파는 정책마다 다르다(학습 환경에 필터를 넣었는지에 따라). 손으로 맞춰
+    # 주면 언젠가 깜빡하고 조용히 train/test 불일치가 난다 — v36 처럼 필터로
+    # 학습한 정책에 필터를 끄면 학습 때와 다른 입력이 되고, v35 처럼 무필터로
+    # 학습한 정책에 켜면 위상 지연으로 추종이 나빠진다.
+    #
+    # 이 파일이 없으면 rl_walk.py 는 "meta 없음 -> 0" 으로 떨어진다. 알파가 0 인
+    # 정책이면 우연히 맞지만 기록이 안 남고, 0 이 아닌 정책이면 그대로 불일치다.
+    # 2026-08-10 까지 이 파일을 사람이 손으로 써 왔다 — 자동화한다.
+    # 값은 그 런이 **실제로 학습에 쓴** params/env.yaml 에서 읽는다. 설정 클래스를
+    # import 하면 isaaclab 이 끌려와 Isaac Sim 없이는 못 돌게 되고, 이 스크립트가
+    # 학습 중에도 돌아간다는 성질이 깨진다. 필요한 건 최상위 스칼라 몇 개뿐이라
+    # 정규식으로 충분하다.
+    run_dir = os.path.dirname(os.path.abspath(ck))
+    meta = _read_env_yaml(os.path.join(run_dir, "params", "env.yaml"))
+
+    meta_path = os.path.join(os.path.dirname(out), "policy.meta.json")
+    a_move = meta.get("action_lowpass_alpha", 0.0)
+    a_still = meta.get("action_lowpass_alpha_standstill")
+    if a_still is None:
+        a_still = a_move
+    json.dump({"run": os.path.basename(run_dir),
+               "iter": it,
+               "action_lowpass_alpha": a_move,
+               "action_lowpass_alpha_standstill": a_still,
+               "action_lowpass_blend": meta.get("action_lowpass_blend", [0.01, 0.05]),
+               "action_scale": meta.get("action_scale", 0.25),
+               "dof_vel_scale": meta.get("dof_vel_scale", 0.05),
+               "max_motor_velocity": meta.get("max_motor_velocity", 4.82),
+               "lock_head_joints": meta.get("lock_head_joints", True),
+               "note": "rl_walk.py 가 이 값으로 액션 저역통과를 맞춘다. "
+                       "학습 설정(params/env.yaml)에서 자동으로 뽑았으니 손대지 말 것."},
+              open(meta_path, "w"), ensure_ascii=False, indent=2)
+    print(f"  -> {meta_path}  (저역통과 보행 {a_move} / 정지 {a_still})")
 
     # 뽑고 나서 실제로 같은 값을 내는지 확인한다. 안 하면 조용히 틀린 걸 들고
     # 실기에 올라간다 — 정규화를 빠뜨렸을 때가 딱 그렇게 된다.
