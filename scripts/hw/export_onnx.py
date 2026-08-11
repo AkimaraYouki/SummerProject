@@ -138,6 +138,24 @@ def _read_env_yaml(path: str) -> dict:
         print(f"  !! {path} 가 없다 — meta 는 기본값으로 쓴다")
         return out
     lines = open(path, encoding="utf-8", errors="ignore").read().splitlines()
+
+    # READY 관절각. `robot.init_state.joint_pos` 아래 "  이름: 값" 들이다.
+    # 실기 goto_ready.py 가 이걸 읽어 쓴다 — 하드코딩해 두면 학습 설정이 바뀔 때
+    # 조용히 어긋난다 (2026-08-12: 08-08 자 표가 남아 left_knee 가 0.22 rad 달랐다).
+    ready: dict = {}
+    for i, line in enumerate(lines):
+        if not line.startswith("    joint_pos:"):
+            continue
+        for nxt in lines[i + 1:]:
+            mm = re.match(r"^\s{6}([a-z_]+):\s*([-\d.eE+]+)\s*$", nxt)
+            if not mm:
+                break
+            ready[mm.group(1)] = float(mm.group(2))
+        if ready:
+            break
+    if ready:
+        out["ready_joint_pos"] = ready
+
     for i, line in enumerate(lines):
         m = re.match(r"^([a-z_]+):\s*(.*)$", line)
         if not m:
@@ -247,6 +265,8 @@ def main():
                "dof_vel_scale": meta.get("dof_vel_scale", 0.05),
                "max_motor_velocity": meta.get("max_motor_velocity", 4.82),
                "lock_head_joints": meta.get("lock_head_joints", True),
+               # 실기가 이 자세로 이동한 뒤 정책을 시작해야 한다.
+               "ready_joint_pos": meta.get("ready_joint_pos", {}),
                "note": "rl_walk.py 가 이 값으로 액션 저역통과를 맞춘다. "
                        "학습 설정(params/env.yaml)에서 자동으로 뽑았으니 손대지 말 것."},
               open(meta_path, "w"), ensure_ascii=False, indent=2)

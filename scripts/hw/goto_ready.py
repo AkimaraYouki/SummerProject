@@ -26,7 +26,7 @@ import time
 from dynamixel_sdk import (PortHandler, PacketHandler, GroupSyncWrite, GroupSyncRead,
                            COMM_SUCCESS)
 
-BAUD = 57600
+BAUD = 1_000_000
 TICK_RAD = 2.0 * math.pi / 4096.0
 CENTER = 2048
 
@@ -52,8 +52,8 @@ JOINTS = [
     ("left_hip_pitch",   9, -1,  0.9910, None),
     ("left_knee",       10, +1, -1.7852, 2.0944),
     ("left_ankle",      11, +1,  0.8647, 1.5708),
-    ("neck_pitch",       2, -1,  0.0000, None),
-    ("head_pitch",      12, +1,  0.0000, 0.7854),
+    ("neck_pitch",       2, +1,  0.0000, None),
+    ("head_pitch",      12, -1,  0.0000, 0.7854),
     ("head_yaw",        13, -1,  0.0000, 2.7925),
     ("head_roll",       14, -1,  0.0000, 0.5236),
     ("right_hip_yaw",    1, -1, -0.0005, 0.5236),
@@ -89,9 +89,44 @@ def main():
                          "그만큼 느려진다 — 쓰기만 하면 13 ms(75 Hz)")
     ap.add_argument("--stall-tick", type=int, default=STALL_TICK,
                     help="추종 오차 몇 tick 부터 스톨로 볼지. 빠르게 갈수록 지연이 커지니 올린다")
+    ap.add_argument("--policy", default=None, metavar="DIR",
+                    help="정책 폴더(예: ~/policy_v42). 그 안 policy.meta.json 의 "
+                         "ready_joint_pos 를 READY 로 쓴다. **이걸 쓰는 것을 권한다** — "
+                         "아래 JOINTS 표는 2026-08-08 자 하드코딩이라 학습 설정이 바뀌면 "
+                         "조용히 어긋난다 (2026-08-12: 젯슨이 v40 자세를 든 채 v41 정책을 "
+                         "돌려 무릎 관측이 10.3도 밀려 있었다).")
     ap.add_argument("--home", action="store_true", help="READY 대신 2048 로 복귀")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+
+    # 정책 메타에서 READY 를 읽어 표를 덮어쓴다. 부호·ID·한계는 실기 확인값이라
+    # 그대로 두고, **각도만** 바꾼다.
+    global JOINTS
+    if args.policy:
+        import json
+        import os
+        mp = os.path.join(os.path.expanduser(args.policy), "policy.meta.json")
+        if not os.path.exists(mp):
+            raise SystemExit(f"policy.meta.json 이 없다: {mp}")
+        meta = json.load(open(mp))
+        ready = meta.get("ready_joint_pos") or {}
+        if not ready:
+            raise SystemExit(f"{mp} 에 ready_joint_pos 가 없다 — odm onnx 로 다시 뽑을 것")
+        missing = [n for n, *_ in JOINTS if n not in ready]
+        if missing:
+            raise SystemExit(f"메타에 빠진 관절: {missing}")
+        old_map = {n: r for n, _i, _s, r, _l in JOINTS}
+        JOINTS = [(n, i, sg, ready[n], lim) for n, i, sg, _r, lim in JOINTS]
+        print(f"READY 출처: {mp}  (run {meta.get('run','?')} iter {meta.get('iter','?')})")
+        diff = [(n, old_map[n], ready[n]) for n, *_ in JOINTS
+                if abs(old_map[n] - ready[n]) > 1e-4]
+        if diff:
+            print("  하드코딩 표와 다른 축:")
+            for n, o, v in diff:
+                print(f"    {n:16} {math.degrees(o):+7.2f}° -> {math.degrees(v):+7.2f}°"
+                      f"   ({math.degrees(v - o):+.2f}°)")
+        else:
+            print("  하드코딩 표와 동일")
 
     port = PortHandler(args.port)
     packet = PacketHandler(2.0)
