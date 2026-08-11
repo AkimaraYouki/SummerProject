@@ -67,9 +67,24 @@ LEGS = ["left_hip_yaw", "left_hip_roll", "left_hip_pitch", "left_knee", "left_an
 PAIRS = [(f"left_{b}", f"right_{b}")
          for b in ("hip_yaw", "hip_roll", "hip_pitch", "knee", "ankle")]
 DT = 0.02
+#: 결과를 파일로도 남긴다. 화면에만 찍으면 원격(랩PC)에서 볼 수가 없다
+#: (2026-08-12 에 실제로 한 번 날렸다).
+OUT_TXT = os.path.expanduser("~/full_check_result.txt")
+OUT_CSV = os.path.expanduser("~/full_check_raw.csv")
+_LINES: list[str] = []
 
 
-def measure(hwi, name, idv, center, amp, freqs, cycles, hold_ticks):
+def w(msg: str = "") -> None:
+    print(msg, flush=True)
+    _LINES.append(msg)
+
+
+def flush_out() -> None:
+    with open(OUT_TXT, "w") as f:
+        f.write("\n".join(_LINES) + "\n")
+
+
+def measure(hwi, name, idv, center, amp, freqs, cycles, hold_ticks, csv_w=None):
     """한 축의 주파수 응답. [(f, gain, phase, vmax, cmax), ...]"""
     out = []
     for f in freqs:
@@ -95,6 +110,11 @@ def measure(hwi, name, idv, center, amp, freqs, cycles, hold_ticks):
                 continue
             c_raw, v_raw, p_raw = struct.unpack("<hii", raw[0])
             pos = rad_of(name, p_raw) - center
+            if csv_w is not None:
+                csv_w.writerow([name, f"{f:.3f}", f"{t:.4f}",
+                                f"{math.degrees(goal - center):.3f}",
+                                f"{math.degrees(pos):.3f}",
+                                f"{c_raw * CURRENT_UNIT_MA / 1000:.4f}"])
             if t > 1.0 / f:                       # 첫 주기는 과도구간
                 s += pos * math.sin(w * t)
                 c += pos * math.cos(w * t)
@@ -138,13 +158,13 @@ def main() -> None:
     if args.policy:
         mp = os.path.join(os.path.expanduser(args.policy), "policy.meta.json")
         ready = (json.load(open(mp)).get("ready_joint_pos") or None) if os.path.exists(mp) else None
-        print(f"READY 출처: {mp}" if ready else f"!! {mp} 에 ready_joint_pos 없음 — 현재 위치를 중심으로")
+        w(f"READY 출처: {mp}" if ready else f"!! {mp} 에 ready_joint_pos 없음 — 현재 위치를 중심으로")
 
-    print(f"\n다리 10축 · 주파수 {freqs} Hz · 진폭 최대 ±{args.amp}° · "
+    w(f"\n다리 10축 · 주파수 {freqs} Hz · 진폭 최대 ±{args.amp}° · "
           f"전류 상한 {args.current * CURRENT_UNIT_MA / 1000:.2f} A")
-    print("14축 전부 READY 로 잡아 둔 채 한 축씩 흔든다 — 손으로 들 필요 없다.")
-    print(f"총 소요 약 {len(LEGS) * sum(args.cycles / f for f in freqs) / 60 + 0.2:.0f} 분")
-    print("\n⚠️  로봇이 **매달려 있는지** 확인할 것.")
+    w("14축 전부 READY 로 잡아 둔 채 한 축씩 흔든다 — 손으로 들 필요 없다.")
+    w(f"총 소요 약 {len(LEGS) * sum(args.cycles / f for f in freqs) / 60 + 0.2:.0f} 분")
+    w("\n⚠️  로봇이 **매달려 있는지** 확인할 것.")
     if input("계속하려면 go 입력: ").strip() != "go":
         sys.exit("취소")
 
@@ -169,7 +189,7 @@ def main() -> None:
     start = {i: rad_of(n, hwi.io.sync_read_present_position([i])[0])
              for n, i in zip(all_names, all_ids)}
     hwi.io.sync_write_torque_enable(all_ids, [1] * len(all_ids))
-    print("\n14축 토크 켬. READY 로 5초 램프인...")
+    w("\n14축 토크 켬. READY 로 5초 램프인...")
     N_RAMP = 250
     for k in range(N_RAMP):
         u = (k + 1) / N_RAMP
@@ -179,8 +199,12 @@ def main() -> None:
                       for n, i in zip(all_names, all_ids)])
         time.sleep(0.02)
     time.sleep(0.5)
-    print("READY 도달. 이제 한 축씩 잰다 (나머지는 계속 잡고 있다).\n")
+    w("READY 도달. 이제 한 축씩 잰다 (나머지는 계속 잡고 있다).\n")
 
+    import csv as _csv
+    csv_f = open(OUT_CSV, 'w', newline='')
+    csv_w = _csv.writer(csv_f)
+    csv_w.writerow(['joint', 'freq', 't', 'goal_deg', 'pos_deg', 'cur_A'])
     t_start = time.time()
     res: dict[str, dict] = {}
     for name in LEGS:
@@ -200,15 +224,15 @@ def main() -> None:
         amp = min(args.amp, min(margin))
         temp0 = hwi.io.sync_read_raw_data([idv], 146, 1)[0][0]
 
-        print(f"\n[{name}]  중심 {math.degrees(center):+7.2f}°  "
+        w(f"\n[{name}]  중심 {math.degrees(center):+7.2f}°  "
               f"한계여유 +{margin[0]:.1f}/-{margin[1]:.1f}°  진폭 ±{amp:.1f}°"
               + ("   <<< 한계에 붙어 진폭을 줄임" if amp < args.amp - 0.1 else ""))
         if amp < 2.0:
-            print("   진폭이 너무 작다 — 건너뛴다 (중심이 한계에 붙어 있다)")
+            w("   진폭이 너무 작다 — 건너뛴다 (중심이 한계에 붙어 있다)")
             res[name] = dict(skip=True, margin=margin, center=center)
             continue
 
-        r = measure(hwi, name, idv, center, amp, freqs, args.cycles, hold_ticks)
+        r = measure(hwi, name, idv, center, amp, freqs, args.cycles, hold_ticks, csv_w)
         # 대상 축을 READY 로 되돌린 뒤 다음 축으로 (토크는 계속 켜 둔다)
         hwi.io.sync_write_goal_position(list(hold_ticks), list(hold_ticks.values()))
         time.sleep(0.4)
@@ -217,29 +241,29 @@ def main() -> None:
         res[name] = dict(r=r, margin=margin, amp=amp, center=center,
                          temp=(temp0, temp1), err=err, skip=False)
         for f, g, ph, vm, cm in r:
-            print(f"     {f:5.2f} Hz  이득 {g:5.2f}  위상 {ph:+6.1f}°  "
+            w(f"     {f:5.2f} Hz  이득 {g:5.2f}  위상 {ph:+6.1f}°  "
                   f"vmax {vm:5.2f} rad/s  전류 {cm:5.2f} A")
-        print(f"     온도 {temp0}->{temp1}C  에러 {err}")
+        w(f"     온도 {temp0}->{temp1}C  에러 {err}")
 
-    print("\n" + "=" * 84)
-    print(f"전체 점검 결과  ({(time.time() - t_start) / 60:.1f} 분)")
-    print("=" * 84)
-    print(f"  {'관절':16}{'한계여유':>12}" + "".join(f"{f'{f}Hz 이득':>12}" for f in freqs) + f"{'온도':>7}{'에러':>6}")
+    w("\n" + "=" * 84)
+    w(f"전체 점검 결과  ({(time.time() - t_start) / 60:.1f} 분)")
+    w("=" * 84)
+    w(f"  {'관절':16}{'한계여유':>12}" + "".join(f"{f'{f}Hz 이득':>12}" for f in freqs) + f"{'온도':>7}{'에러':>6}")
     for n in LEGS:
         d = res.get(n, {})
         if d.get("skip"):
-            print(f"  {n:16}{'+%.0f/-%.0f' % tuple(d['margin']):>12}   (한계에 붙어 건너뜀)")
+            w(f"  {n:16}{'+%.0f/-%.0f' % tuple(d['margin']):>12}   (한계에 붙어 건너뜀)")
             continue
         gains = "".join(f"{g:12.2f}" for _, g, _, _, _ in d["r"])
         flag = "  <<<" if any(g < 0.8 for _, g, _, _, _ in d["r"]) else ""
-        print(f"  {n:16}{'+%.0f/-%.0f' % tuple(d['margin']):>12}{gains}"
+        w(f"  {n:16}{'+%.0f/-%.0f' % tuple(d['margin']):>12}{gains}"
               f"{d['temp'][1]:6}C{d['err']:6}{flag}")
 
-    print("\n  좌우 비교 (같은 모터·같은 게인이면 20 % 안)")
+    w("\n  좌우 비교 (같은 모터·같은 게인이면 20 % 안)")
     for a, b in PAIRS:
         da, db = res.get(a, {}), res.get(b, {})
         if da.get("skip") or db.get("skip") or "r" not in da or "r" not in db:
-            print(f"    {a[5:]:12} (비교 불가 — 한쪽을 못 쟀다)")
+            w(f"    {a[5:]:12} (비교 불가 — 한쪽을 못 쟀다)")
             continue
         line = f"    {a[5:]:12}"
         worst = 0.0
@@ -248,11 +272,21 @@ def main() -> None:
             diff = (gb - ga) / max(ga, 1e-9) * 100
             worst = max(worst, abs(diff))
             line += f"  {f}Hz {ga:.2f}/{gb:.2f} ({diff:+.0f}%)"
-        print(line + ("   <<< 이상" if worst > 20 else ""))
-    print("=" * 84)
-    print("\n토크는 켜 둔 채 READY 를 유지한다. 풀려면:")
-    print("  python3 ~/home_position.py --release")
+        w(line + ("   <<< 이상" if worst > 20 else ""))
+    w("=" * 84)
+    csv_f.close()
+    flush_out()
+    print(f"\n결과 저장: {OUT_TXT}  (원시 샘플 {OUT_CSV})")
+    w("\n토크는 켜 둔 채 READY 를 유지한다. 풀려면:")
+    w("  python3 ~/home_position.py --release")
 
 
 if __name__ == "__main__":
-    main()
+    # 중간에 끊겨도(Ctrl+C·에러) 거기까지의 결과는 남긴다. 2026-08-12 에 한 번
+    # 통째로 날렸다 — 원격에서는 화면에 남은 게 없으면 그걸로 끝이다.
+    try:
+        main()
+    finally:
+        if _LINES:
+            flush_out()
+            print(f"[full_check] 결과 저장: {OUT_TXT}")
