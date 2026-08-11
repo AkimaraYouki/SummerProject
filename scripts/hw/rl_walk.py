@@ -79,7 +79,7 @@ import onnxruntime as ort
 from smbus2 import SMBus, i2c_msg
 
 from feet_contacts import FeetContacts
-from rustypot_hwi import HWI, NAMES, LEG_NAMES, LEG_IDS
+from rustypot_hwi import HWI, NAMES, LEG_NAMES, LEG_IDS, BY_NAME
 
 # ── 관절 상수 (source: joystick_env_cfg.py READY_JOINT_POS_G125_ZNECK, 2026-08-08
 # 데스크탑에서 직접 대조 확인 — joint_order.py 의 7/28 자 READY_JOINT_POS 는
@@ -92,6 +92,34 @@ READY_JOINT_POS = {
     "right_knee": 1.6000, "right_ankle": -0.7388,
 }
 READY_ARR = np.array([READY_JOINT_POS[n] for n in NAMES], dtype=np.float32)
+
+
+def _ready_from_meta(meta: dict):
+    """정책 메타의 ready_joint_pos 로 READY_ARR 을 덮는다.
+
+    관측이 `joint_pos_rel = pos - READY` 라 READY 가 학습 설정과 다르면 정책이
+    **전 관절에서 밀린 관측**을 받는다. 2026-08-12 에 실제로 겪었다 — 잿슨이
+    v40 자세(left_knee -1.5693)를 든 채 v41 정책(-1.7483)을 돌려 무릎 관측이
+    10.3도 어긋났고, 정책이 계속 무릎을 펴려 밀어 발이 안 뜨고 앞으로 고꾸라졌다.
+    하드코딩을 남겨 두면 반드시 다시 어긋나므로 메타를 우선한다.
+    """
+    r = (meta or {}).get("ready_joint_pos") or {}
+    if not r:
+        return None
+    missing = [n for n in NAMES if n not in r]
+    if missing:
+        print(f"[rl_walk] !! 메타 ready_joint_pos 에 빠진 관절 {missing} — 내장 표를 쓴다")
+        return None
+    arr = np.array([r[n] for n in NAMES], dtype=np.float32)
+    diff = np.degrees(arr - READY_ARR)
+    if np.abs(diff).max() > 0.05:
+        print("[rl_walk] READY 를 정책 메타에서 가져왔다. 내장 표와 다른 축:")
+        for n, dv in zip(NAMES, diff):
+            if abs(dv) > 0.05:
+                print(f"           {n:16} {dv:+7.2f}도")
+    else:
+        print("[rl_walk] READY 메타 = 내장 표 (차이 없음)")
+    return arr
 HEAD_IDX = [NAMES.index(n) for n in ("neck_pitch", "head_pitch", "head_yaw", "head_roll")]
 LEG_IDX = [NAMES.index(n) for n in LEG_NAMES]
 
@@ -269,6 +297,11 @@ def main():
 
     # CLI 로 알파를 직접 준 경우엔 명령이 바뀌어도 그 값을 유지한다.
     args.action_lpf_alpha_auto = args.action_lpf_alpha is None
+    # READY 를 메타에서 덮어쓴다 (관측 기준점이라 어긋나면 전 관절이 밀린다).
+    _r = _ready_from_meta(meta)
+    if _r is not None:
+        READY_ARR[:] = _r
+
     if args.action_lpf_alpha is None:
         args.action_lpf_alpha = alpha_auto
         if meta:
@@ -376,26 +409,80 @@ def main():
               f"· Ctrl+C 로 즉시 정지")
         log_f = open(LOG_PATH, "w", newline="")
         log_w = csv.writer(log_f)
+        # 액션->하드웨어 파이프라인의 **모든 단계**를 남긴다. 어느 한 단계라도
+        # 빼면 나중에 되짚어 복원해야 하고, 그 복원에서 틀리기 쉽다
+        # (2026-08-10: 클램프 전/후 목표를 혼동해 두 번 오진).
+        #   action -> actf(저역필터) -> tgt(READY+scale, 머리고정)
+        #          -> mtgt(속도제한 클립) -> goal(tick_of URDF 클램프, 실제 전송값)
         log_w.writerow(
-            ["t", "step"] + [f"pos_{n}" for n in NAMES] + [f"vel_{n}" for n in NAMES]
-            + [f"action_{n}" for n in NAMES] + [f"target_{n}" for n in NAMES]
+            ["t", "step", "dt", "imitation_i",
+             "ms_imu", "ms_read", "ms_infer", "ms_write", "ms_total"]
+            + [f"pos_{n}" for n in NAMES] + [f"vel_{n}" for n in NAMES]
+            + [f"action_{n}" for n in NAMES] + [f"actf_{n}" for n in NAMES]
+            + [f"tgt_{n}" for n in NAMES] + [f"mtgt_{n}" for n in NAMES]
+            + [f"goal_{n}" for n in NAMES]
             + [f"cur_{n}" for n in LEG_NAMES] + [f"pwm_{n}" for n in LEG_NAMES]
-            + [f"tqen_{n}" for n in LEG_NAMES]
+            + [f"tqen_{n}" for n in LEG_NAMES] + [f"err_{n}" for n in LEG_NAMES]
+            + [f"volt_{n}" for n in LEG_NAMES] + [f"temp_{n}" for n in LEG_NAMES]
             + ["contact_l", "contact_r", "gyro_x", "gyro_y", "gyro_z",
                "accel_x", "accel_y", "accel_z", "proj_grav_x", "proj_grav_y", "proj_grav_z",
                "phase_cos", "phase_sin",
                # 실제로 쓴 명령. 2026-08-10: 심은 걷는데 실기는 안 걷는 걸
                # 추적하려는데 명령이 안 남아 있어서 원인을 못 좁혔다.
                "cmd_vx", "cmd_vy", "cmd_wz", "cmd_stale"])
+        max_delta = MAX_MOTOR_VEL * DT
+
+        # 로그 옆에 실행 조건을 통째로 남긴다. CSV 만 나중에 봐도 어떤 정책·
+        # 어떤 상한·어떤 상수로 돈 건지 되짚을 수 있어야 갭 비교가 가능하다.
+        side = {
+            "started": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "onnx": os.path.abspath(args.onnx) if args.onnx else None,
+            "policy_meta": meta,
+            "command": {"vx": args.vx, "vy": args.vy, "wz": args.wz},
+            "action_lpf_alpha": args.action_lpf_alpha,
+            "grav_src": args.grav_src,
+            "current_limit_ticks": args.current,
+            "current_limit_A": args.current * 2.69 / 1000.0,
+            "torque_ceiling_Nm": 4.1 * (args.current * 2.69 / 1000.0) / 2.3,
+            "constants": {
+                "ACTION_SCALE": ACTION_SCALE, "DOF_VEL_SCALE": DOF_VEL_SCALE,
+                "MAX_MOTOR_VEL": MAX_MOTOR_VEL, "GAIT_PERIOD_STEPS": GAIT_PERIOD_STEPS,
+                "CONTROL_HZ": CONTROL_HZ, "STANDSTILL_HOLD_THRESH": STANDSTILL_HOLD_THRESH,
+                "max_delta_rad": float(max_delta),
+            },
+            "ready_joint_pos": {n: float(v) for n, v in READY_JOINT_POS.items()},
+            "joint_order": list(NAMES),
+            "leg_order": list(LEG_NAMES),
+            "urdf_limits_deg": {n: [math.degrees(BY_NAME[n][3]), math.degrees(BY_NAME[n][4])]
+                                for n in NAMES},
+            "shutdown_mask": list(hwi.shutdown_mask),
+            "imu_axis_matrix": imu.axis_matrix,
+            "imu_calib_stat": imu._rd(0x35, 1)[0],
+            "notes": "각도는 전부 rad(URDF 관절각). 파이프라인 단계: "
+                     "action -> actf(저역필터) -> tgt(READY+scale, 머리고정) -> "
+                     "mtgt(속도제한) -> goal(URDF 클램프, 실제 전송). "
+                     "err/volt/temp 는 느린 주기로 읽고 사이는 직전 값 유지. "
+                     "머리 4축 pos/vel 은 안 읽는다(lock_head_joints) — READY/0 으로 채운 값.",
+        }
+        with open(os.path.splitext(LOG_PATH)[0] + ".meta.json", "w") as _sf:
+            json.dump(side, _sf, ensure_ascii=False, indent=1)
+
         t_start = time.time()
         step = 0
         over_budget_count = 0
         over_budget_worst = 0.0
         t_window0 = time.time()
-        max_delta = MAX_MOTOR_VEL * DT
         nonfatal_seen = set()
         fatal_pending = None
         tqen = [1] * len(LEG_NAMES)
+        leg_err = [0] * len(LEG_NAMES)
+        # 전압/온도는 초 단위로만 변하니 느린 주기로 읽고 사이에는 직전 값을 쓴다.
+        volts = [0.0] * len(LEG_NAMES)
+        temps = [0] * len(LEG_NAMES)
+        VOLT_PERIOD = 100
+        goal_sent = READY_ARR.copy()
+        ms = dict(imu=0.0, read=0.0, infer=0.0, write=0.0)
+        t_prev = None
         # 이 버스에서 hw_error SyncRead 하나가 ~16ms 다. 2026-08-09 로그 실측:
         # step%10==0 인 루프만 84.9ms, 나머지는 20.2ms 였다(전체의 10%, 100초 중
         # 25초 손실). 그 루프에서 read 를 4번 했기 때문이다 —
@@ -422,8 +509,13 @@ def main():
                 if args.action_lpf_alpha_auto:
                     args.action_lpf_alpha = _alpha_for(command[:3])
 
+            _ta = time.time()
             gyro, accel, grav = imu.read()
+            _tb = time.time()
             leg_pos, leg_vel, leg_cur, leg_pwm = hwi.get_leg_pos_vel()
+            _tc = time.time()
+            ms["imu"] = (_tb - _ta) * 1e3
+            ms["read"] = (_tc - _tb) * 1e3
             # 머리 4축은 lock_head_joints=true 라 안 읽는다(SyncRead 14->10축,
             # 버스 시간 절약) — 항상 READY 로 고정 명령 나가니 rel=0/vel=0 으로 채운다.
             pos = READY_ARR.copy()
@@ -474,6 +566,14 @@ def main():
                         print(f"[rl_walk] (참고) 비치명 에러 비트 — {sorted(nonfatal_seen)}. "
                               f"토크는 안 끊긴다. 보행 부하로 전압이 처진 흔적일 수 있다.")
 
+            if step % VOLT_PERIOD == 0:
+                # addr 144(present_input_voltage, 2B) + 146(present_temperature, 1B)
+                # 이 연속이라 3바이트 한 번에. 브라운아웃 이력이 있어 전압은
+                # 갭 분석에 필요하고, 온도는 전류 상한을 올린 뒤 안전 확인용이다.
+                vb = hwi.io.sync_read_raw_data(LEG_IDS, 144, 3)
+                volts = [(b[0] | (b[1] << 8)) / 10.0 for b in vb]
+                temps = [b[2] for b in vb]
+
             joint_pos_rel = pos - READY_ARR
             joint_vel_scaled = vel * DOF_VEL_SCALE
             phase = 2.0 * math.pi * imitation_i / GAIT_PERIOD_STEPS
@@ -501,10 +601,12 @@ def main():
             ]).astype(np.float32)
             assert obs.shape[0] == 107, f"obs 차원 {obs.shape[0]} != 107"
 
+            _td = time.time()
             if zero_action:
                 action = np.zeros(14, dtype=np.float32)
             else:
                 action = sess.run(None, {"obs": obs.reshape(1, 107)})[0].reshape(14)
+            ms["infer"] = (time.time() - _td) * 1e3
 
             # 액션 저역필터 (docs/reports/lowpass_2026-08-09.md 실험 A). alpha=0이면
             # action_filt == action 그대로라 no-op. last_act(obs 이력)은 v35가 학습
@@ -517,11 +619,23 @@ def main():
             target[HEAD_IDX] = READY_ARR[HEAD_IDX]  # lock_head_joints=true
 
             motor_targets = np.clip(target, motor_targets - max_delta, motor_targets + max_delta)
-            hwi.set_position_vec(motor_targets)
+            _te = time.time()
+            # 반환값 = tick_of 클램프까지 거쳐 **실제로 서보에 나간** 각도.
+            goal_sent = np.array(hwi.set_position_vec(motor_targets), dtype=np.float32)
+            ms["write"] = (time.time() - _te) * 1e3
 
+            _now = time.time()
+            _dt = (_now - t_prev) if t_prev is not None else 0.0
+            t_prev = _now
             log_w.writerow(
-                [f"{time.time()-t_start:.4f}", step] + list(pos) + list(vel)
-                + list(action) + list(motor_targets) + list(leg_cur) + list(leg_pwm) + list(tqen)
+                [f"{_now-t_start:.4f}", step, f"{_dt:.4f}", imitation_i,
+                 f"{ms['imu']:.2f}", f"{ms['read']:.2f}", f"{ms['infer']:.2f}",
+                 f"{ms['write']:.2f}", f"{(_now-t0)*1e3:.2f}"]
+                + list(pos) + list(vel)
+                + list(action) + list(action_filt) + list(target) + list(motor_targets)
+                + list(goal_sent)
+                + list(leg_cur) + list(leg_pwm) + list(tqen) + list(leg_err)
+                + list(volts) + list(temps)
                 + [contact[0], contact[1], gyro[0], gyro[1], gyro[2],
                    accel_arr[0], accel_arr[1], accel_arr[2],
                    projected_gravity[0], projected_gravity[1], projected_gravity[2],
