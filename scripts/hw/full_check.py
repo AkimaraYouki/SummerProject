@@ -4,7 +4,10 @@
     ssh -t parksuho@192.168.137.7 'python3 ~/full_check.py --policy ~/policy_v42'
 
 ────────────────────────────────────────────────────────────────────────
-⚠️  로봇을 **매달아 놓고** 돌릴 것. 다리 10축을 순서대로 하나씩만 움직인다.
+⚠️  로봇을 **매달아 놓고** 돌릴 것.
+    **14축 전부 토크를 걸어 READY 자세로 잡아 둔 채**, 한 축씩만 사인을 넣는다.
+    (예전엔 대상 축만 토크를 켜서 나머지가 흐물거렸다 — 사람이 손으로 들고
+     있어야 했고, 그러면 부하 조건이 매번 달라져 좌우 비교가 안 됐다.)
 ────────────────────────────────────────────────────────────────────────
 
 ## 왜
@@ -20,7 +23,7 @@
 
 ## 무엇을 하는가
 
-축마다 (다리 10축, 머리는 건너뜀):
+축마다 (다리 10축을 순서대로. 머리 4축은 재지 않지만 READY 로 함께 잡는다):
 
   1. **한계 여유** — READY 자세에서 URDF 한계까지 남은 각도. 보행이 여기
      붙으면 클램프에 잘려 정책이 의도한 동작이 안 나온다.
@@ -66,7 +69,7 @@ PAIRS = [(f"left_{b}", f"right_{b}")
 DT = 0.02
 
 
-def measure(hwi, name, idv, center, amp, freqs, cycles):
+def measure(hwi, name, idv, center, amp, freqs, cycles, hold_ticks):
     """한 축의 주파수 응답. [(f, gain, phase, vmax, cmax), ...]"""
     out = []
     for f in freqs:
@@ -81,7 +84,11 @@ def measure(hwi, name, idv, center, amp, freqs, cycles):
             if t >= dur:
                 break
             goal = center + math.radians(amp) * math.sin(w * t)
-            hwi.io.sync_write_goal_position([idv], [tick_of(name, goal)])
+            # 대상 축은 사인, 나머지는 READY 로 계속 붙잡는다. 한 번의 SyncWrite 로
+            # 같이 보내야 나머지 축이 그 사이 흘러내리지 않는다.
+            goals = dict(hold_ticks)
+            goals[idv] = tick_of(name, goal)
+            hwi.io.sync_write_goal_position(list(goals), list(goals.values()))
             raw = hwi.io.sync_read_raw_data([idv], 126, 10)
             if not raw or len(raw[0]) != 10:
                 time.sleep(max(0.0, DT - (time.time() - t0 - t)))
@@ -135,24 +142,50 @@ def main() -> None:
 
     print(f"\n다리 10축 · 주파수 {freqs} Hz · 진폭 최대 ±{args.amp}° · "
           f"전류 상한 {args.current * CURRENT_UNIT_MA / 1000:.2f} A")
-    print("한 번에 한 축만 토크가 켜진다. 총 소요 약 "
-          f"{len(LEGS) * sum(args.cycles / f for f in freqs) / 60:.0f} 분")
+    print("14축 전부 READY 로 잡아 둔 채 한 축씩 흔든다 — 손으로 들 필요 없다.")
+    print(f"총 소요 약 {len(LEGS) * sum(args.cycles / f for f in freqs) / 60 + 0.2:.0f} 분")
     print("\n⚠️  로봇이 **매달려 있는지** 확인할 것.")
     if input("계속하려면 go 입력: ").strip() != "go":
         sys.exit("취소")
 
     hwi = HWI(port=args.port, current_limit=args.current)
-    all_ids = [BY_NAME[n][1] for n in LEGS]
+    # **14축 전부** 잡는다. 대상 축만 켜면 나머지가 흐물거려 사람이 들고 있어야
+    # 하고, 그러면 부하 조건이 매번 달라져 좌우 비교가 성립하지 않는다.
+    all_names = list(BY_NAME)
+    all_ids = [BY_NAME[n][1] for n in all_names]
     hwi.io.sync_write_torque_enable(all_ids, [0] * len(all_ids))
     hwi.io.sync_write_operating_mode(all_ids, [MODE_CURRENT_POSITION] * len(all_ids))
     hwi.io.sync_write_current_limit(all_ids, [args.current] * len(all_ids))
+
+    # 각 축의 유지 목표 = READY (메타가 있으면 그 값, 없으면 현재 위치)
+    hold_rad = {}
+    for n in all_names:
+        i = BY_NAME[n][1]
+        hold_rad[i] = (ready[n] if ready and n in ready
+                       else rad_of(n, hwi.io.sync_read_present_position([i])[0]))
+    hold_ticks = {i: tick_of(n, hold_rad[i]) for n, i in zip(all_names, all_ids)}
+
+    # 현재 자세에서 READY 로 천천히 (smoothstep 5초). 급출발 금지.
+    start = {i: rad_of(n, hwi.io.sync_read_present_position([i])[0])
+             for n, i in zip(all_names, all_ids)}
+    hwi.io.sync_write_torque_enable(all_ids, [1] * len(all_ids))
+    print("\n14축 토크 켬. READY 로 5초 램프인...")
+    N_RAMP = 250
+    for k in range(N_RAMP):
+        u = (k + 1) / N_RAMP
+        u = u * u * (3 - 2 * u)
+        hwi.io.sync_write_goal_position(
+            all_ids, [tick_of(n, start[i] + (hold_rad[i] - start[i]) * u)
+                      for n, i in zip(all_names, all_ids)])
+        time.sleep(0.02)
+    time.sleep(0.5)
+    print("READY 도달. 이제 한 축씩 잰다 (나머지는 계속 잡고 있다).\n")
 
     t_start = time.time()
     res: dict[str, dict] = {}
     for name in LEGS:
         idv = BY_NAME[name][1]
-        cur_pos = rad_of(name, hwi.io.sync_read_present_position([idv])[0])
-        center = math.radians(0.0) + (ready[name] if ready and name in ready else cur_pos)
+        center = hold_rad[idv]
 
         # 한계 여유: 중심에서 양쪽으로 얼마나 갈 수 있나 (tick_of 가 자르는 지점)
         margin = []
@@ -175,18 +208,10 @@ def main() -> None:
             res[name] = dict(skip=True, margin=margin, center=center)
             continue
 
-        hwi.io.sync_write_torque_enable([idv], [1])
-        # 중심으로 부드럽게 이동
-        p0 = rad_of(name, hwi.io.sync_read_present_position([idv])[0])
-        for k in range(60):
-            u = (k + 1) / 60.0
-            u = u * u * (3 - 2 * u)
-            hwi.io.sync_write_goal_position([idv], [tick_of(name, p0 + (center - p0) * u)])
-            time.sleep(0.02)
-        time.sleep(0.3)
-
-        r = measure(hwi, name, idv, center, amp, freqs, args.cycles)
-        hwi.io.sync_write_torque_enable([idv], [0])
+        r = measure(hwi, name, idv, center, amp, freqs, args.cycles, hold_ticks)
+        # 대상 축을 READY 로 되돌린 뒤 다음 축으로 (토크는 계속 켜 둔다)
+        hwi.io.sync_write_goal_position(list(hold_ticks), list(hold_ticks.values()))
+        time.sleep(0.4)
         temp1 = hwi.io.sync_read_raw_data([idv], 146, 1)[0][0]
         err = hwi.io.sync_read_hardware_error_status([idv])[0]
         res[name] = dict(r=r, margin=margin, amp=amp, center=center,
@@ -225,6 +250,8 @@ def main() -> None:
             line += f"  {f}Hz {ga:.2f}/{gb:.2f} ({diff:+.0f}%)"
         print(line + ("   <<< 이상" if worst > 20 else ""))
     print("=" * 84)
+    print("\n토크는 켜 둔 채 READY 를 유지한다. 풀려면:")
+    print("  python3 ~/home_position.py --release")
 
 
 if __name__ == "__main__":
