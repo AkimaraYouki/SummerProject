@@ -237,6 +237,17 @@ try:
         },
     )
 
+    # v41 + 대칭으로 다시 뽑은 레퍼런스 (ref_g125sym) + 거기서 유도한 READY.
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-V42-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V42",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-V34C20-v0",
         entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",

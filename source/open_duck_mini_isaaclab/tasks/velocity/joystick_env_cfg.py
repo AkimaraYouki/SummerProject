@@ -1145,6 +1145,37 @@ READY_JOINT_POS_G135 = {
     "right_hip_yaw": -0.0036, "right_hip_roll": -0.0111, "right_hip_pitch": 0.8264,
     "right_knee": 1.4084, "right_ankle": -0.6522,
 }
+#: ref_g125sym (2026-08-11) 기준 홈 자세. `scripts/diag/calc_home.py` 로 뽑았다.
+#:
+#: 기존 G115 자세는 그 자체가 좌우 비대칭이었다 — hip_roll 이 좌 +0.0207 / 우 -0.0104
+#: 인데 거울 부호가 +1 이라 대칭이면 우도 +0.0207 이어야 한다 (**1.78도 어긋남**).
+#: 관측이 `joint_pos_rel = pos - READY` 라 이 어긋남이 정책 입력에 그대로 실린다.
+#: 대칭 레퍼런스로 다시 뽑으니 좌 +0.0074 / 우 +0.0043 로 **0.18도**가 됐다.
+READY_JOINT_POS_G125SYM = {
+    "left_hip_yaw": -0.0036,
+    "left_hip_roll": 0.0074,
+    "left_hip_pitch": 0.9052,
+    "left_knee": -1.5647,
+    "left_ankle": 0.7298,
+    "neck_pitch": 0.0,
+    "head_pitch": 0.0,
+    "head_yaw": 0.0,
+    "head_roll": 0.0,
+    "right_hip_yaw": -0.0039,
+    "right_hip_roll": 0.0043,
+    "right_hip_pitch": 0.9341,
+    "right_knee": 1.5859,
+    "right_ankle": -0.7220,
+}
+#: 학습은 목·머리를 30도 숙인 자세로 한다 (사용자 지시, v33n 이후 계속).
+#: settle_height.py 실측 (2026-08-11, 16 env x 400 스텝, 175 mm 스폰).
+#:   안착 149.2 mm (표준편차 1.9) · 최소/최대 146.1 / 152.0
+READY_BASE_HEIGHT_G125SYM = 0.1492
+SPAWN_BASE_HEIGHT_G125SYM = 0.1560
+
+READY_JOINT_POS_G125SYM_ZNECK = dict(READY_JOINT_POS_G125SYM)
+READY_JOINT_POS_G125SYM_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
+
 READY_JOINT_POS_G135_ZNECK = dict(READY_JOINT_POS_G135)
 READY_JOINT_POS_G135_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
 
@@ -1430,6 +1461,56 @@ class JoystickEnvCfg_V41(JoystickEnvCfg_V40):
             joint_pos=dict(READY_JOINT_POS_G115_ZNECK),
         ),
     )
+
+
+@configclass
+class JoystickEnvCfg_V42(JoystickEnvCfg_V41):
+    """imitation_v42 — **대칭으로 다시 뽑은 레퍼런스**(ref_g125sym). 하나만 바뀐다.
+
+    v35 이후 모든 정책이 좌우 비대칭 레퍼런스를 모방해 왔다. 2026-08-11 에
+    원인을 셋 찾았고 전부 고쳤다 (docs/reports/reference_gaps_2026-08-11.md):
+
+      1. `fit_poly.py` 가 시간축을 **float32** 로 캐스팅했다. 15 차를 t∈[0,1) 에서
+         맞추면 조건수가 나빠 정밀도가 그대로 결과에 나온다 —
+         float32 재현오차 6.883도 / 무릎 좌우차 +16.4 %,
+         float64 재현오차 0.786도 / 무릎 좌우차 -3.1 % (녹화 원본 -1.8 %).
+      2. `poly_reference_motion.py` 가 계수를 float32 텐서에 담았다. 계수가 1e8 대라
+         Horner 평가에서 자릿수 소거가 나 무릎 좌우차가 +176 % 까지 튀었다.
+         평가를 float64 로 바꿨다.
+      3. `auto_waddle.py` 속도 필터가 격자의 45 % 를 삭제했다. 하필 직진 슬라이스의
+         dx = 0.0/0.148/0.222 가 전부 빠져 **전진 속도를 바꿔도 레퍼런스가 안 바뀌었다**
+         (저속 제자리걸음의 원인). `--no-speed-filter` 로 껐다.
+
+    추가로 직진 녹화 6 개를 반주기 거울로 시계열에서 대칭화했다.
+
+        지표 (vx=+0.222 직진)      ref_g125 -> ref_g125sym
+        격자 충전율                  55 %   ->  100 %
+        dy=0 존재                    없음   ->  있음
+        hip_pitch 진폭 좌우차      +41.0 %  ->  -2.9 %
+        knee                       +11.1 %  ->  +2.5 %
+        ankle                       -8.0 %  ->  +1.2 %
+
+    **READY 자세도 함께 바뀐다** — 레퍼런스에서 유도되는 값이라 분리할 수 없다.
+    기존 G115 자세는 그 자체가 hip_roll 1.78도 비대칭이었고 (관측이
+    `pos - READY` 라 정책 입력에 그대로 실린다) 새 자세는 0.18도다.
+
+    비교 기준 (v41 @800): 정지 피치 +0.59도(표준편차 4.82) · 정지 hip_yaw 어긋남
+      -3.89도 · hip_roll +0.73도 · 추종 6방향 · 실기 앞쏠림 +4.87도
+
+    **판정: 정지·보행 좌우 어긋남이 줄고, 저속에서 제자리걸음이 사라지는가.**
+    실기 앞쏠림(+4.87도)이 더 줄면 레퍼런스 비대칭이 그 일부였다는 뜻이다.
+    """
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_g125sym.pkl"
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G125SYM),
+            joint_pos=dict(READY_JOINT_POS_G125SYM_ZNECK),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_G125SYM
 
 
 @configclass
