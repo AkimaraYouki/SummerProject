@@ -119,6 +119,26 @@ def main() -> None:
               for n, i in zip(names, ids)]
     print("중심 위치: " + ", ".join(f"{n} {math.degrees(c):+.1f}°" for n, c in zip(names, center)))
 
+    # 사인의 일부가 URDF 한계에 잘리면 이득이 무의미해진다 — 잘린 만큼 진폭이
+    # 줄어 "모터가 못 따라간다" 로 오독하게 된다. 2026-08-12 에 실제로 겪었다:
+    # left_hip_pitch 를 한계(+70°) 근처에서 재서 이득 0.13 이 나왔는데, 모터는
+    # 멀쩡했고 목표의 위쪽 절반이 통째로 잘린 것이었다.
+    clipped = []
+    for n, c in zip(names, center):
+        for edge in (+1, -1):
+            want = c + edge * math.radians(args.amp)
+            sent = rad_of(n, tick_of(n, want))
+            if abs(sent - want) > math.radians(0.5):
+                clipped.append((n, math.degrees(want), math.degrees(sent)))
+    if clipped:
+        print("\n!! 사인이 URDF 한계에 잘린다 — 이 조건의 이득은 못 믿는다:")
+        for n, want, sent in clipped:
+            print(f"     {n:16} 목표 {want:+7.1f}° -> 실제 전송 {sent:+7.1f}°")
+        print("   --offset 으로 중심을 한계에서 떨어뜨리거나 --amp 를 줄일 것.")
+        if input("   그래도 계속하려면 yes 입력: ").strip() != "yes":
+            hwi.io.sync_write_torque_enable(ids, [0] * len(ids))
+            sys.exit("취소")
+
     hwi.io.sync_write_torque_enable(ids, [1] * len(ids))
     log_f = open(LOG_PATH, "w", newline="")
     log_w = csv.writer(log_f)
