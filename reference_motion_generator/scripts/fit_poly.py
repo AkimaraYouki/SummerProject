@@ -59,7 +59,24 @@ def fit_ref_motion(file, intended_vel=None):
     ).astype(np.float32)
 
     # Generate time feature
-    X = np.linspace(0, 1, Y.shape[0]).reshape(-1, 1).astype(np.float32)  # Time variable
+    #
+    # ⚠️ 런타임과 **같은 위상 격자**여야 한다. poly_reference_motion.py 는
+    #        t = (i % nb_steps_in_period) / nb_steps_in_period
+    #    로 평가한다 — 즉 0, 1/N, ..., (N-1)/N (간격 1/N, 끝이 1 이 아니다).
+    #    원래 코드는 np.linspace(0, 1, N) 이었는데 그건 간격이 1/(N-1) 이고
+    #    마지막 프레임을 t=1.0 에 놓는다. 두 축이 어긋나면 재생 위상이 계통적으로
+    #    밀리고, 좌우 다리는 반주기 떨어져 있으므로 **그 밀림이 좌우 다르게**
+    #    나타난다 (2026-08-11: 녹화는 ±2 % 대칭인데 적합 후 무릎이 +15~18 %).
+    #
+    # ⚠️ **float32 로 캐스팅하면 안 된다.** 15 차 다항식을 t∈[0,1) 에서 맞추는 것은
+    #    조건수가 매우 나빠서(polyfit 이 RankWarning 을 낸다) 입력 정밀도가 그대로
+    #    결과에 나온다. 2026-08-11 실측, 같은 데이터·같은 차수인데:
+    #        float32 X : 재현오차 6.883°, 무릎 좌우차 +16.4 %
+    #        float64 X : 재현오차 0.786°, 무릎 좌우차  -3.1 %  (녹화 원본 -1.8 %)
+    #    즉 v35 이후 모든 정책이 물려받은 레퍼런스 좌우 비대칭의 정체가 이 캐스팅이다.
+    #    (Y 는 float32 로 둔다 — 녹화 자체의 정밀도이고, 문제는 X 축이다.)
+    N = Y.shape[0]
+    X = (np.arange(N) / N).reshape(-1, 1)
 
     # Polynomial degree
     degree = 15

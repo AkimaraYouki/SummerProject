@@ -114,7 +114,13 @@ class PolyReferenceMotion:
             )
             return parsed[best[0]][best[1]][best[2]]
 
-        grid = torch.zeros(nb_dx, nb_dy, nb_dtheta, REF_FRAME_DIM, degree_plus_1, device=self.device)
+        # **float64 여야 한다.** 15 차 다항식을 t∈[0,1) 에서 맞추면 계수가 1e8 대까지
+        # 커지고 Horner 평가에서 대규모 자릿수 소거가 일어난다. float32(유효숫자 7)로는
+        # 그 소거를 못 버텨서 결과가 무너진다 — 2026-08-11 실측으로 무릎 진폭 좌우차가
+        # -3 % 여야 할 것이 +176 % 까지 튀었다. 표 자체는 작고(수십만 원소) 평가도
+        # [N,36,16] 뿐이라 float64 비용은 무시할 만하다. 반환할 때 float32 로 되돌린다.
+        grid = torch.zeros(nb_dx, nb_dy, nb_dtheta, REF_FRAME_DIM, degree_plus_1,
+                           device=self.device, dtype=torch.float64)
         for xi, dx in enumerate(self.dxs):
             for yi, dy in enumerate(self.dys):
                 for ti, dtheta in enumerate(self.dthetas):
@@ -122,7 +128,7 @@ class PolyReferenceMotion:
                         coeffs = parsed[dx][dy][dtheta]  # list of D lists, each length K
                     else:
                         coeffs = nearest_coeffs(dx, dy, dtheta)
-                    grid[xi, yi, ti] = torch.tensor(coeffs, device=self.device)
+                    grid[xi, yi, ti] = torch.tensor(coeffs, device=self.device, dtype=torch.float64)
 
         self.coeffs = grid
         self.dxs_t = torch.tensor(self.dxs, device=self.device)
@@ -149,11 +155,11 @@ class PolyReferenceMotion:
 
         env_coeffs = self.coeffs[ix, iy, ith]  # [N, 36, K]
 
-        t = (i.float() % self.nb_steps_in_period) / self.nb_steps_in_period
-        t = t.clamp(0.0, 1.0)  # [N]
+        t = (i.double() % self.nb_steps_in_period) / self.nb_steps_in_period
+        t = t.clamp(0.0, 1.0)  # [N], float64 — 위 grid 주석 참고
 
         num_envs, dim, degree_plus_1 = env_coeffs.shape
-        result = torch.zeros(num_envs, dim, device=self.device)
+        result = torch.zeros(num_envs, dim, device=self.device, dtype=torch.float64)
         for k in range(degree_plus_1):
             result = result * t.unsqueeze(-1) + env_coeffs[:, :, k]
-        return result
+        return result.float()

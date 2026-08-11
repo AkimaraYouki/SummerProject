@@ -122,11 +122,21 @@ echo "== 4/5 보행 생성 + 다항식 피팅 (-j$JOBS)"
 G="$WORK/reference_motion_generator"
 REC="$WORK/recordings_$OUT"
 mkdir -p "$REC"
-"$PLACO_PY" "$G/scripts/auto_waddle.py" -j"$JOBS" --duck open_duck_mini_v2 --sweep --output_dir "$REC"
+# --no-speed-filter: 5단계 필터는 medium 대역(slow~fast) 밖 녹화를 지운다. 우리는
+# 명령 범위 전체를 덮는 표 하나를 만드는 것이라 그러면 격자에 구멍이 난다
+# (2026-08-11 실측: 충전율 53~55 %, 직진 슬라이스에서 dx=0/0.148/0.222 소실).
+"$PLACO_PY" "$G/scripts/auto_waddle.py" -j"$JOBS" --duck open_duck_mini_v2 --sweep \
+  --no-speed-filter --output_dir "$REC"
 # 녹화가 하나도 안 나왔는데 조용히 넘어가면 옛 pkl 을 그대로 쓰게 된다.
 N=$(find "$REC" -maxdepth 1 -name '*.json' | wc -l)
 echo "  녹화 $N 개"
 [ "$N" -gt 0 ] || { echo "!! 녹화가 0 개다 — $REC/log 의 로그를 볼 것" >&2; exit 1; }
+# 적합 **전에** 직진 녹화를 대칭화한다. placo 원본은 거의 대칭인데(무릎 +3.3 %)
+# 격자점마다 독립으로 15차를 맞추는 적합이 +11~41 % 로 벌려 놓는다. 대칭인 신호를
+# 넣어야 적합 결과도 대칭이 나온다.
+echo "== 4.5/5 직진 녹화 대칭화"
+"$PLACO_PY" "$REPO_ROOT/scripts/setup/symmetrize_recordings.py" "$REC" | tail -5
+
 (cd "$WORK" && "$PLACO_PY" "$G/scripts/fit_poly.py" --ref_motion "$REC")
 mv "$WORK/polynomial_coefficients.pkl" "$WORK/$OUT.pkl"
 
