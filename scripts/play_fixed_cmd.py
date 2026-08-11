@@ -47,12 +47,20 @@ parser.add_argument("--cmd-udp", type=str, default=None, metavar="HOST:PORT",
                          "같은 입력으로 나란히 보려는 것. 잿슨 쪽은 rl_walk.py 의 "
                          "--cmd-udp-port 로 받는다. 패킷이 끊기면 실기는 자동으로 "
                          "정지 명령으로 떨어진다(잿슨 쪽 워치독).")
+parser.add_argument("--record", type=str, default=None, metavar="DIR",
+                    help="6방향 순환을 mp4 로 녹화한다. 이 디렉터리에 저장한다. "
+                         "헤드리스에서도 되며 --enable_cameras 를 자동으로 켠다. "
+                         "--cycle 과 함께 쓰는 것을 전제로 한다 (명령마다 --hold 초).")
 parser.add_argument("--terrain", type=str, default="plane",
                     help="평지 대신 다른 지형에서 재생한다. 목록은 "
                          "open_duck_mini_isaaclab/terrains.py 의 TERRAIN_CHOICES. "
                          "학습은 전부 평지에서 했으므로 제로샷이다")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
+# 녹화는 오프스크린 렌더가 필요하다. RecordVideo 가 rgb_array 를 요구하고,
+# 그건 카메라 확장이 켜져 있어야 동작한다 (헤드리스에서도 마찬가지).
+if args_cli.record:
+    args_cli.enable_cameras = True
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
@@ -171,7 +179,19 @@ if args_cli.ghost:
         )
     env_cfg.scene.ref_ghost = _g
 
-env = gym.make(args_cli.task, cfg=env_cfg)
+env = gym.make(args_cli.task, cfg=env_cfg,
+               render_mode="rgb_array" if args_cli.record else None)
+
+if args_cli.record:
+    import os as _os
+    _os.makedirs(args_cli.record, exist_ok=True)
+    # 한 번에 끊김 없이 전 구간을 담는다. step_trigger 를 0 스텝에만 걸고
+    # video_length 를 넉넉히 줘서 --seconds 만큼 통째로 녹화한다.
+    _len = int(args_cli.seconds / (env_cfg.sim.dt * env_cfg.decimation)) + 10
+    env = gym.wrappers.RecordVideo(
+        env, video_folder=args_cli.record, step_trigger=lambda i: i == 0,
+        video_length=_len, disable_logger=True)
+    print(f"[play] 녹화 -> {args_cli.record}  ({_len} 프레임)", flush=True)
 
 agent_cfg = runner_cfg_for(args_cli.task)
 env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
