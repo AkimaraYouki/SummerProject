@@ -34,6 +34,9 @@ parser.add_argument("--checkpoint", type=str, required=True)
 parser.add_argument("--num_envs", type=int, default=16)
 parser.add_argument("--steps", type=int, default=400)
 parser.add_argument("--warm", type=int, default=150, help="램프인/과도구간 제외")
+parser.add_argument("--vx", type=float, default=0.0, help="전진 명령 (기본 0 = 정지)")
+parser.add_argument("--vy", type=float, default=0.0)
+parser.add_argument("--wz", type=float, default=0.0)
 parser.add_argument("--out", type=str, default="")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -70,7 +73,13 @@ NAMES = list(ACTUATOR_JOINT_NAMES)
 obs, _ = env.get_observations() if isinstance(env.get_observations(), tuple) else (env.get_observations(), None)
 over_hi, over_lo, tmax, tmin, pmax, n = [], [], None, None, None, 0
 for step in range(args_cli.steps):
-    u._command[:, :] = 0.0                                  # 정지 명령
+    # 정지만 보면 보행 중 초과를 놓친다 — 2026-08-12 실기에서 left_hip_pitch 가
+    # 보행 중 URDF 상한을 8.7도 넘겨 클램프에 잘리고 있었는데, 이 진단은 정지만
+    # 봐서 "초과 0.0 %" 로 통과시켰다.
+    u._command[:, :] = 0.0
+    u._command[:, 0] = args_cli.vx
+    u._command[:, 1] = args_cli.vy
+    u._command[:, 2] = args_cli.wz
     with torch.inference_mode():
         obs, _, _, _ = env.step(policy(obs))
     if step < args_cli.warm:

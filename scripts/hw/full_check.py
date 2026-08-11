@@ -211,15 +211,17 @@ def main() -> None:
         idv = BY_NAME[name][1]
         center = hold_rad[idv]
 
-        # 한계 여유: 중심에서 양쪽으로 얼마나 갈 수 있나 (tick_of 가 자르는 지점)
+        # 한계 여유: 중심에서 양쪽으로 **실제로** 얼마나 갈 수 있나.
+        # 예전엔 --amp 에서 시작해 줄이기만 해서 "10 이상" 이 전부 +10 으로 찍혔다
+        # — 보행이 요구하는 각도와 비교할 수가 없었다. 위로도 탐색한다.
         margin = []
         for edge in (+1, -1):
-            a = args.amp
-            while a > 0.5:
-                want = center + edge * math.radians(a)
-                if abs(rad_of(name, tick_of(name, want)) - want) < math.radians(0.5):
+            a = 0.0
+            while a < 120.0:
+                want = center + edge * math.radians(a + 0.5)
+                if abs(rad_of(name, tick_of(name, want)) - want) > math.radians(0.5):
                     break
-                a -= 0.5
+                a += 0.5
             margin.append(a)
         amp = min(args.amp, min(margin))
         temp0 = hwi.io.sync_read_raw_data([idv], 146, 1)[0][0]
