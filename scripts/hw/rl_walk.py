@@ -422,6 +422,22 @@ def main():
     try:
         start_pos = np.array(hwi.get_present_positions(), dtype=np.float32)
 
+        # 지금 자세가 이 정책의 READY 와 얼마나 다른가. goto_ready 를 **다른**
+        # 정책으로 돌려 놓고 이걸 켜면 램프인이 그 차이를 3 초에 메우면서
+        # 로봇을 확 주저앉힌다. goto_ready 는 인자를 안 주면 '메타가 가장
+        # 최근인' 정책을 고르므로, 정책을 새로 뽑을 때마다 그 선택이 바뀐다
+        # — 조용히 어긋나기 딱 좋은 자리라 여기서 눈에 보이게 만든다.
+        _dd = np.degrees(start_pos - READY_ARR)
+        _big = [(n, v) for n, v in zip(NAMES, _dd) if abs(v) > 15.0]
+        if _big:
+            print(f"[rl_walk] 시작 자세가 이 정책의 READY 와 다르다 "
+                  f"(최대 {max(_dd, key=abs):+.1f}°) — 램프인 {args.rampin:.1f}초 동안 메운다:")
+            for n, v in sorted(_big, key=lambda x: -abs(x[1]))[:6]:
+                print(f"           {n:16} {v:+7.1f}°")
+            print(f"           로봇이 쓰러져 있으면 정상이다. 서 있는데 이게 뜨면 "
+                  f"goto_ready 를 다른 정책으로 돌린 것이다 — "
+                  f"goto_ready.py --policy <이 정책 폴더> 로 다시 할 것.")
+
         # 토크를 켜기 **전에** 전압부터 본다. 무부하에서도 낮으면 부하가 걸리는
         # 순간 규격 밖으로 떨어진다 — 2026-08-12 에 무부하 11.3 V 로 시작해
         # 2 초 만에 8.7 V 로 무너졌다. 무부하 11.3 은 3S 리포로 치면 셀당
