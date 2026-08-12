@@ -1555,6 +1555,34 @@ class JoystickEnvCfg_V43(JoystickEnvCfg_V42):
     action_max_delay = 2      # env step (40 ms) — 실측 30 ms 를 감싼다
 
 
+#: ref_g135sym (2026-08-12) 기준 홈 자세. calc_home.py 로 뽑았다.
+#: v42(g125sym) 대비 무릎이 13도 더 펴진다 — 실기 왼무릎이 -110도 아래에서
+#: 힘을 못 내는 것을 피하려는 것이다 (아래 V46 docstring 참고).
+READY_JOINT_POS_G135SYM = {
+    "left_hip_yaw": -0.0036,
+    "left_hip_roll": 0.0076,
+    "left_hip_pitch": 0.7827,
+    "left_knee": -1.3391,
+    "left_ankle": 0.6266,
+    "neck_pitch": 0.0,
+    "head_pitch": 0.0,
+    "head_yaw": 0.0,
+    "head_roll": 0.0,
+    "right_hip_yaw": -0.0037,
+    "right_hip_roll": 0.0027,
+    "right_hip_pitch": 0.8125,
+    "right_knee": 1.3654,
+    "right_ankle": -0.6230,
+}
+#: settle_height.py 실측 (2026-08-12, 16 env x 400 스텝, 185 mm 스폰).
+#:   안착 161.2 mm (표준편차 1.5) — v42(g125sym) 의 149.2 mm 보다 12 mm 더 선다.
+READY_BASE_HEIGHT_G135SYM = 0.1612
+SPAWN_BASE_HEIGHT_G135SYM = 0.1687
+
+READY_JOINT_POS_G135SYM_ZNECK = dict(READY_JOINT_POS_G135SYM)
+READY_JOINT_POS_G135SYM_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
+
+
 @configclass
 class _WideMassEventCfg(EventCfg):
     """EventCfg 에서 **질량 배율 범위만** 넓힌 것. 나머지 무작위화는 그대로."""
@@ -1607,6 +1635,57 @@ class JoystickEnvCfg_V44(JoystickEnvCfg_V42):
     """
 
     events: EventCfg = _WideMassEventCfg()
+
+
+@configclass
+class JoystickEnvCfg_V46(JoystickEnvCfg_V44):
+    """imitation_v46 — **몸통을 10 mm 더 세운다** (ref_g135sym). 하나만 바뀐다.
+
+    2026-08-12 실기에서 앞으로 넘어지는 원인을 관절 단위로 좁혔다.
+
+    **발목·고관절은 정상이다.** 앞으로 쏠릴 때 오차가 오히려 버티는 방향으로
+    움직였고 (left_ankle -4.96도, right_hip_pitch -5.88도) 목표 자체도
+    되돌리는 쪽으로 갔다 (right_ankle 목표가 -30.6 -> -41.2도). 정책은 일하고
+    있었다.
+
+    **하중에 밀린 것은 무릎뿐이다.** left_knee 는 앞쏠림 구간에서 오차가
+    13.94도 더 벌어졌고, 시작 1초 만에 -119도(URDF 한계 -120도에서 1.1도)에
+    처박혀 15초 내내 안 나왔다. 목표는 -75~-104도를 오가는데 실제는 -118도
+    고정, **전류 0.07 A** 였다. 결국 서보가 Overload(err=33)로 토크를 끊었다.
+
+    그런데 **하드웨어는 정상이다.** 두 번 확인했다:
+      * 주파수 응답 (READY -89.65도 중심 ±10도): 이득 0.99, 좌우차 1 %
+      * 손으로 몸통을 들고 보행: 무릎 -95~-70도 정상 추종, Overload 없음
+
+    즉 **-110도 아래에서만** 힘을 못 낸다. 그 구간은 한 번도 시험한 적이 없다.
+    원인(기어·혼·간섭)은 아직 모르지만, **그 구간을 안 지나가면 된다.**
+
+        walk_com_height  0.1973 -> 0.2073  (+10 mm)
+        READY 무릎       -89.7도 -> **-76.7도**  (13도 더 펴짐)
+        보행 목표 최저   -105.9도 -> 약 -93도
+        실기 14도 밀림   -119.9도 (한계) -> 약 -107도  (문제 구간 회피)
+
+    레퍼런스는 오늘 고친 파이프라인으로 새로 뽑았다 (격자 100 %, 직진 녹화
+    대칭화, float64 적합). 대칭성 유지: 진폭차 ±2 %, 중립 어긋남 <1도.
+
+    **주의: 심에서는 더 높은 자세가 나빴던 전례가 있다** (v34c20, +20 mm).
+    그래도 시도하는 이유는 실기 무릎이 특정 각도에서 죽기 때문이고, 심 점수를
+    조금 내주더라도 실기가 걷는 쪽이 낫기 때문이다.
+
+    비교 기준 (v44 @1000): 스텝당 0.5344 · (v42 @2000 추종 0.0153)
+    **판정: 실기에서 무릎이 -110도 아래로 안 가고 발이 떨어지는가.**
+    """
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_g135sym.pkl"
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G135SYM),
+            joint_pos=dict(READY_JOINT_POS_G135SYM_ZNECK),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_G135SYM
 
 
 @configclass

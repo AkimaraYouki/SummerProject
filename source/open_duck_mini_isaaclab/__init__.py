@@ -270,6 +270,17 @@ try:
         },
     )
 
+    # v44 + 몸통 10 mm 더 세움 (ref_g135sym). 실기 무릎이 -110도 아래에서 죽는 것 회피.
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-V46-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V46",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-V34C20-v0",
         entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
