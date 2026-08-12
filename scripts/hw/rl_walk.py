@@ -43,9 +43,22 @@ gait_period_steps=27(ref_g125, 0.54s@50Hz), standstill_hold=true.
 실제 오도메트리를 추가할 것.
 
 안전 설계 (기존 dxl_bridge.py/play_ref_gait.py 와 같은 원칙):
-  * 전류 제한 (기본 350 unit = 0.94 A) — 다리가 실제 보행 부하를 못 버티고
-    멈추면(주저앉으면) --current 를 올릴 것. 이 값은 걷기용으로 검증된 적이
-    없다 — 처음엔 반드시 매달아 놓고 관절이 걸리는지 눈으로 볼 것.
+  * 전류 제한 (기본 700 unit = 1.88 A).
+
+    **이 값은 학습 설정과 짝이다. 마음대로 낮추면 정책이 못 걷는다.**
+    `robot_cfg.py` 의 `XM430_CONT_TORQUE_700 = 3.16 N·m` 이 바로 "실기가
+    700 틱으로 돈다" 는 전제에서 나온 값이다 (τ = 1.96·(I − 0.27)).
+
+    2026-08-12 까지 기본값이 350 (0.94 A → 1.32 N·m) 이었다. 즉 실기는
+    심이 가정한 토크의 **42 %** 로 돌고 있었다. 심 정책은 무릎에 3.16 N·m
+    를 쓸 수 있다고 배웠는데 실기는 1.32 N·m 에서 잘렸으니, 체중을 받는
+    순간 무릎이 밀려 내려가고 앞으로 무너진다 — 그게 "앞으로 꼬구라진다"
+    의 정체다. 위 문단은 원래 "주저앉으면 --current 를 올릴 것" 이라고
+    적혀 있었는데, 정확히 그 증상이 났는데도 아무도 올리지 않았다.
+
+    올릴 때의 대가: 700 틱은 스톨 전류 2.3 A 의 82 % 라 연속으로 물리면
+    발열과 Overload 래치가 온다. 매 스텝 temp/hw_error 를 찍으니 60 °C
+    를 넘으면 멈출 것. v42 에서 Overload 를 본 적이 있다.
   * 모터 목표 속도 제한 (max_motor_velocity=4.82 rad/s, 학습 설정과 동일) —
     정책 출력이 튀어도 급격한 점프를 못 만든다.
   * URDF 관절 한계 클램프 (rustypot_hwi.tick_of 안에서).
@@ -129,6 +142,11 @@ MAX_MOTOR_VEL = 4.82        # rad/s, joystick_env_cfg.py max_motor_velocity (전
 GAIT_PERIOD_STEPS = 27      # ref_g125 레퍼런스 주기, 0.54s @ 50Hz (joystick_env.py._gait_period_steps)
 STANDSTILL_HOLD_THRESH = 0.01  # ‖command[:3]‖ 이하면 위상을 0(=cos,sin=1,0)에 고정
 CONTROL_HZ = 50.0
+#: 심이 관절 하나에 허용하는 최대 토크 (N·m). robot_cfg.py 의
+#: XM430_CONT_TORQUE_700 (DCMotor 계열) 과 같은 값. 메타에 effort_limit 이
+#: 있으면 그쪽이 이긴다 — ImplicitActuator 계열(v42/v44/v46)은 4.1 이다.
+#: 실기 --current 를 이 값과 맞추라고 시작할 때 비교해서 찍는다.
+SIM_EFFORT_LIMIT = 3.16
 DT = 1.0 / CONTROL_HZ
 NUM_COMMANDS = 7             # vx, vy, wz, neck_pitch, head_pitch, head_yaw, head_roll (뒤 4개 항상 0)
 
@@ -232,8 +250,10 @@ def main():
     ap.add_argument("--zero-action", action="store_true",
                      help="--onnx 를 줬어도 정책 추론을 건너뛰고 action=0 으로 강제 (파이프라인만 검증)")
     ap.add_argument("--port", default="/dev/ttyUSB0")
-    ap.add_argument("--current", type=int, default=350,
-                     help="Goal Current 상한 (1 unit=2.69mA). 다리가 부하로 멈추면 올릴 것")
+    ap.add_argument("--current", type=int, default=700,
+                     help="Goal Current 상한 (1 unit=2.69mA). 기본 700 = 1.88 A = 3.16 N·m 로 "
+                          "심의 effort_limit 과 맞춘 값이다 — 낮추면 정책이 배운 토크를 "
+                          "못 내고 무릎이 밀린다 (독스트링 참고). 발열/Overload 시에만 낮출 것")
     ap.add_argument("--rampin", type=float, default=3.0, help="현재 자세->READY 램프인 시간(초)")
     ap.add_argument("--vx", type=float, default=0.0, help="전후 속도 명령 [-0.15, 0.15]")
     ap.add_argument("--vy", type=float, default=0.0, help="좌우 속도 명령 [-0.2, 0.2]")
@@ -315,6 +335,23 @@ def main():
             print(f"[rl_walk] !! 경고: 이 명령에서 학습 시 알파는 {alpha_auto:.2f} 인데 "
                   f"{args.action_lpf_alpha} 로 돌린다 — 학습/배포 불일치다.")
     print(f"[rl_walk] 액션 저역필터 α={args.action_lpf_alpha:.3f} ({src})")
+
+    # ── 나머지 배포 계약도 메타에서 받는다 ─────────────────────────────────
+    # READY 는 위에서 _ready_from_meta() 가 이미 덮었다. 스케일 3개는 지금까지
+    # 전 계열이 같은 값이었지만 정책마다 바뀔 수 있는 값이라 같이 받는다.
+    # globals() 로 쓰는 이유: READY_ARR 을 위에서 이미 참조해 global 선언을 못 건다.
+    for key, name in (("action_scale", "ACTION_SCALE"),
+                      ("dof_vel_scale", "DOF_VEL_SCALE"),
+                      ("max_motor_velocity", "MAX_MOTOR_VEL")):
+        if meta.get(key) is not None:
+            cur = globals()[name]
+            if abs(float(meta[key]) - cur) > 1e-9:
+                print(f"[rl_walk] {name} {cur} -> {meta[key]} (meta)")
+            globals()[name] = float(meta[key])
+    if meta.get("lock_head_joints") is False:
+        print("[rl_walk] !! 경고: 이 정책은 lock_head_joints=false 로 학습됐는데 "
+              "이 스크립트는 머리를 항상 READY 로 고정한다 — 학습/배포 불일치다.")
+
     if zero_action:
         print("[rl_walk] !! zero-action 모드 — 정책 추론 없음. action=0 (READY 유지). "
               "IMU/모터/GPIO/타이밍 파이프라인만 검증한다.")
@@ -370,7 +407,18 @@ def main():
     try:
         start_pos = np.array(hwi.get_present_positions(), dtype=np.float32)
         hwi.arm()
-        print(f"[rl_walk] 토크 켬 14축 · 전류 상한 {args.current * 2.69 / 1000:.2f} A")
+        # 전류 상한을 **토크로 환산해서** 찍는다. 암페어만 보면 심의 effort_limit
+        # 과 비교할 수가 없어서, 2026-08-12 까지 실기가 심의 42 % 토크로 도는 걸
+        # 아무도 눈치채지 못했다. τ = 1.96·(I − 0.27), robot_cfg.py 와 같은 식.
+        amp = args.current * 2.69 / 1000.0
+        tau = 1.96 * max(amp - 0.27, 0.0)
+        sim_tau = float(meta.get("effort_limit") or SIM_EFFORT_LIMIT)
+        print(f"[rl_walk] 토크 켬 14축 · 전류 상한 {amp:.2f} A -> {tau:.2f} N·m "
+              f"(심 effort_limit {sim_tau:.2f} N·m 의 {100*tau/sim_tau:.0f} %)")
+        if tau < 0.9 * sim_tau:
+            print(f"[rl_walk] !! 경고: 실기 토크가 심보다 {sim_tau/max(tau,1e-6):.1f}배 작다. "
+                  f"정책은 {sim_tau:.2f} N·m 를 쓸 수 있다고 배웠다 — 체중을 받는 순간 "
+                  f"무릎이 밀린다. --current {int((sim_tau/1.96 + 0.27)*1000/2.69)} 로 맞출 것.")
 
         # 1) 램프인: 현재 자세 -> READY.
         print(f"[rl_walk] 램프인 {args.rampin:.1f}s -> READY 자세")
@@ -450,7 +498,8 @@ def main():
                 "CONTROL_HZ": CONTROL_HZ, "STANDSTILL_HOLD_THRESH": STANDSTILL_HOLD_THRESH,
                 "max_delta_rad": float(max_delta),
             },
-            "ready_joint_pos": {n: float(v) for n, v in READY_JOINT_POS.items()},
+            "ready_joint_pos": {n: float(v) for n, v in zip(NAMES, READY_ARR)},
+            "contract_source": "policy.meta.json" if meta.get("ready_joint_pos") else "rl_walk.py 하드코딩",
             "joint_order": list(NAMES),
             "leg_order": list(LEG_NAMES),
             "urdf_limits_deg": {n: [math.degrees(BY_NAME[n][3]), math.degrees(BY_NAME[n][4])]

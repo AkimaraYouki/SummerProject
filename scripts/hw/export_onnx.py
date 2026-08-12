@@ -156,6 +156,23 @@ def _read_env_yaml(path: str) -> dict:
     if ready:
         out["ready_joint_pos"] = ready
 
+    # 다리 액추에이터의 토크 상한. 실기 rl_walk 가 이 값과 자기 --current 를
+    # 비교해서 경고를 띄운다 — 2026-08-12 까지 실기가 심의 42 % 토크로 돌고
+    # 있었는데 두 숫자가 서로 다른 파일에 살아서 아무도 대조하지 않았다.
+    # ImplicitActuatorCfg 는 effort_limit_sim 에, DCMotorCfg 는 effort_limit 에
+    # 값이 들어가고 나머지 하나는 null 이다.
+    for i, line in enumerate(lines):
+        if line.rstrip() != "    legs:":
+            continue
+        for nxt in lines[i + 1:]:
+            if nxt[:1] not in (" ", "") or (nxt.strip() and not nxt.startswith("      ")):
+                break
+            mm = re.match(r"^\s{6}(effort_limit|effort_limit_sim):\s*([-\d.eE+]+)\s*$", nxt)
+            if mm:
+                out["effort_limit"] = float(mm.group(2))
+                break
+        break
+
     for i, line in enumerate(lines):
         m = re.match(r"^([a-z_]+):\s*(.*)$", line)
         if not m:
@@ -267,6 +284,9 @@ def main():
                "lock_head_joints": meta.get("lock_head_joints", True),
                # 실기가 이 자세로 이동한 뒤 정책을 시작해야 한다.
                "ready_joint_pos": meta.get("ready_joint_pos", {}),
+               # 심이 허용한 관절 토크 (N·m). rl_walk 가 --current 를 여기에
+               # 맞췄는지 검사한다. τ = 1.96·(I − 0.27) 로 환산.
+               "effort_limit": meta.get("effort_limit"),
                "note": "rl_walk.py 가 이 값으로 액션 저역통과를 맞춘다. "
                        "학습 설정(params/env.yaml)에서 자동으로 뽑았으니 손대지 말 것."},
               open(meta_path, "w"), ensure_ascii=False, indent=2)

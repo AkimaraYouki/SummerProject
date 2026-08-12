@@ -1,15 +1,34 @@
 #!/usr/bin/env python3
-"""검증된 부호로 실기를 READY 자세까지 천천히 이동시킨다.
+"""실기를 정책의 READY 자세까지 천천히 이동시킨다.
 
-    ssh -t parksuho@192.168.137.7 'python3 ~/goto_ready.py'          # 이동
-    ssh    parksuho@192.168.137.7 'python3 ~/goto_ready.py --dry-run' # 계산만
-    ssh -t parksuho@192.168.137.7 'python3 ~/goto_ready.py --home'    # 2048 복귀
+    ssh -t parksuho@192.168.137.7 'python3 ~/goto_ready.py'                # 최신 정책의 READY 로
+    ssh -t parksuho@192.168.137.7 'python3 ~/goto_ready.py --policy ~/policy_v46'
+    ssh    parksuho@192.168.137.7 'python3 ~/goto_ready.py --dry-run'      # 계산만
+    ssh -t parksuho@192.168.137.7 'python3 ~/goto_ready.py --home'         # 2048 복귀
 
-부호/영점은 2026-08-06 에 실기에서 14축 전부 눈으로 확인한 값이다
-(joint_calibration.json, hardware_map.py). 그 전 버전은 ID 순서를 추측했고
-그래서 3축이 기구 스토퍼에 걸렸다 — 여기 박힌 표가 그 사고의 산물이다.
+## READY 는 어디서 오는가
 
-안전:
+**정책 폴더의 `policy.meta.json` 이다.** 인자를 안 주면 `~/policy*/` 중 메타가
+가장 최근인 것을 자동으로 고른다. 아래 `FALLBACK_READY` 는 메타가 하나도 없을
+때만 쓰는 2026-08-08 자 값이고, 지금은 학습 설정이 여러 번 바뀌어 **한참
+어긋나 있다** (v46 기준 무릎 25.6도, 발목 13.6도, 고관절 11.9도 차이).
+
+READY 가 어긋나면 두 가지가 동시에 깨진다. 정책이 보는 관절각 관측이 통째로
+밀리고, rl_walk 가 시작하면서 그 차이를 한 스텝에 메우려 들어 로봇이 뚝
+떨어진다. 2026-08-12 에 "시작하자마자 앞으로 꼬꾸라진다" 던 것이 이거였다.
+
+## 부호·ID·관절한계
+
+`rustypot_hwi.py` 에서 가져온다. **여기서 다시 정의하지 않는다.**
+
+2026-08-12 에 이 파일이 `TICK_RAD` 를 자기 것으로 들고 있다가 사고가 났다.
+젯슨의 사본만 `4.0*pi/4096` 으로 되어 있었는데 (맞는 값은 `2.0*pi/4096`,
+XM430 은 4096 tick 이 1 회전이다) 그래서 **모든 목표각이 절반으로 줄어**
+있었다. v46 무릎 -76.7도 를 명령하면 실제로는 -38.3도 에서 멈췄다. 다른
+파일 넷은 전부 맞았는데 이 파일만 틀렸다 — 표를 복제한 대가다.
+
+## 안전
+
   * 전류 상한 (기본 400 unit = 1.08 A, 스톨 2.3 A 의 47 %).
   * **로컬 스톨 감지.** 매 스텝에서 추종 오차를 보고, 어느 축이든 STALL_TICK 이상
     벌어진 채 STALL_HOLD 초를 넘기면 그 자리에서 전 축 목표를 현재 위치로 덮어써
@@ -19,16 +38,27 @@
 """
 
 import argparse
+import glob
+import json
 import math
+import os
 import sys
 import time
 
 from dynamixel_sdk import (PortHandler, PacketHandler, GroupSyncWrite, GroupSyncRead,
                            COMM_SUCCESS)
 
-BAUD = 1_000_000
-TICK_RAD = 2.0 * math.pi / 4096.0
-CENTER = 2048
+sys.path.insert(0, os.path.expanduser("~"))
+# 부호·ID·관절한계·tick 변환의 단일 출처. 위 독스트링의 사고 기록 참고.
+from rustypot_hwi import (  # noqa: E402
+    BAUD,
+    BY_NAME,
+    CENTER,
+    CURRENT_UNIT_MA,
+    NAMES,
+    TICK_RAD,
+    tick_of,
+)
 
 ADDR_OPERATING_MODE = 11
 ADDR_TORQUE_ENABLE = 64
@@ -40,38 +70,55 @@ ADDR_PRESENT_CURRENT = 126
 ADDR_PRESENT_POSITION = 132
 ADDR_PRESENT_TEMP = 146
 MODE_CURRENT_POSITION = 5
-CURRENT_UNIT_MA = 2.69
 
 STALL_TICK = 120      # 10.5°. 이만큼 벌어지면 추종 실패로 본다
 STALL_HOLD = 1.0      # 초. 순간적인 지연은 무시하고 지속될 때만 중단
 
-# (관절, ID, 부호, READY rad, URDF 한계 rad) — 전부 실기 확인 완료.
-JOINTS = [
-    ("left_hip_yaw",     3, -1,  0.0003, 0.5236),
-    ("left_hip_roll",    8, -1,  0.0213, 0.4363),
-    ("left_hip_pitch",   9, -1,  0.9910, None),
-    ("left_knee",       10, +1, -1.7852, 2.0944),
-    ("left_ankle",      11, +1,  0.8647, 1.5708),
-    ("neck_pitch",       2, +1,  0.0000, None),
-    ("head_pitch",      12, -1,  0.0000, 0.7854),
-    ("head_yaw",        13, -1,  0.0000, 2.7925),
-    ("head_roll",       14, -1,  0.0000, 0.5236),
-    ("right_hip_yaw",    1, -1, -0.0005, 0.5236),
-    ("right_hip_roll",   4, +1, -0.0092, 0.4363),
-    ("right_hip_pitch",  5, +1,  1.0114, None),
-    ("right_knee",       6, -1,  1.8163, 2.0944),
-    ("right_ankle",      7, -1, -0.8754, 1.5708),
-]
-# hip_pitch / neck_pitch 는 좌우 비대칭 한계라 따로 준다 (lower, upper).
-ASYM = {"left_hip_pitch": (-0.5236, 1.2217), "right_hip_pitch": (-0.5236, 1.2217),
-        "neck_pitch": (-0.3491, 1.1345)}
+# 정책 메타를 하나도 못 찾았을 때만 쓴다. 2026-08-08 자 — 지금 정책과 다르다.
+FALLBACK_READY = {
+    "left_hip_yaw": 0.0003, "left_hip_roll": 0.0213, "left_hip_pitch": 0.9910,
+    "left_knee": -1.7852, "left_ankle": 0.8647,
+    "neck_pitch": 0.0, "head_pitch": 0.0, "head_yaw": 0.0, "head_roll": 0.0,
+    "right_hip_yaw": -0.0005, "right_hip_roll": -0.0092, "right_hip_pitch": 1.0114,
+    "right_knee": 1.8163, "right_ankle": -0.8754,
+}
 
 
-def limits(name, sign, sym):
-    lo_r, hi_r = ASYM[name] if name in ASYM else (-sym, sym)
-    a = CENTER + sign * lo_r / TICK_RAD
-    b = CENTER + sign * hi_r / TICK_RAD
-    return int(round(min(a, b))), int(round(max(a, b)))
+def newest_policy_meta():
+    """`ready_joint_pos` 가 들어 있는 policy.meta.json 중 가장 최근 것."""
+    best, best_mt = None, -1.0
+    for p in glob.glob(os.path.expanduser("~/policy*/policy.meta.json")):
+        try:
+            if not (json.load(open(p)) or {}).get("ready_joint_pos"):
+                continue
+        except Exception:
+            continue
+        mt = os.path.getmtime(p)
+        if mt > best_mt:
+            best, best_mt = p, mt
+    return best
+
+
+def load_ready(policy_arg):
+    """(READY dict, 출처 설명) 을 준다."""
+    if policy_arg == "-":
+        return dict(FALLBACK_READY), "FALLBACK_READY (2026-08-08 하드코딩)"
+    mp = (os.path.join(os.path.expanduser(policy_arg), "policy.meta.json")
+          if policy_arg else newest_policy_meta())
+    if mp is None:
+        print("!! policy.meta.json 을 하나도 못 찾았다 — 2026-08-08 하드코딩 값을 쓴다.")
+        print("   지금 정책과 다를 가능성이 높다. odm onnx 로 메타를 다시 뽑을 것.")
+        return dict(FALLBACK_READY), "FALLBACK_READY (메타 없음)"
+    if not os.path.exists(mp):
+        raise SystemExit(f"policy.meta.json 이 없다: {mp}")
+    meta = json.load(open(mp))
+    ready = meta.get("ready_joint_pos") or {}
+    if not ready:
+        raise SystemExit(f"{mp} 에 ready_joint_pos 가 없다 — odm onnx 로 다시 뽑을 것")
+    missing = [n for n in NAMES if n not in ready]
+    if missing:
+        raise SystemExit(f"메타에 빠진 관절: {missing}")
+    return ready, f"{mp}  (run {meta.get('run','?')} iter {meta.get('iter','?')})"
 
 
 def main():
@@ -85,48 +132,25 @@ def main():
                     help="서보 Profile Velocity. 0 = 속도 제한 없음 (보간이 속도를 정한다)")
     ap.add_argument("--check-every", type=int, default=1,
                     help="몇 루프마다 위치를 읽어 스톨을 볼지. 0 = 안 읽음(개루프). "
-                         "57600 에서 14축 SyncRead 는 64 ms 라 읽기를 섞으면 루프가 "
-                         "그만큼 느려진다 — 쓰기만 하면 13 ms(75 Hz)")
+                         "읽기를 섞으면 SyncRead 왕복만큼 루프가 느려진다")
     ap.add_argument("--stall-tick", type=int, default=STALL_TICK,
                     help="추종 오차 몇 tick 부터 스톨로 볼지. 빠르게 갈수록 지연이 커지니 올린다")
     ap.add_argument("--policy", default=None, metavar="DIR",
-                    help="정책 폴더(예: ~/policy_v42). 그 안 policy.meta.json 의 "
-                         "ready_joint_pos 를 READY 로 쓴다. **이걸 쓰는 것을 권한다** — "
-                         "아래 JOINTS 표는 2026-08-08 자 하드코딩이라 학습 설정이 바뀌면 "
-                         "조용히 어긋난다 (2026-08-12: 젯슨이 v40 자세를 든 채 v41 정책을 "
-                         "돌려 무릎 관측이 10.3도 밀려 있었다).")
+                    help="정책 폴더(예: ~/policy_v46). 생략하면 ~/policy*/ 중 메타가 "
+                         "가장 최근인 것을 자동으로 고른다. '-' 를 주면 하드코딩 값을 쓴다.")
     ap.add_argument("--home", action="store_true", help="READY 대신 2048 로 복귀")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    # 정책 메타에서 READY 를 읽어 표를 덮어쓴다. 부호·ID·한계는 실기 확인값이라
-    # 그대로 두고, **각도만** 바꾼다.
-    global JOINTS
-    if args.policy:
-        import json
-        import os
-        mp = os.path.join(os.path.expanduser(args.policy), "policy.meta.json")
-        if not os.path.exists(mp):
-            raise SystemExit(f"policy.meta.json 이 없다: {mp}")
-        meta = json.load(open(mp))
-        ready = meta.get("ready_joint_pos") or {}
-        if not ready:
-            raise SystemExit(f"{mp} 에 ready_joint_pos 가 없다 — odm onnx 로 다시 뽑을 것")
-        missing = [n for n, *_ in JOINTS if n not in ready]
-        if missing:
-            raise SystemExit(f"메타에 빠진 관절: {missing}")
-        old_map = {n: r for n, _i, _s, r, _l in JOINTS}
-        JOINTS = [(n, i, sg, ready[n], lim) for n, i, sg, _r, lim in JOINTS]
-        print(f"READY 출처: {mp}  (run {meta.get('run','?')} iter {meta.get('iter','?')})")
-        diff = [(n, old_map[n], ready[n]) for n, *_ in JOINTS
-                if abs(old_map[n] - ready[n]) > 1e-4]
-        if diff:
-            print("  하드코딩 표와 다른 축:")
-            for n, o, v in diff:
-                print(f"    {n:16} {math.degrees(o):+7.2f}° -> {math.degrees(v):+7.2f}°"
-                      f"   ({math.degrees(v - o):+.2f}°)")
-        else:
-            print("  하드코딩 표와 동일")
+    ready, src = load_ready(args.policy)
+    print(f"READY 출처: {src}")
+    diff = [(n, FALLBACK_READY[n], ready[n]) for n in NAMES
+            if abs(FALLBACK_READY[n] - ready[n]) > 1e-4]
+    if diff and not src.startswith("FALLBACK"):
+        print("  2026-08-08 하드코딩 표와 다른 축:")
+        for n, o, v in diff:
+            print(f"    {n:16} {math.degrees(o):+7.2f}° -> {math.degrees(v):+7.2f}°"
+                  f"   ({math.degrees(v - o):+.2f}°)")
 
     port = PortHandler(args.port)
     packet = PacketHandler(2.0)
@@ -134,19 +158,22 @@ def main():
         raise SystemExit(f"포트 열기 실패: {args.port}")
 
     start, goal, names = {}, {}, {}
-    print(f"{'ID':>3} {'joint':16s} {'현재':>6s} {'목표':>6s} {'이동':>7s} {'도':>7s}")
-    for name, i, sign, rad, sym in JOINTS:
+    print(f"\n{'ID':>3} {'joint':16s} {'현재':>6s} {'목표':>6s} {'이동':>7s} {'도':>7s} {'READY°':>8s}")
+    for name in NAMES:
+        i = BY_NAME[name][1]
         pos, r, e = packet.read4ByteTxRx(port, i, ADDR_PRESENT_POSITION)
         if r != COMM_SUCCESS or e:
             print(f"{i:3d} {name:16s} 응답 없음 — 중단한다 (전원/배선 확인)")
             port.closePort()
             raise SystemExit(1)
-        lo, hi = limits(name, sign, sym)
-        tgt = CENTER if args.home else int(round(CENTER + sign * rad / TICK_RAD))
-        tgt = max(lo, min(hi, tgt))
+        # tick_of 가 URDF 한계 클램프까지 해 준다 (rustypot_hwi 와 같은 변환).
+        tgt = CENTER if args.home else tick_of(name, ready[name])
         start[i], goal[i], names[i] = pos, tgt, name
+        clamped = "" if args.home or tgt == int(round(
+            CENTER + BY_NAME[name][2] * ready[name] / TICK_RAD)) else "  <한계로 잘림"
         print(f"{i:3d} {name:16s} {pos:6d} {tgt:6d} {tgt - pos:+7d} "
-              f"{math.degrees((tgt - pos) * TICK_RAD):+7.1f}")
+              f"{math.degrees((tgt - pos) * TICK_RAD):+7.1f} "
+              f"{math.degrees(ready[name]):+8.2f}{clamped}")
 
     biggest = max(abs(goal[i] - start[i]) for i in start)
     print(f"\n최대 이동 {biggest} tick ({math.degrees(biggest * TICK_RAD):.1f}°), "
@@ -164,7 +191,8 @@ def main():
     if sys.stdin.isatty():
         input("\n로봇을 받친 뒤 Enter (중단은 Ctrl+C): ")
 
-    for i in start:
+    ids = [BY_NAME[n][1] for n in NAMES]
+    for i in ids:
         packet.write1ByteTxRx(port, i, ADDR_TORQUE_ENABLE, 0)
         packet.write1ByteTxRx(port, i, ADDR_OPERATING_MODE, MODE_CURRENT_POSITION)
         packet.write4ByteTxRx(port, i, ADDR_PROFILE_ACCEL, 0 if args.pvel == 0 else 10)
@@ -175,16 +203,15 @@ def main():
 
     def hold_here(msg):
         print(f"\n{msg} — 전 축 목표를 현재 위치로 덮어써 미는 힘을 없앤다.")
-        for i in start:
+        for i in ids:
             p, _, _ = packet.read4ByteTxRx(port, i, ADDR_PRESENT_POSITION)
             packet.write4ByteTxRx(port, i, ADDR_GOAL_POSITION, p & 0xFFFFFFFF)
 
     sync = GroupSyncWrite(port, packet, ADDR_GOAL_POSITION, 4)
-    # 14축을 개별로 읽으면 57600 baud 에서 왕복만 30 ms 넘게 먹어 루프가 20 Hz 를
-    # 못 넘긴다. 그게 곧 목표 갱신 간격이라 빠르게 움직이면 계단처럼 끊긴다.
+    # 14축을 개별로 읽으면 왕복만 30 ms 넘게 먹어 루프가 20 Hz 를 못 넘긴다.
+    # 그게 곧 목표 갱신 간격이라 빠르게 움직이면 계단처럼 끊긴다.
     # SyncRead 는 한 트랜잭션이라 50 Hz 이상이 나온다.
     reader = GroupSyncRead(port, packet, ADDR_PRESENT_POSITION, 4)
-    ids = list(start)
     for i in ids:
         reader.addParam(i)
     since = {i: None for i in ids}
@@ -232,8 +259,6 @@ def main():
     except KeyboardInterrupt:
         hold_here("Ctrl+C")
         return
-    finally:
-        port.closePort() if False else None
 
     elapsed = time.time() - t0
     print(f"\n이동 {elapsed:.2f}초, 루프 {loops}회, 실측 {loops / elapsed:.0f} Hz")
