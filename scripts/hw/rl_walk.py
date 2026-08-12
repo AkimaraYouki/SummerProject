@@ -143,6 +143,12 @@ MAX_MOTOR_VEL = 4.82        # rad/s, joystick_env_cfg.py max_motor_velocity (전
 GAIT_PERIOD_STEPS = 27      # ref_g125 레퍼런스 주기, 0.54s @ 50Hz (joystick_env.py._gait_period_steps)
 STANDSTILL_HOLD_THRESH = 0.01  # ‖command[:3]‖ 이하면 위상을 0(=cos,sin=1,0)에 고정
 CONTROL_HZ = 50.0
+#: 이 아래로 떨어지면 브라운아웃으로 보고 멈춘다 (V).
+#: XM430 의 Min Voltage Limit 레지스터가 95 = 9.5 V 이고 그 아래는 규격 밖이라
+#: 명령해도 토크가 안 난다. 여유를 조금 두고 10.0 으로 잡았다.
+BROWNOUT_V = 10.0
+#: 몇 번 연속으로 낮아야 멈출지. VOLT_PERIOD(25 스텝 = 0.5 초) × 이 값.
+BROWNOUT_HOLD = 2
 #: 심이 관절 하나에 허용하는 최대 토크 (N·m). robot_cfg.py 의
 #: XM430_CONT_TORQUE_700 (DCMotor 계열) 과 같은 값. 메타에 effort_limit 이
 #: 있으면 그쪽이 이긴다 — ImplicitActuator 계열(v42/v44/v46)은 4.1 이다.
@@ -415,6 +421,20 @@ def main():
 
     try:
         start_pos = np.array(hwi.get_present_positions(), dtype=np.float32)
+
+        # 토크를 켜기 **전에** 전압부터 본다. 무부하에서도 낮으면 부하가 걸리는
+        # 순간 규격 밖으로 떨어진다 — 2026-08-12 에 무부하 11.3 V 로 시작해
+        # 2 초 만에 8.7 V 로 무너졌다. 무부하 11.3 은 3S 리포로 치면 셀당
+        # 3.77 V, 이미 절반쯤 쓴 상태였다.
+        _vb = hwi.io.sync_read_raw_data(LEG_IDS, 144, 2)
+        v0 = [(b[0] | (b[1] << 8)) / 10.0 for b in _vb if len(b) == 2]
+        if v0:
+            print(f"[rl_walk] 무부하 전압 {min(v0):.1f}~{max(v0):.1f} V")
+            if min(v0) < BROWNOUT_V + 1.5:
+                print(f"[rl_walk] !! 경고: 무부하에서 이미 {min(v0):.1f} V 다. 보행 중 다리 "
+                      f"10축 합계가 순간 5 A 를 넘으므로 곧 {BROWNOUT_V:.1f} V 아래로 "
+                      f"떨어진다. 충전하거나 파워서플라이 전류한계를 올리고 다시 할 것.")
+
         hwi.arm()
         # 전류 상한을 **토크로 환산해서** 찍는다. 암페어만 보면 심의 effort_limit
         # 과 비교할 수가 없어서, 2026-08-12 까지 실기가 심의 42 % 토크로 도는 걸
@@ -570,7 +590,12 @@ def main():
         # 전압/온도는 초 단위로만 변하니 느린 주기로 읽고 사이에는 직전 값을 쓴다.
         volts = [0.0] * len(LEG_NAMES)
         temps = [0] * len(LEG_NAMES)
-        VOLT_PERIOD = 100
+        # 100(2초) 이었는데 25(0.5초) 로 당겼다 — 브라운아웃 가드가 여기 붙어
+        # 있어서다. 2026-08-12 에 전원이 2 초 만에 무너졌는데 2 초 주기로는
+        # 그걸 한 번 읽고 끝난다. SyncRead 3바이트×10축이 ~16 ms 라 25 스텝
+        # 주기면 스텝당 0.6 ms, 20 ms 예산의 3 % 다.
+        VOLT_PERIOD = 25
+        brownout = 0
         goal_sent = READY_ARR.copy()
         ms = dict(imu=0.0, read=0.0, infer=0.0, write=0.0)
         t_prev = None
@@ -664,6 +689,32 @@ def main():
                 vb = hwi.io.sync_read_raw_data(LEG_IDS, 144, 3)
                 volts = [(b[0] | (b[1] << 8)) / 10.0 for b in vb]
                 temps = [b[2] for b in vb]
+
+                # ── 브라운아웃 가드 ────────────────────────────────────────
+                # 2026-08-12: v46 런에서 t=2.0 s 에 전원이 11.3 V -> 8.7 V 로
+                # 무너지고 끝까지 회복하지 않았다. XM430 최소 동작전압은 9.5 V
+                # (Min Voltage Limit 레지스터 95) 라 그 아래에서는 규격 밖이다.
+                # 그 상태의 로그는 전부 못 믿는다 — 실제로 무릎이 PWM 100 %
+                # 포화인데 전류가 0.003 A 였고, 전 축 InputVoltage 에러가 떠
+                # 있었다. 그걸 모르고 게인·전류상한·기구를 며칠 뒤졌다.
+                # 그러니 여기서 멈춘다. 낮은 전압으로 계속 돌려 봐야 얻을
+                # 데이터가 없고, 배터리만 더 망가진다.
+                vlo = min(volts) if volts else 99.0
+                if vlo < BROWNOUT_V:
+                    brownout += 1
+                    if brownout == 1:
+                        print(f"\n[rl_walk] !! 전압 {vlo:.1f} V — 최소 동작전압 "
+                              f"{BROWNOUT_V:.1f} V 아래다. {BROWNOUT_HOLD}회 연속이면 멈춘다.",
+                              flush=True)
+                    if brownout >= BROWNOUT_HOLD:
+                        print(f"\n[rl_walk] !! 브라운아웃 정지: 전압 {vlo:.1f} V "
+                              f"(축별 {['%.1f' % v for v in volts]})\n"
+                              f"           이 아래에서는 명령해도 토크가 안 난다. "
+                              f"배터리 충전/교체 또는 파워서플라이 전류한계를 볼 것 "
+                              f"(다리 10축 합계가 순간 5 A 를 넘는다).", flush=True)
+                        _hold["stop"] = True
+                else:
+                    brownout = 0
 
             joint_pos_rel = pos - READY_ARR
             joint_vel_scaled = vel * DOF_VEL_SCALE
