@@ -204,6 +204,34 @@ play)
   echo "  (정지/전진/후진/좌/우/회전 8초씩 순환, 외란 없음)"
   ;;
 
+record)
+  # 6방향 순환을 mp4 로 녹화한다.  odm record v46  [초]
+  #
+  # 왜 필요한가: 네이티브 창은 이 PC 모니터에만 뜨고, 게다가 재생이 실시간의
+  # 0.37 배라 화면으로 속도를 판단하면 틀린다 (2026-08-11 에 "심은 느린데 실기는
+  # 빠르다" 로 오독했다 — 둘 다 27스텝/0.54초로 같았다). mp4 는 실제 프레임
+  # 시간으로 인코딩되므로 실시간으로 재생되고, 원격에서도 볼 수 있다.
+  ver="${1:-}"; secs="${2:-50}"
+  [ -n "$ver" ] || { echo "사용법: odm record <버전> [초]" >&2; exit 1; }
+  task="$(task_of "$ver")"; ck="$(latest_ckpt "$ver")"
+  [ -z "$task" ] && { echo "알 수 없는 버전 $ver" >&2; exit 1; }
+  [ -z "$ck" ] && { echo "체크포인트 없음: $ver" >&2; exit 1; }
+  require_free_gpu
+  cd "$PROJ"
+  dir="$HOME/odm_out/video/$ver"; rm -rf "$dir"; mkdir -p "$dir"
+  echo "녹화: $ver  $(basename "$ck")  ${secs}초 (6방향 x 8초 순환)"
+  env -u PYTHONPATH "$IL" -p scripts/_isaaclab_launch.py scripts/play_fixed_cmd.py \
+    --task "$task" --checkpoint "$ck" --num_envs 1 \
+    --cycle --hold 8 --seconds "$secs" --hud --cam 0.55 0.45 0.28 \
+    --record "$dir" --headless > "$dir/play.log" 2>&1
+  raw="$(ls "$dir"/*.mp4 2>/dev/null | head -1)"
+  [ -n "$raw" ] || { echo "!! 녹화 실패 — $dir/play.log" >&2; tail -15 "$dir/play.log"; exit 1; }
+  out="$HOME/odm_out/video/${ver}_6dir.mp4"
+  ffmpeg -y -loglevel error -i "$raw" -vf "scale='min(720,iw)':-2" \
+    -c:v libx264 -preset slow -crf 26 -pix_fmt yuv420p -movflags +faststart "$out"
+  echo "완료: $out  ($(du -h "$out" | cut -f1))"
+  ;;
+
 measure)
   # 두 번째 인자로 iteration 을 주면 그 체크포인트를 잰다: odm measure v27 1500
   # 왜 필요한가: v26 이 v25@1500 보다 두 배 학습하고도 추종이 나빠졌다. 학습량이
@@ -440,6 +468,7 @@ odm — OpenDuck Mini 원스톱
   odm play   [ver] --stream         재생 — WebRTC (화면 없는 기계에서만)
   odm play   [ver] --joystick       재생 — Xbox 패드로 실시간 조종 (시간초과 리셋 없음)
                                    v32s = v32 정책 + 안전 필터 (실기 후보)
+  odm record [ver] [초]             6방향 순환을 mp4 로 녹화 (원격에서 볼 때)
   odm measure[ver] [iter]           6방향·주기성·리워드 성분 (iter 주면 그 체크포인트)
   odm tb                            텐서보드 (전체 런 겹쳐보기)
   odm stop                          학습/재생 정리
