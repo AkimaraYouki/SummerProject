@@ -24,13 +24,18 @@ targets = []
 for n, i, e in zip(NAMES, ids, err):
     bits = ",".join(BITS[b] for b in range(7) if (e >> b) & 1) or "-"
     mark = ""
-    # bit0(InputVoltage) 단독은 이 로봇의 Shutdown 마스크 밖이라 정보성이다.
-    if e > 1 and (want is None or n in want):
+    # 이름을 직접 지정했으면 에러 상태와 무관하게 리부트한다 — 통신이 간헐적으로
+    # 끊기는 축은 에러 비트가 안 뜨고도 말썽을 부린다 (2026-08-12: ID 3
+    # left_hip_yaw 이 goto_ready 에서 "응답 없음" 으로 죽었는데 err 은 1 이었다).
+    # 이름을 안 주면 bit0(InputVoltage) 단독은 건너뛴다 — 이 로봇 Shutdown
+    # 마스크 밖이라 정보성이다.
+    if (want is not None and n in want) or (want is None and e > 1):
         targets.append((n, i)); mark = "  <- 리부트"
     print(f"{i:4} {n:>18} {e:4}  {bits}{mark}")
 
 if not targets:
-    print("\n지울 래치가 없다 (err<=1 은 정보성 InputVoltage).")
+    print("\n대상이 없다. 이름을 직접 주면 에러와 무관하게 리부트한다:")
+    print("  python3 ~/clear_err.py left_hip_yaw")
     raise SystemExit
 
 print(f"\n리부트: {[n for n, _ in targets]}")
