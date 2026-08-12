@@ -92,7 +92,8 @@ import onnxruntime as ort
 from smbus2 import SMBus, i2c_msg
 
 from feet_contacts import FeetContacts
-from rustypot_hwi import HWI, NAMES, LEG_NAMES, LEG_IDS, BY_NAME
+from rustypot_hwi import (HWI, NAMES, LEG_NAMES, LEG_IDS, BY_NAME, TICK_RAD,
+                          LEG_P_MATCHED, SIM_STIFFNESS, joint_stiffness)
 
 # ── 관절 상수 (source: joystick_env_cfg.py READY_JOINT_POS_G125_ZNECK, 2026-08-08
 # 데스크탑에서 직접 대조 확인 — joint_order.py 의 7/28 자 READY_JOINT_POS 는
@@ -254,6 +255,13 @@ def main():
                      help="Goal Current 상한 (1 unit=2.69mA). 기본 700 = 1.88 A = 3.16 N·m 로 "
                           "심의 effort_limit 과 맞춘 값이다 — 낮추면 정책이 배운 토크를 "
                           "못 내고 무릎이 밀린다 (독스트링 참고). 발열/Overload 시에만 낮출 것")
+    ap.add_argument("--pgain", type=int, default=LEG_P_MATCHED,
+                     help=f"다리 10축 Position P Gain. 기본 {LEG_P_MATCHED} = 심의 "
+                          f"stiffness 37.65 N·m/rad 와 같은 강성. 0 을 주면 펌웨어 "
+                          f"기본값 800(=21.5 N·m/rad, 심의 57%%)을 그대로 둔다")
+    ap.add_argument("--dgain", type=int, default=0,
+                     help="다리 10축 Position D Gain. 0 = 펌웨어 기본값 4700 유지. "
+                          "머리 3축은 2026-08-09 계단응답으로 2000 이 최적이었다")
     ap.add_argument("--rampin", type=float, default=3.0, help="현재 자세->READY 램프인 시간(초)")
     ap.add_argument("--vx", type=float, default=0.0, help="전후 속도 명령 [-0.15, 0.15]")
     ap.add_argument("--vy", type=float, default=0.0, help="좌우 속도 명령 [-0.2, 0.2]")
@@ -380,7 +388,8 @@ def main():
         print(f"[rl_walk] 명령을 UDP {args.cmd_udp_port} 에서 받는다 — "
               f"--vx/--vy/--wz 는 무시된다. 패킷이 오기 전까지는 정지 명령이다.")
 
-    hwi = HWI(port=args.port, current_limit=args.current)
+    hwi = HWI(port=args.port, current_limit=args.current,
+              leg_p=args.pgain or None, leg_d=args.dgain or None)
     imu = Imu()
     feet = FeetContacts()
 
@@ -419,6 +428,33 @@ def main():
             print(f"[rl_walk] !! 경고: 실기 토크가 심보다 {sim_tau/max(tau,1e-6):.1f}배 작다. "
                   f"정책은 {sim_tau:.2f} N·m 를 쓸 수 있다고 배웠다 — 체중을 받는 순간 "
                   f"무릎이 밀린다. --current {int((sim_tau/1.96 + 0.27)*1000/2.69)} 로 맞출 것.")
+
+        # 게인은 **써 놓고 끝내지 않고 다시 읽어서** 확인한다. 모드 전환이
+        # 게인을 덮으므로 (rustypot_hwi 주석 참고) 순서가 어긋나면 조용히
+        # 무효가 되는데, 읽어 보지 않으면 그걸 알 방법이 없다.
+        gains = hwi.read_leg_gains()
+        ps = [p for p, _d in gains if p is not None]
+        if ps:
+            lo, hi = min(ps), max(ps)
+            kp = joint_stiffness(lo)
+            tag = f"{lo}" if lo == hi else f"{lo}~{hi} (축마다 다르다!)"
+            print(f"[rl_walk] 다리 P gain {tag} -> 관절강성 {kp:.1f} N·m/rad "
+                  f"(심 stiffness {SIM_STIFFNESS:.2f} 의 {100*kp/SIM_STIFFNESS:.0f} %)"
+                  f" · D gain {gains[0][1]}")
+            if args.pgain and lo != args.pgain:
+                print(f"[rl_walk] !! 경고: --pgain {args.pgain} 을 걸었는데 실제로는 {lo} 이다 "
+                      f"— 모드 전환이 덮었을 수 있다.")
+            # 강성이 크게 어긋나면 정책이 명령한 위치에 실제 관절이 못 간다.
+            if abs(kp - SIM_STIFFNESS) > 0.15 * SIM_STIFFNESS:
+                print(f"[rl_walk] !! 경고: 실기 관절이 심보다 "
+                      f"{SIM_STIFFNESS/max(kp,1e-6):.2f}배 무르다 — 같은 부하에서 그만큼 "
+                      f"더 밀린다. --pgain {LEG_P_MATCHED} 로 맞출 것.")
+        # 전류 상한이 만드는 **포화 각도** — 이 각도를 넘는 오차는 토크가 더
+        # 안 늘어난다. 350 틱일 때 겨우 4.9° 였다.
+        if ps:
+            sat_deg = math.degrees(args.current / (lo / 128.0) * TICK_RAD)
+            print(f"[rl_walk] 위치오차 {sat_deg:.1f}° 를 넘으면 전류 상한에 포화한다 "
+                  f"(그 너머는 오차가 커져도 토크가 안 는다)")
 
         # 1) 램프인: 현재 자세 -> READY.
         print(f"[rl_walk] 램프인 {args.rampin:.1f}s -> READY 자세")
@@ -491,6 +527,12 @@ def main():
             "grav_src": args.grav_src,
             "current_limit_ticks": args.current,
             "current_limit_A": args.current * 2.69 / 1000.0,
+            # 실제로 서보에서 읽어 온 값이다 (명령값이 아니라). 모드 전환이
+            # 게인을 덮을 수 있어서 명령값을 남기면 거짓말이 된다.
+            "leg_p_gain": [p for p, _d in gains],
+            "leg_d_gain": [d for _p, d in gains],
+            "joint_stiffness_Nm_rad": joint_stiffness(gains[0][0]) if gains[0][0] else None,
+            "sim_stiffness_Nm_rad": SIM_STIFFNESS,
             "torque_ceiling_Nm": 4.1 * (args.current * 2.69 / 1000.0) / 2.3,
             "constants": {
                 "ACTION_SCALE": ACTION_SCALE, "DOF_VEL_SCALE": DOF_VEL_SCALE,
