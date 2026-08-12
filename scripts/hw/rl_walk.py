@@ -289,9 +289,35 @@ def main():
                          "받아서 --vx/--vy/--wz 대신 쓴다. 같은 조이스틱 입력으로 심과 "
                          "실기를 나란히 보려는 것. 패킷이 300 ms 끊기면 자동으로 정지 "
                          "명령이 되고, 패드 A 를 누르면 즉시 홀드로 빠진다.")
+    ap.add_argument("--joy", nargs="?", const="/dev/input/js0", default=None,
+                    metavar="DEV",
+                    help="젯슨에 직접 꽂은 조이스틱으로 명령을 받는다 (기본 "
+                         "/dev/input/js0). RT 를 당긴 동안만 명령이 나가고, 패드가 "
+                         "끊기면 즉시 정지한다. --vx/--vy/--wz 나 --cmd-udp-port 와는 "
+                         "같이 못 쓴다 — 명령원이 둘이면 어느 쪽이 이겼는지 알 수 없다. "
+                         "붙이는 법은 bt_pad.py 참고.")
+    ap.add_argument("--joy-map", default=None, metavar="k=n,…",
+                    help="조이스틱 버튼 번호 덮어쓰기 (estop=0,start=11,…). "
+                         "기본은 버튼 개수를 보고 자동으로 고른다")
+    ap.add_argument("--joy-no-deadman", action="store_true",
+                    help="RT 를 안 잡아도 명령이 나간다 (권하지 않는다)")
     ap.add_argument("--seconds", type=float, default=20.0, help="정책 루프 실행 시간(초)")
     ap.add_argument("--dry-run", action="store_true", help="모터/IMU 안 건드리고 로드만 확인")
     args = ap.parse_args()
+
+    # 명령원은 하나여야 한다. 고정 명령과 조이스틱을 같이 주면 매 스텝 조이스틱이
+    # command[:3] 을 덮어써서 --vx 가 조용히 무시된다 — 로그만 보고는 왜 안 갔는지
+    # 알 수 없다. 기본값 0 과 "직접 0 을 준 것" 을 구분해야 하므로 argv 를 본다.
+    if args.joy is not None:
+        given = [f for f in ("--vx", "--vy", "--wz")
+                 if any(a == f or a.startswith(f + "=") for a in sys.argv)]
+        if given:
+            ap.error(f"--joy 와 {'/'.join(given)} 는 같이 못 쓴다. "
+                     f"조이스틱을 쓰려면 속도 인자를 빼고, 고정 명령으로 돌리려면 "
+                     f"--joy 를 빼라.")
+        if args.cmd_udp_port is not None:
+            ap.error("--joy 와 --cmd-udp-port 는 같이 못 쓴다. 조이스틱을 젯슨에 "
+                     "직접 꽂았으면 --joy, 심에서 중계받으려면 --cmd-udp-port 다.")
 
     zero_action = args.zero_action or args.onnx is None
     sess = None
@@ -388,11 +414,29 @@ def main():
     # 명령 수신기를 **모터 토크를 켜기 전에** 연다. 포트가 이미 물려 있거나
     # 하면 여기서 죽는데, 그때 로봇은 아직 아무것도 안 한 상태여야 한다.
     cmd_rx = None
+    cmd_src = "심 중계" if args.cmd_udp_port is not None else "조이스틱"
     if args.cmd_udp_port is not None:
         from cmd_udp import CommandReceiver
         cmd_rx = CommandReceiver(port=args.cmd_udp_port)
         print(f"[rl_walk] 명령을 UDP {args.cmd_udp_port} 에서 받는다 — "
               f"--vx/--vy/--wz 는 무시된다. 패킷이 오기 전까지는 정지 명령이다.")
+    elif args.joy is not None:
+        # joy_local.JoystickCommand 는 CommandReceiver 와 같은 인터페이스
+        # (get / stale / estopped / stats / close) 라 아래 루프는 그대로다.
+        from joy_local import JoystickCommand, default_buttons
+        if not os.path.exists(args.joy):
+            raise SystemExit(f"{args.joy} 이 없다. 패드를 먼저 붙일 것:  "
+                             f"python3 ~/bt_pad.py")
+        btn = default_buttons(args.joy)
+        if args.joy_map:
+            for part in args.joy_map.split(","):
+                k, _, v = part.partition("=")
+                if k.strip() in btn and v.strip().isdigit():
+                    btn[k.strip()] = int(v)
+        cmd_rx = JoystickCommand(dev=args.joy, buttons=btn,
+                                 deadman=not args.joy_no_deadman)
+        print(f"[rl_walk] 명령을 조이스틱 {args.joy} 에서 받는다 — "
+              f"RT 를 당긴 동안만 움직인다. A 를 누르면 즉시 홀드.")
 
     hwi = HWI(port=args.port, current_limit=args.current,
               leg_p=args.pgain or None, leg_d=args.dgain or None)
@@ -631,7 +675,7 @@ def main():
             if cmd_rx is not None:
                 if not _cmd_seen and not cmd_rx.stale:
                     _cmd_seen = True
-                    print("[rl_walk] ** 심에서 첫 명령 도착 — 중계 연결됨 **", flush=True)
+                    print(f"[rl_walk] ** {cmd_src} 첫 명령 도착 **", flush=True)
                 if cmd_rx.estopped:
                     print("\n[rl_walk] !! 패드 A 비상정지 — 즉시 홀드한다", flush=True)
                     break
