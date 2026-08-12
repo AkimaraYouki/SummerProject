@@ -160,12 +160,17 @@ def main():
     ap.add_argument("--vs-label", default=None, help="비교 CSV 이름표")
     ap.add_argument("--vx", type=float, default=None, help="이 vx 명령 구간만")
     ap.add_argument("--wz", type=float, default=None, help="이 wz 명령 구간만")
+    ap.add_argument("--skip", type=float, default=0.0, metavar="SEC",
+                    help="앞 몇 초를 버릴지. 심은 리셋 직후 과도구간이 있다")
     ap.add_argument("--all", action="store_true",
                     help="명령이 없는 구간도 포함 (기본은 움직이는 구간만)")
     args = ap.parse_args()
 
     def prep(path, label):
         rows, hz = load(path)
+        if args.skip > 0:
+            t0 = _f(rows[0], "t")
+            rows = [r for r in rows if _f(r, "t") - t0 >= args.skip]
         sel = select(rows, args.vx, args.wz, moving=not args.all)
         if len(sel) < 40:
             sys.exit(f"{path}: 조건에 맞는 샘플이 {len(sel)}개뿐이다 — "
