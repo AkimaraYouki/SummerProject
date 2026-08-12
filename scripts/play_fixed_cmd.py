@@ -51,6 +51,9 @@ parser.add_argument("--record", type=str, default=None, metavar="DIR",
                     help="6방향 순환을 mp4 로 녹화한다. 이 디렉터리에 저장한다. "
                          "헤드리스에서도 되며 --enable_cameras 를 자동으로 켠다. "
                          "--cycle 과 함께 쓰는 것을 전제로 한다 (명령마다 --hold 초).")
+parser.add_argument("--track-csv", type=str, default=None, metavar="PATH",
+                    help="관절추종 로그를 CSV 로 남긴다 (열 이름은 실기 rl_walk_log.csv 와 동일). "
+                         "scripts/diag/track_stats.py 로 실기와 같은 자로 비교한다")
 parser.add_argument("--terrain", type=str, default="plane",
                     help="평지 대신 다른 지형에서 재생한다. 목록은 "
                          "open_duck_mini_isaaclab/terrains.py 의 TERRAIN_CHOICES. "
@@ -652,6 +655,31 @@ def _send_cmd(cx: float, cy: float, cw: float, estop: bool) -> None:
         pass
 
 
+# ── 관절추종 로그 ──────────────────────────────────────────────────────
+# 실기 `~/rl_walk_log.csv` 와 **열 이름·정의를 똑같이** 맞춘다. 그래야
+# scripts/diag/track_stats.py 한 자로 둘 다 잴 수 있다. goal_* 은 실기의
+# set_position_vec() 반환값(= 실제로 서보에 나간 각도, rad)에 해당하는
+# u._motor_targets 이고, pos_* 는 실측 관절각이다.
+_track_f = _track_w = None
+if args_cli.track_csv:
+    import csv as _csv
+    _track_f = open(args_cli.track_csv, "w", newline="")
+    _track_w = _csv.writer(_track_f)
+    _track_w.writerow(["t", "cmd_vx", "cmd_vy", "cmd_wz"]
+                      + [f"goal_{n}" for n in ACTUATOR_JOINT_NAMES]
+                      + [f"pos_{n}" for n in ACTUATOR_JOINT_NAMES])
+    print(f"[play] 관절추종 로그: {args_cli.track_csv}")
+
+
+def _track_row(t, cx, cy, cw):
+    if _track_w is None:
+        return
+    tgt = u._motor_targets[0].detach().cpu().tolist()
+    pos = u._robot.data.joint_pos[0, u._joint_ids].detach().cpu().tolist()
+    _track_w.writerow([f"{t:.4f}", f"{cx:.4f}", f"{cy:.4f}", f"{cw:.4f}"]
+                      + [f"{v:.6f}" for v in tgt] + [f"{v:.6f}" for v in pos])
+
+
 obs = env.get_observations()
 _rt_t0 = time.time()          # 실시간 배속 측정 기준
 t_end = time.time() + args_cli.seconds
@@ -686,6 +714,7 @@ while simulation_app.is_running() and time.time() < t_end:
         _send_cmd(cx, cy, cw, bool(_pad is not None and _pad.button(_BTN_A)))
     with torch.inference_mode():
         obs, _, _, _ = env.step(policy(obs))
+    _track_row(step * dt, cx, cy, cw)
     _draw_overlay()
     _update_ghost()
     # 조이스틱일 때 cur_idx 는 -1 이라 CYCLE[cur_idx] 를 쓰면 엉뚱하게 TURN 이 뜬다.
