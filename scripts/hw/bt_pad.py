@@ -79,6 +79,23 @@ def clean(s: str) -> str:
     return CTRL.sub("", ANSI.sub("", s))
 
 
+def connected_macs() -> set[str]:
+    """지금 연결된 장치의 MAC 집합.
+
+    `bluetoothctl devices Connected` 를 쓰면 안 된다 — **그 필터 인자는 5.65
+    부터**다. 이 젯슨은 5.64 라 "Too many arguments" 를 뱉는데, 그걸 빈 목록
+    으로 읽으면 패드가 붙어 있는데도 "연결된 장치 없음" 이라고 보고한다
+    (2026-08-13 에 실제로 그렇게 거짓말했다). 대신 아는 장치마다 `info` 를
+    물어서 `Connected: yes` 를 본다.
+    """
+    known = re.findall(rf"Device {MAC}", clean(sh("bluetoothctl devices", 8.0)))
+    out = set()
+    for mac in known[:24]:          # 아는 장치가 많아도 여기서 끊는다
+        if re.search(r"Connected:\s*yes", clean(sh(f"bluetoothctl info {mac}", 5.0))):
+            out.add(mac)
+    return out
+
+
 def sh(cmd: str, timeout: float = 15.0) -> str:
     try:
         p = subprocess.run(cmd, shell=True, capture_output=True, text=True,
@@ -196,8 +213,7 @@ class Bt:
         찍힌다 (2026-08-13 에 실제로 두 대가 그렇게 나왔다).
         """
         self.run("devices", wait=1.5)
-        out = clean(sh("bluetoothctl devices Connected", timeout=6.0))
-        conn = set(re.findall(rf"Device {MAC}", out))
+        conn = connected_macs()
         with self._lock:
             for mac in conn:
                 self.devices.setdefault(mac, {"name": "", "rssi": None,
@@ -436,8 +452,7 @@ def cmd_remove(target: str) -> int:
 
 
 def cmd_disconnect() -> int:
-    out = clean(sh("bluetoothctl devices Connected"))
-    macs = re.findall(rf"Device {MAC}", out)
+    macs = sorted(connected_macs())
     if not macs:
         print("연결된 장치가 없다.")
         return 0
@@ -474,9 +489,11 @@ def cmd_status() -> int:
     print("=== 사전 조건 ===")
     check_prereqs()
     print("\n=== 연결된 장치 ===")
-    out = clean(sh("bluetoothctl devices Connected"))
-    found = re.findall(rf"Device {MAC} (.+)", out)
-    print("  " + ("\n  ".join(f"{a}  {n}" for a, n in found) if found else "없음"))
+    names = dict(re.findall(rf"Device {MAC} (.+)",
+                            clean(sh("bluetoothctl devices", 8.0))))
+    conn = sorted(connected_macs())
+    print("  " + ("\n  ".join(f"{a}  {names.get(a,'')}" for a in conn)
+                  if conn else "없음"))
     print(f"\n=== {DEV} ===")
     print("  있음 — joy_monitor.py 로 축/버튼 확인" if os.path.exists(DEV)
           else "  없음 — 패드가 안 붙었거나 joydev 가 없다")

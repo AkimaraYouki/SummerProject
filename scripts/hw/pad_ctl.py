@@ -13,8 +13,11 @@
     왼쪽 스틱      앞뒤 = vx,  좌우 = vy
     오른쪽 스틱    좌우 = wz (제자리 회전)
 
-버튼 번호는 패드/연결방식마다 다르다. `joy_monitor.py` 로 먼저 확인하고
-다르면 `--joy-map estop=0,start=7,pause=6,ready=8` 로 덮을 것.
+버튼 번호는 **패드에 물어서 자동으로 고른다.** 같은 Xbox 패드라도 USB(xpad)
+로 붙으면 버튼이 11 개, 블루투스 HID 로 붙으면 15 개이고 배치가 다르다.
+시작할 때 고른 표를 찍으니 확인하고, 그래도 안 맞으면
+`--joy-map start=11,pause=10,ready=12` 처럼 덮을 것 (`joy_monitor.py` 로
+실제 번호를 볼 수 있다).
 
 ## 구조 — rl_walk 는 한 줄도 안 고친다
 
@@ -56,7 +59,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.expanduser("~"))
-from joy_local import BUTTONS, JoystickCommand  # noqa: E402
+from joy_local import JoystickCommand, default_buttons  # noqa: E402
 
 #: cmd_udp.py 의 PACKET 과 **반드시 같아야 한다.**
 PACKET = "<IdfffB"
@@ -108,8 +111,9 @@ class Child:
             pass
 
 
-def parse_map(s: str | None) -> dict[str, int]:
-    m = dict(BUTTONS)
+def parse_map(s: str | None, dev: str) -> dict[str, int]:
+    # 기본은 **패드에 물어서** 고른다 (USB 11버튼 / BT 15버튼 배치가 다르다).
+    m = default_buttons(dev)
     if s:
         for part in s.split(","):
             k, _, v = part.partition("=")
@@ -157,7 +161,7 @@ def main() -> int:
         return 1
 
     joy = JoystickCommand(dev=args.joy_dev, deadman=not args.no_deadman,
-                          buttons=parse_map(args.joy_map))
+                          buttons=parse_map(args.joy_map, args.joy_dev))
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     child: Child | None = None
     seq = 0

@@ -70,16 +70,55 @@ WZ_RANGE = (-1.0, 1.0)
 AX_VX, AX_VY, AX_WZ = 1, 0, 2
 AX_DEADMAN = 5          # RT
 
-#: 버튼 번호. **패드/연결방식마다 다르다.** 특히 Xbox 패드는 블루투스로 붙을
-#: 때와 USB(xpad)로 붙을 때 번호가 어긋나는 경우가 있다. 그래서 하드코딩을
-#: 믿지 말고 `joy_monitor.py` 로 실제 번호를 먼저 확인하고, 다르면
-#: `--joy-map` 으로 덮어쓸 것. 시작할 때 지금 쓰는 표를 찍는다.
-BUTTONS = {
-    "estop": 0,     # A   — 비상정지 래치 (풀리지 않는다)
-    "start": 7,     # Start/Menu — 정책 시작·재개
-    "pause": 6,     # Back/View  — READY 자세로 돌아가 대기
-    "ready": 8,     # Home/Guide — READY 로 다시 램프인
-}
+# ── 버튼 번호는 연결 방식마다 다르다 ──────────────────────────────────
+#
+# 같은 Xbox 패드인데 USB(xpad 드라이버)로 붙으면 버튼이 **11 개**, 블루투스
+# HID 로 붙으면 **15 개**이고 번호 배치도 다르다. 2026-08-13 실측: 이 젯슨에
+# 블루투스로 붙은 패드는 축 8 개 / 버튼 15 개였다.
+#
+#   11 개 (USB xpad)   0=A 1=B 2=X 3=Y 4=LB 5=RB 6=Back 7=Start 8=Guide
+#   15 개 (BT HID)     0=A 1=B 3=X 4=Y 6=LB 7=RB 10=Back 11=Start 12=Guide
+#
+# 그래서 하드코딩 하나로는 안 되고, 열 때 버튼 개수를 물어서 고른다.
+# 그래도 패드마다 예외가 있을 수 있으니 `joy_monitor.py` 로 확인하고
+# `--joy-map` 으로 덮을 수 있게 열어 둔다. 시작할 때 고른 표를 찍는다.
+
+#: 리눅스 joystick API ioctl. _IOR('j', 0x11/0x12, __u8).
+JSIOCGAXES = 0x80016A11
+JSIOCGBUTTONS = 0x80016A12
+
+BUTTONS_XPAD = {"estop": 0, "start": 7, "pause": 6, "ready": 8}
+BUTTONS_HID = {"estop": 0, "start": 11, "pause": 10, "ready": 12}
+
+
+def probe_counts(dev: str = DEV) -> tuple[int, int]:
+    """(축 개수, 버튼 개수). 못 읽으면 (0, 0)."""
+    import array
+    import fcntl
+    try:
+        fd = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
+    except OSError:
+        return (0, 0)
+    try:
+        buf = array.array("B", [0])
+        fcntl.ioctl(fd, JSIOCGAXES, buf, True)
+        n_ax = buf[0]
+        fcntl.ioctl(fd, JSIOCGBUTTONS, buf, True)
+        return (n_ax, buf[0])
+    except OSError:
+        return (0, 0)
+    finally:
+        os.close(fd)
+
+
+def default_buttons(dev: str = DEV) -> dict[str, int]:
+    """버튼 개수를 보고 배치를 고른다."""
+    _ax, n = probe_counts(dev)
+    return dict(BUTTONS_HID if n >= 13 else BUTTONS_XPAD)
+
+
+#: 기본 표 (개수를 못 물었을 때의 폴백). 실제로는 default_buttons() 가 고른다.
+BUTTONS = BUTTONS_HID
 
 #: 스틱이 중립에서 이만큼 안쪽이면 0 으로 본다 (32767 기준 약 15 %).
 #: 오래 쓴 패드는 중립이 꽤 흔들린다 — 너무 작게 잡으면 손을 안 대도 로봇이 긴다.
@@ -110,7 +149,8 @@ class JoystickCommand:
         self.dev = dev
         self.deadman = deadman
         #: 이름 -> 버튼번호. 반대 방향 조회를 미리 만들어 둔다.
-        self.buttons = dict(BUTTONS if buttons is None else buttons)
+        self.n_axes, self.n_buttons = probe_counts(dev)
+        self.buttons = dict(default_buttons(dev) if buttons is None else buttons)
         self._by_num = {v: k for k, v in self.buttons.items()}
         self._lock = threading.Lock()
         self._cmd = (0.0, 0.0, 0.0)
@@ -129,6 +169,9 @@ class JoystickCommand:
         print(f"[joy] {dev} 에서 명령을 읽는다"
               + ("  ·  RT 를 당기고 있을 때만 움직인다 (놓으면 정지)"
                  if deadman else "  ·  데드맨 없음"), flush=True)
+        kind = ("BT HID" if self.n_buttons >= 13 else "USB xpad") \
+            if self.n_buttons else "개수 불명"
+        print(f"[joy] 축 {self.n_axes}개 · 버튼 {self.n_buttons}개 -> {kind} 배치", flush=True)
         print("[joy] 버튼 표: "
               + "  ".join(f"{k}={v}" for k, v in self.buttons.items())
               + "   (다르면 joy_monitor.py 로 확인 후 --joy-map 으로 덮을 것)",
