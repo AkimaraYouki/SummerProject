@@ -27,6 +27,14 @@
                       발 높이는 애초에 문제가 아니었다. 좌우가 문제다.
     접지 전환         걸음 빈도. 너무 높으면 종종거리는 것이고 너무 낮으면
                       발을 끄는 것이다.
+    명령 추종         명령 속도 대비 실제 몸통 속도. 2026-08-14 에 사용자가
+                      우선순위를 **1 추종 · 2 부드러움 · 3 진동** 으로 못박았다.
+                      그런데 이 표에는 추종이 없어서, "부드러워졌지만 안 간다"
+                      를 걸러낼 수가 없었다. 부드러움 항을 걸 때마다 이 줄을
+                      먼저 볼 것 — 여기가 무너지면 나머지는 의미가 없다.
+                      실기 로그에는 오도메트리가 없어 빈다.
+    관절 추종         목표각 대비 실제 관절각의 진폭비. 이쪽은 정책이 아니라
+                      PD 게인과 부하의 문제다. 실기 0.76~0.83 / 심 0.69~0.71.
 """
 from __future__ import annotations
 
@@ -131,6 +139,36 @@ def analyse(path, skip=4.0):
             out["swing_lat"] = sum(out.pop("lat")) / 2
             out["vertical"] = out["swing_rise"] / max(out["swing_lat"], 1e-6)
 
+    # 명령 추종 — 우선순위 1 위. 심 로그에만 vel_* 가 있다.
+    if "vel_x" in rows[0]:
+        vx = [f(r, "vel_x") for r in rows]
+        vy = [f(r, "vel_y") for r in rows]
+        cx = [f(r, "cmd_vx") for r in rows]
+        cy = [f(r, "cmd_vy") for r in rows]
+        mcx = sum(cx) / len(cx)
+        if abs(mcx) > 1e-3:
+            out["track_x"] = (sum(vx) / len(vx)) / mcx
+        out["track_err"] = math.sqrt(sum((a - b) ** 2 for a, b in zip(vx, cx)) / len(vx))
+        # 옆으로 새는 양. 전진 명령에서는 0 이어야 한다.
+        out["drift_y"] = abs(sum(vy) / len(vy) - sum(cy) / len(cy))
+    if "gyro_z" in rows[0]:
+        wz = [f(r, "gyro_z") for r in rows]
+        cw = [f(r, "cmd_wz") for r in rows]
+        out["yaw_err"] = math.sqrt(sum((a - b) ** 2 for a, b in zip(wz, cw)) / len(wz))
+
+    # 관절 추종 — 목표각 진폭 대비 실제 진폭. 심·실기 모두 있다.
+    gains = []
+    for n in LEG:
+        tg = [f(r, "goal_" + n) for r in rows]
+        ps = [f(r, "pos_" + n) for r in rows]
+        if any(v != v for v in tg) or any(v != v for v in ps):
+            continue
+        st = statistics.pstdev(tg)
+        if st > 1e-6:
+            gains.append(statistics.pstdev(ps) / st)
+    if gains:
+        out["joint_gain"] = statistics.median(gains)
+
     # 발 궤적 (FK)
     lifts, strides = [], []
     for side in ("left", "right"):
@@ -180,6 +218,13 @@ def main():
 
     print("\n  " + " " * 22 + "".join(f"{lab:>12}" for lab, _ in res))
     print("  " + "-" * (22 + 12 * len(res) + 3))
+    print("  [1] 추종 — 여기가 무너지면 나머지는 의미 없다")
+    row("전진 추종 (실제/명령)", "track_x", "{:.2f}", "1.0 이 완벽")
+    row("전진 추종 오차 RMS", "track_err", "{:.3f}", "m/s")
+    row("좌우 드리프트", "drift_y", "{:.3f}", "m/s · 0 이어야")
+    row("요 추종 오차 RMS", "yaw_err", "{:.3f}", "rad/s")
+    row("관절 추종 이득", "joint_gain", "{:.2f}", "실제진폭/목표진폭")
+    print("  [2] 부드러움 · [3] 진동")
     row("목표각 속도 p95(최대)", "tgt_p95", "{:.2f}", "rad/s · 클램프 4.82")
     row("  같은 값 (중앙값)", "tgt_p95_med", "{:.2f}", "rad/s")
     row("roll 진폭 (p-p)", "roll_pp", "{:.1f}", "도 · 낮을수록 안 덜컹")

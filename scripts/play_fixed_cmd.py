@@ -674,7 +674,13 @@ if args_cli.track_csv:
                       # (2026-08-13: 실기 목표각 떨림은 심보다 낮은데
                       #  roll 이 21도 진폭으로 흔들렸다).
                       + ["proj_grav_x", "proj_grav_y", "proj_grav_z",
-                         "gyro_x", "gyro_y", "gyro_z", "contact_l", "contact_r"])
+                         "gyro_x", "gyro_y", "gyro_z", "contact_l", "contact_r"]
+                      # 몸통 기준 실제 속도. **명령 추종**을 재려면 이게 있어야
+                      # 한다 — 지금까지 로그에 없어서 걸음 품질 표가 우선순위
+                      # 1 위인 추종을 아예 못 봤다 (2026-08-14 추가).
+                      # 실기에는 오도메트리가 없어 이 열이 비므로, 읽는 쪽은
+                      # 없을 때를 견뎌야 한다.
+                      + ["vel_x", "vel_y", "vel_z"])
     print(f"[play] 관절추종 로그: {args_cli.track_csv}")
 
 
@@ -689,7 +695,9 @@ def _track_row(t, cx, cy, cw):
     _track_w.writerow([f"{t:.4f}", f"{cx:.4f}", f"{cy:.4f}", f"{cw:.4f}"]
                       + [f"{v:.6f}" for v in tgt] + [f"{v:.6f}" for v in pos]
                       + [f"{v:.6f}" for v in g] + [f"{v:.6f}" for v in w]
-                      + [f"{int(bool(v))}" for v in c[:2]])
+                      + [f"{int(bool(v))}" for v in c[:2]]
+                      + [f"{v:.6f}" for v in
+                         u._robot.data.root_lin_vel_b[0].detach().cpu().tolist()])
 
 
 obs = env.get_observations()
