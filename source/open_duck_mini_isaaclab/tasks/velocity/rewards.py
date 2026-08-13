@@ -39,7 +39,7 @@ def cost_action_rate(act: torch.Tensor, last_act: torch.Tensor) -> torch.Tensor:
     return torch.sum((act - last_act) ** 2, dim=-1)
 
 
-def cost_foot_lift(feet_pos_w: torch.Tensor, clearance: float) -> torch.Tensor:
+def cost_foot_lift(feet_pos_w: torch.Tensor, offset: torch.Tensor, clearance: float) -> torch.Tensor:
     """스윙 발이 **접지 발보다 얼마나 높이 뜨는지** 벌한다. `clearance` 까지는 공짜.
 
     ## 왜 이 항이 필요한가
@@ -65,11 +65,24 @@ def cost_foot_lift(feet_pos_w: torch.Tensor, clearance: float) -> torch.Tensor:
     된다. 다리 마디가 157 mm 이고 실측 발 들림이 22 mm(14 %) 였으므로,
     사람 보행(1~2 %)과 그 사이 어딘가가 목표다.
 
+    ## ⚠️ offset 을 빼야 한다 — 안 빼면 상수를 벌한다
+
+    `body_pos_w` 는 발 **링크 원점**이지 발바닥이 아니다. 이 로봇은 좌우 발
+    링크의 z 오프셋이 서로 반대라서(FOOT_FIXED 가 좌 -19.55 / 우 +19.55 mm),
+    **양발이 나란히 땅에 있어도 두 원점의 z 가 39 mm 차이난다.**
+
+    2026-08-14 에 이걸 빠뜨리고 학습해서 v53 을 한 번 날렸다. 가만히 서 있는
+    정지 명령에서도 이 항이 -0.2415 (리워드 예산의 45 %) 를 먹었고, 정책은
+    줄일 방법이 없으니 걸음을 망가뜨리는 쪽으로 갔다 — 보상 318.8 -> 100.4,
+    에피소드 561 -> 320. **서 있는데 벌점이 0 이 아니면 그 항은 틀린 것이다.**
+
     Args:
-        feet_pos_w: (N, 2, 3) 월드 좌표 발 위치.
+        feet_pos_w: (N, 2, 3) 월드 좌표 발 링크 위치.
+        offset: (N, 2) 또는 (1, 2). 양발이 땅에 있을 때의 각 발 z 오프셋.
+            환경이 첫 리셋에서 한 번 재서 넘긴다.
         clearance: 이만큼(m)까지는 공짜.
     """
-    z = feet_pos_w[..., 2]
+    z = feet_pos_w[..., 2] - offset
     lift = z - z.min(dim=1, keepdim=True).values
     over = torch.clamp(lift - clearance, min=0.0)
     return torch.sum(over**2, dim=-1)

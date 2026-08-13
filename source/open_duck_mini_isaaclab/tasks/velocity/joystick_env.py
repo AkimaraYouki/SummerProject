@@ -542,6 +542,19 @@ class JoystickEnv(DirectRLEnv):
         )
         return torch.stack([lateral, torch.cos(yaw_err), torch.sin(yaw_err)], dim=-1)
 
+    def _foot_z_offset(self) -> torch.Tensor:
+        """양발이 땅에 있을 때 각 발 **링크 원점**의 z 오프셋. 한 번만 잰다.
+
+        좌우 발 링크의 z 오프셋이 서로 반대라 양발이 나란히 서 있어도 39 mm
+        차이난다 — 이걸 안 빼면 `cost_foot_lift` 가 상수를 벌한다
+        (2026-08-14 에 그것으로 v53 을 한 번 날렸다).
+        """
+        if getattr(self, "_foot_z0", None) is None:
+            z = self._robot.data.body_pos_w[:, self._feet_ids, 2]
+            self._foot_z0 = (z - z.min(dim=1, keepdim=True).values).mean(
+                dim=0, keepdim=True).detach()
+        return self._foot_z0
+
     def _feet_vel_b(self) -> torch.Tensor:
         """발 선속도를 **몸통 기준**으로. (N, 2, 3).
 
@@ -609,7 +622,8 @@ class JoystickEnv(DirectRLEnv):
             # 반대로 나왔다 — 모방 리워드는 관절각을 비교하지 발 위치를 보지
             # 않기 때문이다. 기본 계수 0 이라 기존 태스크는 한 항도 안 바뀐다.
             "foot_lift": cost_foot_lift(
-                self._robot.data.body_pos_w[:, self._feet_ids], cfg.foot_clearance,
+                self._robot.data.body_pos_w[:, self._feet_ids],
+                self._foot_z_offset(), cfg.foot_clearance,
             ) * cfg.foot_lift_scale,
             "foot_lateral": cost_foot_lateral(self._feet_vel_b()) * cfg.foot_lateral_scale,
         }
