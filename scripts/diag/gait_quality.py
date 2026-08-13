@@ -35,6 +35,13 @@
                       실기 로그에는 오도메트리가 없어 빈다.
     관절 추종         목표각 대비 실제 관절각의 진폭비. 이쪽은 정책이 아니라
                       PD 게인과 부하의 문제다. 실기 0.76~0.83 / 심 0.69~0.71.
+    걸음 주기         스탠스 + 스윙. **접지 전환 횟수만으로는 속는다.**
+                      2026-08-14 에 v53 이 roll 을 20.7 -> 11.0 도로 반토막
+                      냈는데, 재 보니 오른발 주기가 140 ms(7 Hz)에 접지의
+                      58 % 가 100 ms 미만이었다 — 걸은 게 아니라 **바닥에서
+                      떨고 있었다.** 발을 바닥 근처에서 잘게 떨면 좌우 이동이
+                      최소가 되므로 `foot_lateral` 벌점을 그렇게 피한 것이다.
+                      레퍼런스 주기가 540 ms 이므로 그 근처인지 본다.
 """
 from __future__ import annotations
 
@@ -139,6 +146,27 @@ def analyse(path, skip=4.0):
             out["swing_lat"] = sum(out.pop("lat")) / 2
             out["vertical"] = out["swing_rise"] / max(out["swing_lat"], 1e-6)
 
+    # 걸음 주기와 짧은 접지 — 리워드 해킹(발 떨기) 탐지용.
+    if "contact_l" in rows[0]:
+        per, short, n_st = [], 0, 0
+        for ck in ("contact_l", "contact_r"):
+            val, start, st, sw = None, None, [], []
+            for r in rows:
+                v, t = int(f(r, ck)), f(r, "t")
+                if val is None:
+                    val, start = v, t
+                    continue
+                if v != val:
+                    (st if val else sw).append(t - start)
+                    val, start = v, t
+            if st and sw:
+                per.append(statistics.median(st) + statistics.median(sw))
+                short += sum(1 for x in st if x < 0.1)
+                n_st += len(st)
+        if per:
+            out["cycle_ms"] = sum(per) / len(per) * 1000
+            out["short_pct"] = 100.0 * short / max(n_st, 1)
+
     # 명령 추종 — 우선순위 1 위. 심 로그에만 vel_* 가 있다.
     if "vel_x" in rows[0]:
         vx = [f(r, "vel_x") for r in rows]
@@ -225,6 +253,8 @@ def main():
     row("요 추종 오차 RMS", "yaw_err", "{:.3f}", "rad/s")
     row("관절 추종 이득", "joint_gain", "{:.2f}", "실제진폭/목표진폭")
     print("  [2] 부드러움 · [3] 진동")
+    row("걸음 주기", "cycle_ms", "{:.0f}", "ms · 레퍼런스 540")
+    row("100ms 미만 접지", "short_pct", "{:.0f}", "% · 높으면 발을 떠는 것")
     row("목표각 속도 p95(최대)", "tgt_p95", "{:.2f}", "rad/s · 클램프 4.82")
     row("  같은 값 (중앙값)", "tgt_p95_med", "{:.2f}", "rad/s")
     row("roll 진폭 (p-p)", "roll_pp", "{:.1f}", "도 · 낮을수록 안 덜컹")
