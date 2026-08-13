@@ -667,7 +667,14 @@ if args_cli.track_csv:
     _track_w = _csv.writer(_track_f)
     _track_w.writerow(["t", "cmd_vx", "cmd_vy", "cmd_wz"]
                       + [f"goal_{n}" for n in ACTUATOR_JOINT_NAMES]
-                      + [f"pos_{n}" for n in ACTUATOR_JOINT_NAMES])
+                      + [f"pos_{n}" for n in ACTUATOR_JOINT_NAMES]
+                      # 몸통 자세·각속도·접지도 실기와 같은 이름으로 남긴다.
+                      # 관절만으로는 "덜컹거린다" 를 못 잰다 — 목표각이
+                      # 매끈해도 몸통이 흔들릴 수 있고, 실제로 그랬다
+                      # (2026-08-13: 실기 목표각 떨림은 심보다 낮은데
+                      #  roll 이 21도 진폭으로 흔들렸다).
+                      + ["proj_grav_x", "proj_grav_y", "proj_grav_z",
+                         "gyro_x", "gyro_y", "gyro_z", "contact_l", "contact_r"])
     print(f"[play] 관절추종 로그: {args_cli.track_csv}")
 
 
@@ -676,8 +683,13 @@ def _track_row(t, cx, cy, cw):
         return
     tgt = u._motor_targets[0].detach().cpu().tolist()
     pos = u._robot.data.joint_pos[0, u._joint_ids].detach().cpu().tolist()
+    g = u._robot.data.projected_gravity_b[0].detach().cpu().tolist()
+    w = u._robot.data.root_ang_vel_b[0].detach().cpu().tolist()
+    c = u._get_foot_contact()[0].detach().cpu().tolist()
     _track_w.writerow([f"{t:.4f}", f"{cx:.4f}", f"{cy:.4f}", f"{cw:.4f}"]
-                      + [f"{v:.6f}" for v in tgt] + [f"{v:.6f}" for v in pos])
+                      + [f"{v:.6f}" for v in tgt] + [f"{v:.6f}" for v in pos]
+                      + [f"{v:.6f}" for v in g] + [f"{v:.6f}" for v in w]
+                      + [f"{int(bool(v))}" for v in c[:2]])
 
 
 obs = env.get_observations()

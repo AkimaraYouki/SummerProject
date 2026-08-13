@@ -45,6 +45,8 @@ task_of() {
     v44) echo "Isaac-OpenDuckMini-Joystick-V44-v0" ;;
     v46) echo "Isaac-OpenDuckMini-Joystick-V46-v0" ;;
     v47) echo "Isaac-OpenDuckMini-Joystick-V47-v0" ;;
+    v48) echo "Isaac-OpenDuckMini-Joystick-V48-v0" ;;
+    v49) echo "Isaac-OpenDuckMini-Joystick-V49-v0" ;;
     # 안전 필터를 켠 변형. 정책은 같고 환경만 다르므로 체크포인트는 원본 것을 쓴다
     # (아래 ckpt_ver 참조). 실기 후보 조합이 v32s 다.
     v28s) echo "Isaac-OpenDuckMini-Joystick-TallSafe-v0" ;;
@@ -113,7 +115,12 @@ host_ip() {
   echo "$ips" | awk '{print $1}'
 }
 
-gpu_busy() { [ "$(ps aux | grep -c '[t]rain.py')" -gt 0 ] || [ "$(ps aux | grep -c '[p]lay_fixed')" -gt 0 ]; }
+# GPU 를 실제로 물고 있는 것은 **isaaclab 런처를 띄운 파이썬**뿐이다.
+# 예전에는 `ps aux | grep '[t]rain.py'` 로 봤는데 그건 명령줄에 그 문자열이
+# 들어간 아무 프로세스나 잡는다 — 에디터로 train.py 를 열어 놔도, 스크립트를
+# heredoc 으로 만드는 쉘 한 줄에도 걸린다. 2026-08-13 에 실제로 그것 때문에
+# 학습이 두 번 막혔다 (GPU 는 비어 있었다).
+gpu_busy() { pgrep -f "python.*_isaaclab_launch\.py" > /dev/null 2>&1; }
 require_free_gpu() {
   if gpu_busy; then
     echo "!! GPU에 Isaac Sim이 이미 떠 있습니다. 두 개를 동시에 띄우면 한쪽이 조용히 죽습니다." >&2
