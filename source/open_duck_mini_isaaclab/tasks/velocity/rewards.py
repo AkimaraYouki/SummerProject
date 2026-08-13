@@ -39,6 +39,62 @@ def cost_action_rate(act: torch.Tensor, last_act: torch.Tensor) -> torch.Tensor:
     return torch.sum((act - last_act) ** 2, dim=-1)
 
 
+def cost_foot_lift(feet_pos_w: torch.Tensor, clearance: float) -> torch.Tensor:
+    """스윙 발이 **접지 발보다 얼마나 높이 뜨는지** 벌한다. `clearance` 까지는 공짜.
+
+    ## 왜 이 항이 필요한가
+
+    2026-08-13~14 에 레퍼런스로 발 들림을 낮추려 두 번 시도해 두 번 다 실패했다.
+
+        레퍼런스 발 들림   44.8 -> 23.2 mm  (v51 에서 반토막)
+        실제 걸음 발 들림  22.5 -> 21.4 mm  (거의 안 변함)
+
+    `reward_imitation` 이 비교하는 것은 **관절각**이지 발 위치가 아니다. 관절각을
+    대충 맞추면서도 발은 다른 데로 갈 수 있고, 실제 발 궤적은 균형 요구가
+    지배한다. 그래서 발 위치를 **직접** 벌해야 한다.
+
+    ## 접지 발 기준인 이유
+
+    월드 z 를 그대로 쓰면 지형 높이와 발바닥 두께가 섞인다. 두 발 중 낮은 쪽을
+    지면으로 보면 그 차이가 곧 **발 여유(clearance)** 이고, 경사·요철에서도
+    그대로 뜻이 통한다.
+
+    ## clearance
+
+    이 아래는 벌하지 않는다. 0 으로 두면 딛고 있는 발까지 밀어붙여 발을 끌게
+    된다. 다리 마디가 157 mm 이고 실측 발 들림이 22 mm(14 %) 였으므로,
+    사람 보행(1~2 %)과 그 사이 어딘가가 목표다.
+
+    Args:
+        feet_pos_w: (N, 2, 3) 월드 좌표 발 위치.
+        clearance: 이만큼(m)까지는 공짜.
+    """
+    z = feet_pos_w[..., 2]
+    lift = z - z.min(dim=1, keepdim=True).values
+    over = torch.clamp(lift - clearance, min=0.0)
+    return torch.sum(over**2, dim=-1)
+
+
+def cost_foot_lateral(feet_vel_b: torch.Tensor) -> torch.Tensor:
+    """발의 **좌우(몸통 y) 속도**를 벌한다 — "발을 최소한만 움직여라".
+
+    2026-08-14 실측: 한 번 스윙에 발이 위로 23 mm 뜨는 동안 **옆으로 30~41 mm**
+    움직인다. 수직성(상승/좌우)이 0.47~0.78 로 1 을 못 넘는다. 사용자가 다른
+    빌더의 로봇을 보고 "거의 수직으로 든다" 고 한 것과 정반대다.
+
+    발을 옆으로 던지려면 몸통이 무게를 그만큼 옮겨야 하므로, 이것이 roll 이
+    ±10° 로 흔들리는 직접 원인이다.
+
+    전후(x) 속도는 벌하지 않는다 — 보폭은 명령 속도가 정하는 값이라 줄이면
+    명령을 못 따라간다 (76 mm × 1/0.54 s = 0.14 m/s ≈ 명령 0.15).
+
+    Args:
+        feet_vel_b: (N, 2, 3) **몸통 기준** 발 속도. 월드로 주면 로봇이 도는
+            동안 전후 성분이 y 로 섞여 들어온다.
+    """
+    return torch.sum(feet_vel_b[..., 1] ** 2, dim=-1)
+
+
 def cost_action_jerk(act: torch.Tensor, last_act: torch.Tensor, last2_act: torch.Tensor) -> torch.Tensor:
     """액션의 **2차차분**을 벌한다 — 진동 그 자체를 겨냥한 항.
 
