@@ -1618,6 +1618,31 @@ READY_JOINT_POS_G135FH20_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.523
 READY_BASE_HEIGHT_G135FH20 = 0.1648
 SPAWN_BASE_HEIGHT_G135FH20 = 0.1723
 
+# ref_g135fs14 — fh20 에서 feet_spacing 만 0.18 -> 0.14 로 좁힌 레퍼런스.
+# calc_home.py (2026-08-14). 최대 |action| 0.96.
+# hip_roll 이 -0.12 rad(-6.9도) 로 크게 바뀐 것이 보간격이 좁아진 결과다.
+READY_JOINT_POS_G135FS14 = {
+    "left_hip_yaw": -0.0126,
+    "left_hip_roll": -0.1191,
+    "left_hip_pitch": 0.8050,
+    "left_knee": -1.3775,
+    "left_ankle": 0.6430,
+    "neck_pitch": 0.0000,
+    "head_pitch": 0.0000,
+    "head_yaw": 0.0000,
+    "head_roll": 0.0000,
+    "right_hip_yaw": 0.0052,
+    "right_hip_roll": -0.1243,
+    "right_hip_pitch": 0.8241,
+    "right_knee": 1.3903,
+    "right_ankle": -0.6367,
+}
+READY_JOINT_POS_G135FS14_ZNECK = dict(READY_JOINT_POS_G135FS14)
+READY_JOINT_POS_G135FS14_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
+# G135FH20 과 같은 방법 (FK 0.1609 + 계통보정 4.4 mm). settle_height 미실측.
+READY_BASE_HEIGHT_G135FS14 = 0.1653
+SPAWN_BASE_HEIGHT_G135FS14 = 0.1728
+
 
 @configclass
 class _WideMassEventCfg(EventCfg):
@@ -2006,6 +2031,78 @@ class JoystickEnvCfg_V51(JoystickEnvCfg_V47):
         ),
     )
     ready_base_height = READY_BASE_HEIGHT_G135FH20
+
+
+@configclass
+class JoystickEnvCfg_V52(JoystickEnvCfg_V51):
+    """imitation_v52 — **보간격을 좁힌다** (feet_spacing 0.18 -> 0.14). 레퍼런스만.
+
+    ## 왜
+
+    v48~v51 을 같은 마찰(μ 1.0)로 놓고 걸음 품질을 재니 **덜컹거림이 거의 안
+    줄었다** (`scripts/diag/gait_quality.py`):
+
+        런                     roll 진폭   발 들림   목표각 p95
+        v48 action_rate -0.5    20.7도    22.5 mm   4.82 (클램프)
+        v49 속도한계 3.50       21.9도    22.0 mm   3.50 (클램프)
+        v50 마찰 0.5            21.8도    28.0 mm   4.82 (클램프)
+        v51 발 들림 절반        18.6도    21.4 mm   4.82 (클램프)
+
+    세 가지가 나왔다.
+
+    **하나. v50 은 착시였다.** 자기 환경(μ 0.5)에서는 roll 이 11.9도 로 압도적
+    이었지만 **그 정책을 원래 마찰에 넣으니 21.8도 로 돌아왔다.** 미끄러운
+    바닥에서는 좌우로 흔들 지면반력이 없어 못 흔든 것이지 잘 걷게 된 것이
+    아니다. 보상 351.0 도 같은 착시다 — 안 흔들리니 안 넘어져 에피소드가
+    길어진 것이고, 원래 바닥에서는 접지 전환이 25.2/s 로 오히려 채터링한다.
+
+    **둘. 아무도 속도 클램프를 못 벗어났다.** 리워드로도(v48), 레퍼런스 발
+    들림을 반으로 줄여도(v51) 목표각 변화 속도 p95 가 정확히 클램프 값에
+    붙어 있다.
+
+    **셋. v51 은 목표 미달이었다.** 레퍼런스 발 들림을 44.8 -> 23.2 mm 로
+    반토막냈는데 **실제 걸음의 발 들림은 22.5 -> 21.4 mm** 로 거의 안 변했다.
+    정책이 그 부분에서 레퍼런스를 따라가지 않는다. 다만 roll 은 20.7 ->
+    18.6 도로 이 중 가장 좋았다.
+
+    그러니 덜컹거림의 원인은 발을 드는 높이가 아니라 **좌우로 무게를 옮기는
+    거리**다. 아직 한 번도 안 건드린 값이 거기 있다 — 원본 v1 로봇은
+    `feet_spacing` 0.14 인데 v2 는 0.18 이고, 우리 생성 스크립트는
+    `walk_com_height` 만 덮으므로 0.18 이 그대로 들어가 있었다.
+
+    ## 검증 (레퍼런스 자체를 FK 로)
+
+        레퍼런스                 발들림   보폭   발간격   좌우폭
+        g135sym  fh.04 fs.18     44.4    56.8   180.5    41.5 mm
+        g135fh20 fh.02 fs.18     23.2    56.5   180.5    41.7
+        g135fs14 fh.02 fs.14     23.2    56.5   **140.4**  **28.1**
+
+    발간격이 정확히 설정대로 좁아졌고, **발의 좌우 흔들림이 41.7 -> 28.1 mm
+    (-33 %)** 로 같이 줄었다. 발 들림과 보폭은 그대로라 v51 대비 단일 변수다.
+
+    READY 의 `hip_roll` 이 -0.004 -> **-0.12 rad(-6.9도)** 로 크게 바뀌는데,
+    좁은 보간격으로 서려면 고관절을 안쪽으로 말아야 하기 때문이다.
+
+    ## 대가
+
+    지지 다각형이 좁아져 좌우 외란에 약해진다. 그리고 다리가 서로 가까워지므로
+    **자기충돌 여유가 준다** — 이 프로젝트의 5 mm 기준을 다시 확인해야 한다
+    (`scripts/diag/leg_trunk_clearance.py`).
+
+    비교 기준 (v51): roll 진폭 18.6도 · 발 들림 21.4 mm · 접지 11.9/s
+    **판정: roll 진폭이 18.6도 에서 눈에 띄게 내려가는가.**
+    """
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_g135fs14.pkl"
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G135FS14),
+            joint_pos=dict(READY_JOINT_POS_G135FS14_ZNECK),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_G135FS14
 
 
 @configclass
