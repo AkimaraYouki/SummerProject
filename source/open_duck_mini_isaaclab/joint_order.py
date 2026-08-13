@@ -199,3 +199,34 @@ READY_BASE_HEIGHT = 0.121  # m
 # 130 mm면 어떤 위상에서도 관통이 없다(최대 13 mm 낙하는 튕김보다 훨씬
 # 덜 교란적이다).
 SPAWN_BASE_HEIGHT = 0.130
+
+
+# ── 좌우 거울 규칙 ────────────────────────────────────────────────────────
+# 오른다리 관절각이 왼다리의 몇 배여야 **자세가 좌우 대칭**인가.
+#
+# 추측하지 않고 URDF 에서 구했다 (2026-08-09): 부호 조합 2^5 = 32 가지를 전부
+# 넣어 보고, 무작위 자세 12 개에서 좌우 발 위치가 서로 거울이 되는 조합을 골랐다.
+# 그 조합에서 남는 오차는 0.5 mm 이고 (좌우 링크 질량도 완전히 동일하다), 따라서
+# **로봇 모델 자체는 대칭**이다. 이 규칙에서 벗어나는 것은 전부 레퍼런스 또는
+# 정책 탓이다.
+#
+# hip_yaw 만 부호가 뒤집히고 hip_roll / hip_pitch 는 같은 부호라는 점이 직관과
+# 어긋나 보이는데, 실기 캘리브(hardware_map.py)의 "hip_yaw 만 좌우 같은 부호"
+# 와는 **다른 이야기**다. 저쪽은 모터 회전 방향 부호이고 이쪽은 URDF 관절각의
+# 거울 관계다. 섞지 말 것.
+LEG_MIRROR_SIGN = {
+    "hip_yaw": -1.0,
+    "hip_roll": +1.0,
+    "hip_pitch": +1.0,
+    "knee": -1.0,
+    "ankle": -1.0,
+}
+
+# ACTUATOR_JOINT_NAMES 안에서의 (좌 인덱스, 우 인덱스, 거울부호) 쌍.
+LEG_MIRROR_PAIRS = [
+    (ACTUATOR_JOINT_NAMES.index("left_" + j),
+     ACTUATOR_JOINT_NAMES.index("right_" + j),
+     s)
+    for j, s in LEG_MIRROR_SIGN.items()
+]
+assert len(LEG_MIRROR_PAIRS) == 5

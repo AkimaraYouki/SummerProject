@@ -32,6 +32,21 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-V34C2-v0": "JoystickEnvCfg_V34C2",
     "Isaac-OpenDuckMini-Joystick-V34C20-v0": "JoystickEnvCfg_V34C20",
     "Isaac-OpenDuckMini-Joystick-V34C10-v0": "JoystickEnvCfg_V34C10",
+    "Isaac-OpenDuckMini-Joystick-V34U-v0": "JoystickEnvCfg_V34U",
+    "Isaac-OpenDuckMini-Joystick-V35-v0": "JoystickEnvCfg_V35",
+    "Isaac-OpenDuckMini-Joystick-V36-v0": "JoystickEnvCfg_V36",
+    "Isaac-OpenDuckMini-Joystick-V37-v0": "JoystickEnvCfg_V37",
+    "Isaac-OpenDuckMini-Joystick-V38-v0": "JoystickEnvCfg_V38",
+    "Isaac-OpenDuckMini-Joystick-V39-v0": "JoystickEnvCfg_V39",
+    "Isaac-OpenDuckMini-Joystick-V40-v0": "JoystickEnvCfg_V40",
+    "Isaac-OpenDuckMini-Joystick-V41-v0": "JoystickEnvCfg_V41",
+    "Isaac-OpenDuckMini-Joystick-V42-v0": "JoystickEnvCfg_V42",
+    "Isaac-OpenDuckMini-Joystick-V43-v0": "JoystickEnvCfg_V43",
+    "Isaac-OpenDuckMini-Joystick-V44-v0": "JoystickEnvCfg_V44",
+    "Isaac-OpenDuckMini-Joystick-V46-v0": "JoystickEnvCfg_V46",
+    "Isaac-OpenDuckMini-Joystick-V47-v0": "JoystickEnvCfg_V47",
+    "Isaac-OpenDuckMini-Joystick-V48-v0": "JoystickEnvCfg_V48",
+    "Isaac-OpenDuckMini-Joystick-V49-v0": "JoystickEnvCfg_V49",
     "Isaac-OpenDuckMini-Joystick-TallSafe-v0": "JoystickEnvCfg_TallSafe",
     "Isaac-OpenDuckMini-Joystick-HipInwardSafe-v0": "JoystickEnvCfg_HipInwardSafe",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
@@ -55,9 +70,81 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-V34C2-v0",
     "Isaac-OpenDuckMini-Joystick-V34C20-v0",
     "Isaac-OpenDuckMini-Joystick-V34C10-v0",
+    "Isaac-OpenDuckMini-Joystick-V34U-v0",
+    "Isaac-OpenDuckMini-Joystick-V35-v0",
+    "Isaac-OpenDuckMini-Joystick-V36-v0",
+    "Isaac-OpenDuckMini-Joystick-V37-v0",
+    "Isaac-OpenDuckMini-Joystick-V38-v0",
+    "Isaac-OpenDuckMini-Joystick-V39-v0",
+    "Isaac-OpenDuckMini-Joystick-V40-v0",
+    "Isaac-OpenDuckMini-Joystick-V41-v0",
+    "Isaac-OpenDuckMini-Joystick-V42-v0",
+    "Isaac-OpenDuckMini-Joystick-V43-v0",
+    "Isaac-OpenDuckMini-Joystick-V44-v0",
+    "Isaac-OpenDuckMini-Joystick-V46-v0",
+    "Isaac-OpenDuckMini-Joystick-V47-v0",
+    "Isaac-OpenDuckMini-Joystick-V48-v0",
+    "Isaac-OpenDuckMini-Joystick-V49-v0",
     "Isaac-OpenDuckMini-Joystick-TallSafe-v0",
     "Isaac-OpenDuckMini-Joystick-HipInwardSafe-v0",
 }
+
+
+def _apply_lpf_override(cfg) -> None:
+    """`ODM_LPF` 가 있으면 액션 저역통과 alpha 를 덮어쓴다 (odm 의 `--lpf`).
+
+    왜 환경변수 하나인가: 필터를 걸어보고 싶은 곳이 play·measure·diag 일곱 군데다.
+    스크립트마다 `--smooth` 를 심으면 이 파일 맨 위 주석이 경고하는 **"여섯 군데
+    복제"** 를 그대로 반복하게 된다. 설정 인스턴스를 만드는 길목이 여기 하나뿐이니
+    여기서 한 번만 덮어쓴다.
+
+    보행용과 정지용 alpha 를 **함께** 덮는 게 핵심이다. v37 에서 정지용이
+    `action_lowpass_alpha_standstill` 로 분리됐기 때문에, 보행용만 바꾸면
+    v39·v40 처럼 정지 alpha 가 0.0 인 정책에서는 **정지 중에 필터가 아예 안 걸린다**
+    — 정작 떨림을 보고 싶은 구간이 정지인데.
+
+    형식:  ODM_LPF=0.5        보행·정지 둘 다 0.5
+           ODM_LPF=0.0,0.7    보행 0.0 / 정지 0.7 (쉼표로 따로)
+    """
+    import os
+
+    raw = os.environ.get("ODM_LPF", "").strip()
+    if not raw:
+        return
+
+    parts = [p.strip() for p in raw.split(",")]
+    if len(parts) == 1:
+        parts = parts * 2
+    if len(parts) != 2:
+        raise SystemExit(f"ODM_LPF 형식이 잘못됐다: {raw!r} (예: 0.5 또는 0.0,0.7)")
+    try:
+        a_move, a_still = (float(p) for p in parts)
+    except ValueError:
+        raise SystemExit(f"ODM_LPF 를 숫자로 못 읽었다: {raw!r}") from None
+    for a in (a_move, a_still):
+        # a=1 이면 액션이 영원히 갱신되지 않는다 (y = 1*y_prev + 0*x).
+        if not 0.0 <= a < 1.0:
+            raise SystemExit(f"ODM_LPF alpha 는 0 이상 1 미만이어야 한다: {a}")
+
+    cfg.action_lowpass_alpha = a_move
+    cfg.action_lowpass_alpha_standstill = a_still
+
+    import math
+
+    fs = 1.0 / (cfg.sim.dt * cfg.decimation)
+    def _fc(a: float) -> str:
+        if a <= 0.0:
+            return "끔"
+        c = 1.0 - (1.0 - a) ** 2 / (2.0 * a)
+        f = fs / (2 * math.pi) * math.acos(max(-1.0, min(1.0, c)))
+        return f"{f:.1f} Hz, 군지연 {a / (1 - a) * 1000 / fs:.0f} ms"
+
+    print(f"[ODM_LPF] 액션 저역통과 — 보행 a={a_move} ({_fc(a_move)}) · "
+          f"정지 a={a_still} ({_fc(a_still)})  [제어 {fs:.0f} Hz, 보행 1.85 Hz]",
+          flush=True)
+    if max(a_move, a_still) >= 0.8:
+        print("[ODM_LPF] ⚠️ a>=0.8 은 차단이 1.8 Hz 로 보행 주파수(1.85 Hz)보다 낮다 "
+              "— 보행 자체가 감쇠된다", flush=True)
 
 
 def env_cfg_for(task: str):
@@ -71,7 +158,9 @@ def env_cfg_for(task: str):
             f"모르는 태스크: {task!r}. task_registry.ENV_CFG_CLASS 에 추가하세요. "
             f"알려진 것: {sorted(ENV_CFG_CLASS)}"
         ) from None
-    return getattr(_cm, name)()
+    cfg = getattr(_cm, name)()
+    _apply_lpf_override(cfg)
+    return cfg
 
 
 def runner_cfg_for(task: str):

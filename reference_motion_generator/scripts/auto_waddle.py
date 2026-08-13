@@ -245,7 +245,11 @@ def main(args):
     # 5. Check the JSON outputs in ../recordings; remove if out of range
     # ---------------------------------------------------------------
     totals = []
-    if os.path.isdir(args.output_dir):
+    if args.no_speed_filter:
+        n = len([f for f in os.listdir(args.output_dir) if f.endswith(".json")]) \
+            if os.path.isdir(args.output_dir) else 0
+        print(f"[auto_waddle] 속도 필터 끔 (--no-speed-filter) — 녹화 {n}개 전부 남긴다")
+    elif os.path.isdir(args.output_dir):
         for filename in os.listdir(args.output_dir):
             if filename.endswith(".json"):
                 file_path = os.path.join(args.output_dir, filename)
@@ -347,6 +351,17 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--sweep", action="store_true", help="Sweep through the dx, dy, dtheta values."
+    )
+    parser.add_argument(
+        "--no-speed-filter",
+        action="store_true",
+        help=(
+            "5 단계의 속도 필터를 끈다. 그 필터는 medium 프리셋 녹화 중 총속도가 "
+            "slow 이하이거나 fast 초과인 것을 **삭제**하는데, 우리는 명령 범위 "
+            "전체를 덮는 표 하나를 만드는 것이라 그러면 격자에 구멍이 난다. "
+            "빠진 칸은 런타임에서 최근접 폴백되어 조용히 틀린 보행이 된다 "
+            "(2026-08-11: 충전율 53~55 %, 직진 슬라이스에서 dx=0/0.148/0.222 소실)."
+        ),
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument(

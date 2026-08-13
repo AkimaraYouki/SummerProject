@@ -55,6 +55,7 @@ from open_duck_mini_isaaclab.joint_order import (
     ACT_LEG_JOINT_IDX,
     ACTUATOR_JOINT_NAMES,
     LEFT_FOOT_BODY_NAME,
+    LEG_MIRROR_PAIRS,
     REF_LEG_JOINT_IDX,
     RIGHT_FOOT_BODY_NAME,
     ROOT_BODY_NAME,
@@ -64,9 +65,12 @@ from open_duck_mini_isaaclab.reference_motion.poly_reference_motion import REF_F
 from .joystick_env_cfg import JoystickEnvCfg
 from .observations import DelayBuffer, apply_uniform_noise
 from .rewards import (
+    cost_action_jerk,
     cost_action_rate,
+    cost_leg_symmetry,
     cost_stand_still,
     cost_torques,
+    cost_upright_standstill,
     reward_alive,
     reward_imitation,
     reward_path_tracking,
@@ -165,9 +169,24 @@ class JoystickEnv(DirectRLEnv):
         self._motor_targets = torch.zeros(n, nj, device=dev)
 
         self._action_delay_buf = DelayBuffer(n, nj, max(cfg.action_max_delay, 1), dev)
+        # 액션 저역통과(떨림 억제)의 상태. alpha=0 이면 항등이라 비용도 없다.
+        self._act_filt = torch.zeros(n, nj, device=dev)
+        # 좌우 대칭 벌점용 인덱스. joint_order 가 URDF FK 로 확정한 거울 규칙이다.
+        self._sym_l = torch.tensor([p[0] for p in LEG_MIRROR_PAIRS], dtype=torch.long, device=dev)
+        self._sym_r = torch.tensor([p[1] for p in LEG_MIRROR_PAIRS], dtype=torch.long, device=dev)
+        self._sym_s = torch.tensor([p[2] for p in LEG_MIRROR_PAIRS], dtype=torch.float32, device=dev)
 
         self._command = torch.zeros(n, 7, device=dev)
         self._imitation_i = torch.zeros(n, dtype=torch.long, device=dev)
+        # 정지 목표 자세 (cfg.standstill_joint_pos). ACTUATOR_JOINT_NAMES 순서로
+        # 펼쳐 [1,14] 로 두면 브로드캐스트로 전 환경에 적용된다.
+        _ss = getattr(self.cfg, "standstill_joint_pos", None)
+        if _ss is None:
+            self._standstill_pose = None
+        else:
+            self._standstill_pose = torch.tensor(
+                [[float(_ss[nm]) for nm in ACTUATOR_JOINT_NAMES]], dtype=torch.float32, device=dev
+            )
 
         # Path frame (Disney BD-X, 2026-07-29). The paper keeps "a path frame
         # that integrates these velocity commands over time" and expresses the
@@ -283,6 +302,45 @@ class JoystickEnv(DirectRLEnv):
         self._actions = actions.clone()
         self._action_delay_buf.push(self._actions)
         action_w_delay = self._action_delay_buf.sample(self.cfg.action_min_delay, self.cfg.action_max_delay)
+
+        # 몸통 떨림 억제 — 액션에 1차 저역통과(EMA)를 건다.
+        #   a_f[t] = alpha*a_f[t-1] + (1-alpha)*a[t]
+        # 목표각은 default + action*scale 인 아핀 변환이라, 액션을 거르는 것과
+        # 목표각을 거르는 것이 같다. 액션 쪽에 걸어야 아래의 고관절 클램프와
+        # 속도 제한이 **필터 뒤에** 걸린다 (순서를 바꾸면 필터가 안전 한계를 다시
+        # 넘길 수 있다).
+        #
+        # 이미 있는 속도 제한(max_motor_velocity*dt = 0.0964 rad/step)은 큰 도약만
+        # 막지, 그 안에서 매 스텝 부호가 바뀌는 떨림은 그대로 통과시킨다. 그래서
+        # 따로 필요하다.
+        #
+        # ⚠️ 학습 때 안 쓰던 걸 추론에서만 켜면 train/test 불일치이고, 위상 지연이
+        #    생겨 접지 타이밍이 밀린다. alpha 를 올릴수록 조용해지는 대신 반응이
+        #    굼떠진다 — 재생으로 눈으로 보고 고를 것. 근본 해법은 이 값을 켠 채로
+        #    학습하거나 action_rate 벌점을 키우는 쪽이다.
+        # 정지와 보행의 최적 alpha 가 완전히 다르다는 것이 스윕에서 나왔다.
+        #   정지 — 올릴수록 계속 좋아진다. 떨림도 줄고 **정지 속력 오차까지 같이**
+        #          준다 (v35 기준 0.0148 -> 0.0056 @0.8). 대가가 없다.
+        #   보행 — 추종이 단조롭게 나빠진다 (+2% @0.5, +26% @0.7). 위상 지연이
+        #          접지 타이밍을 밀기 때문이다.
+        # 명령은 우리가 알고 있으므로 굳이 하나로 타협할 이유가 없다. 정지에서만
+        # 세게 걸고 걸을 때는 푼다.
+        #
+        # 딱딱하게 켜고 끄면 명령이 문턱을 넘는 순간 필터 상태가 튀어 덜컥거린다.
+        # cmd_norm 이 blend_lo ~ blend_hi 를 지나는 동안 smoothstep 으로 섞는다.
+        a_move = float(getattr(self.cfg, "action_lowpass_alpha", 0.0))
+        a_still = getattr(self.cfg, "action_lowpass_alpha_standstill", None)
+        if a_still is None:
+            a_still = a_move
+        a_still = float(a_still)
+        if a_move > 0.0 or a_still > 0.0:
+            lo, hi = getattr(self.cfg, "action_lowpass_blend", (0.01, 0.05))
+            cmd_norm = torch.linalg.norm(self._command[:, :3], dim=-1, keepdim=True)
+            t = ((cmd_norm - lo) / max(hi - lo, 1e-6)).clamp(0.0, 1.0)
+            t = t * t * (3.0 - 2.0 * t)                 # smoothstep
+            alpha = a_still + (a_move - a_still) * t    # [N,1]
+            self._act_filt = alpha * self._act_filt + (1.0 - alpha) * action_w_delay
+            action_w_delay = self._act_filt
 
         if self.cfg.lock_head_joints:
             # Hold the head at its READY pose and let the policy shape only the
@@ -508,8 +566,32 @@ class JoystickEnv(DirectRLEnv):
             * cfg.tracking_ang_vel_scale,
             "torques": cost_torques(self._robot.data.applied_torque[:, self._joint_ids]) * cfg.torques_scale,
             "action_rate": cost_action_rate(self._actions, self._last_act) * cfg.action_rate_scale,
+            # 진동(액션 방향 반전) 그 자체를 겨냥한 2차차분 항. 1차차분인
+            # action_rate 는 "빠른 움직임" 을 벌하는 것이라 정상 보행도 같이
+            # 벌하고 진동만 골라 누르지 못한다. 기본 계수 0 = 꺼짐.
+            "action_jerk": cost_action_jerk(
+                self._actions, self._last_act, self._last_last_act,
+            ) * cfg.action_jerk_scale,
             "alive": reward_alive(self.num_envs, self.device) * cfg.alive_scale,
-            "stand_still": cost_stand_still(self._command, joint_pos, joint_vel, default_joint_pos) * cfg.stand_still_scale,
+            # 정지 목표 자세는 액션 원점(default_joint_pos)과 분리한다.
+            # default 는 보행 평균이라 placo 의 walk_trunk_pitch=-4 도가 배어
+            # 있고, 그대로 세우면 몸통이 4.03 도 앞으로 기운다 (FK 실측).
+            "stand_still": cost_stand_still(
+                self._command, joint_pos, joint_vel,
+                self._standstill_pose if self._standstill_pose is not None else default_joint_pos,
+            ) * cfg.stand_still_scale,
+            # 정지했을 때 몸통을 수직으로. 관절각 우회(v34u)가 실패한 뒤 넣은
+            # 직접 항이다 — rewards.cost_upright_standstill 주석 참고.
+            # 기본 계수는 0 이라 기존 태스크의 리워드는 한 항도 안 바뀐다.
+            "upright_standstill": cost_upright_standstill(
+                self._command, self._robot.data.projected_gravity_b,
+            ) * cfg.upright_standstill_scale,
+            # 정지에서만 좌우 다리 자세가 거울이 되게. 보행은 이미 대칭이고
+            # (실측 1.03도 이내) 애초에 반주기 어긋난 운동이라 걸면 안 된다.
+            # 기본 계수는 0 이라 기존 태스크의 리워드는 한 항도 안 바뀐다.
+            "leg_symmetry": cost_leg_symmetry(
+                self._command, joint_pos, self._sym_l, self._sym_r, self._sym_s,
+            ) * cfg.leg_symmetry_scale,
         }
         # Stage 1 (use_imitation=False): omitted entirely, not just
         # zero-weighted — reward_imitation would divide-by-nothing-useful
@@ -543,6 +625,21 @@ class JoystickEnv(DirectRLEnv):
                       * (joint_pos[:, self._hip_in_act]
                          - self._current_reference_motion[:, 0:14][:, self._hip_in_ref]))
             over = torch.clamp(inward - cfg.hip_inward_thresh, min=0.0).sum(dim=-1)
+            if getattr(cfg, "hip_inward_walking_only", False):
+                # 정지에서는 끈다. 이 항은 **레퍼런스를 기준**으로 삼는데, 정지에서는
+                # standstill_hold 가 위상을 0 에 묶으므로 그 기준이 "걷는 중 한쪽 발을
+                # 든 순간" 의 고관절 자세가 된다 (위상 0 의 hip_roll: 좌 -7.69 / 우
+                # +5.50, 13.19 도 벌어짐). 그래서 정지에서 좌우 대칭을 요구하는
+                # leg_symmetry(-3.0) 와 정면으로 싸우고, 계수가 8배(-25) 라 이긴다.
+                #
+                # 실제로 v36 에서 그 균형점이 그대로 나왔다: 대칭이 요구하는 값은
+                # R_roll = L_roll = +1.60 도인데 hip_inward 경계가 +2.50 도라 정책이
+                # +6.26 도에서 멈췄고, 어긋남 4.66 도가 측정값과 정확히 일치한다.
+                #
+                # 정지에서 꺼도 되는 이유: 이 항의 목적은 보행 중 다리-몸통
+                # 자가충돌 방지인데(접촉 = 액추에이터 파손), 정지에서는 양발이 땅에
+                # 붙어 거의 기본 자세이고 실측 최소 간격이 62 mm 다 (위험선 5 mm).
+                over = over * (torch.linalg.norm(self._command[:, :3], dim=-1) > 0.01).float()
             terms["hip_inward"] = over * cfg.hip_inward_scale
 
         if cfg.use_path_frame and cfg.path_tracking_scale != 0.0:
@@ -608,6 +705,9 @@ class JoystickEnv(DirectRLEnv):
         self._last_last_act[env_ids] = 0.0
         self._last_last_last_act[env_ids] = 0.0
         self._action_delay_buf.reset_idx(env_ids)
+        # 필터 상태도 같이 지운다. 안 지우면 넘어지기 직전의 값이 새 에피소드
+        # 첫 스텝에 그대로 섞여 들어간다.
+        self._act_filt[env_ids] = 0.0
         self._command[env_ids] = self._sample_command(env_ids)
 
         # Reference State Initialization (RSI, DeepMimic/Peng et al. 2018):

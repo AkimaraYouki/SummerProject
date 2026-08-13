@@ -36,8 +36,34 @@ parser.add_argument("--joystick", nargs="?", const="/dev/input/js0", default=Non
                     metavar="DEV",
                     help="Xbox 패드로 실시간 조종한다 (기본 장치 /dev/input/js0). "
                          "--cycle 보다 우선한다")
+parser.add_argument("--smooth", type=float, default=None, metavar="ALPHA",
+                    help="몸통 떨림 억제 — 액션에 1차 저역통과를 건다 (0~0.9). "
+                         "50 Hz 기준 -3 dB: 0.3->11 Hz, 0.5->5.8 Hz, 0.7->2.9 Hz, 0.8->1.8 Hz. "
+                         "보행이 1.85 Hz 라 0.8 은 이미 보행보다 낮다 — 0.5~0.7 이 상한")
+parser.add_argument("--cmd-udp", type=str, default=None, metavar="HOST:PORT",
+                    help="이 창에서 만드는 명령(vx,vy,yaw)을 UDP 로 실기에 같이 보낸다. "
+                         "예: --cmd-udp 192.168.137.7:9999 . 조이스틱이든 --cycle 이든 "
+                         "화면의 로봇이 받는 것과 **똑같은 값**이 나간다 — 심과 실기를 "
+                         "같은 입력으로 나란히 보려는 것. 잿슨 쪽은 rl_walk.py 의 "
+                         "--cmd-udp-port 로 받는다. 패킷이 끊기면 실기는 자동으로 "
+                         "정지 명령으로 떨어진다(잿슨 쪽 워치독).")
+parser.add_argument("--record", type=str, default=None, metavar="DIR",
+                    help="6방향 순환을 mp4 로 녹화한다. 이 디렉터리에 저장한다. "
+                         "헤드리스에서도 되며 --enable_cameras 를 자동으로 켠다. "
+                         "--cycle 과 함께 쓰는 것을 전제로 한다 (명령마다 --hold 초).")
+parser.add_argument("--track-csv", type=str, default=None, metavar="PATH",
+                    help="관절추종 로그를 CSV 로 남긴다 (열 이름은 실기 rl_walk_log.csv 와 동일). "
+                         "scripts/diag/track_stats.py 로 실기와 같은 자로 비교한다")
+parser.add_argument("--terrain", type=str, default="plane",
+                    help="평지 대신 다른 지형에서 재생한다. 목록은 "
+                         "open_duck_mini_isaaclab/terrains.py 의 TERRAIN_CHOICES. "
+                         "학습은 전부 평지에서 했으므로 제로샷이다")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
+# 녹화는 오프스크린 렌더가 필요하다. RecordVideo 가 rgb_array 를 요구하고,
+# 그건 카메라 확장이 켜져 있어야 동작한다 (헤드리스에서도 마찬가지).
+if args_cli.record:
+    args_cli.enable_cameras = True
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
@@ -57,7 +83,8 @@ import open_duck_mini_isaaclab.tasks  # noqa: E402, F401
 
 
 from open_duck_mini_isaaclab.joint_order import (  # noqa: E402
-    ACTUATOR_JOINT_NAMES, ACT_LEG_JOINT_IDX, REF_LEG_JOINT_IDX, READY_BASE_HEIGHT,
+    ACTUATOR_JOINT_NAMES, ACT_LEG_JOINT_IDX, LEG_MIRROR_PAIRS, REF_LEG_JOINT_IDX,
+    READY_BASE_HEIGHT,
 )
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
 import isaaclab.utils.math as math_utils  # noqa: E402
@@ -66,6 +93,34 @@ import isaaclab.sim as sim_utils  # noqa: E402
 
 env_cfg = env_cfg_for(args_cli.task)
 env_cfg.scene.num_envs = args_cli.num_envs
+
+if args_cli.smooth is not None:
+    if not 0.0 <= args_cli.smooth < 1.0:
+        raise SystemExit(f"--smooth 는 0 이상 1 미만이어야 한다: {args_cli.smooth}")
+    env_cfg.action_lowpass_alpha = args_cli.smooth
+    # 정지용 alpha 도 같이 덮는다. v37 에서 분리된 뒤로 v39·v40 은 정지 alpha 가
+    # 0.0 이라, 이걸 빼먹으면 정작 떨림을 보려는 정지 구간에 필터가 안 걸린다.
+    env_cfg.action_lowpass_alpha_standstill = args_cli.smooth
+    import math as _m
+    # 1차 EMA 의 -3 dB 차단주파수: fc = fs/(2*pi) * acos(1 - (1-a)^2/(2a))
+    _a, _fs = args_cli.smooth, 1.0 / (env_cfg.sim.dt * env_cfg.decimation)
+    if _a > 0.0:
+        _c = 1.0 - (1.0 - _a) ** 2 / (2.0 * _a)
+        _fc = _fs / (2 * _m.pi) * _m.acos(max(-1.0, min(1.0, _c)))
+        print(f"[play] 액션 저역통과 alpha={_a} → 차단 약 {_fc:.1f} Hz "
+              f"(제어 {_fs:.0f} Hz, 보행 1.85 Hz)", flush=True)
+        print("[play] ⚠️ 학습 때는 꺼져 있던 필터다. 위상 지연으로 접지 타이밍이 밀릴 수 있다",
+              flush=True)
+
+if args_cli.terrain != "plane":
+    from open_duck_mini_isaaclab.terrains import TERRAIN_CHOICES, apply_terrain  # noqa: E402
+
+    if args_cli.terrain not in TERRAIN_CHOICES:
+        raise SystemExit(f"모르는 지형: {args_cli.terrain}\n"
+                         + "\n".join(f"  {k:14} {v}" for k, v in TERRAIN_CHOICES.items()))
+    apply_terrain(env_cfg, args_cli.terrain)
+    print(f"[play] 지형: {args_cli.terrain} — {TERRAIN_CHOICES[args_cli.terrain]}", flush=True)
+    print("[play] ⚠️ 학습은 전부 평지에서 했다. 지형을 보는 관측도 없다 (제로샷)", flush=True)
 
 if args_cli.cam is not None:
     # asset_root 기준이라 로봇이 걸어가도 시점이 따라간다.
@@ -127,7 +182,19 @@ if args_cli.ghost:
         )
     env_cfg.scene.ref_ghost = _g
 
-env = gym.make(args_cli.task, cfg=env_cfg)
+env = gym.make(args_cli.task, cfg=env_cfg,
+               render_mode="rgb_array" if args_cli.record else None)
+
+if args_cli.record:
+    import os as _os
+    _os.makedirs(args_cli.record, exist_ok=True)
+    # 한 번에 끊김 없이 전 구간을 담는다. step_trigger 를 0 스텝에만 걸고
+    # video_length 를 넉넉히 줘서 --seconds 만큼 통째로 녹화한다.
+    _len = int(args_cli.seconds / (env_cfg.sim.dt * env_cfg.decimation)) + 10
+    env = gym.wrappers.RecordVideo(
+        env, video_folder=args_cli.record, step_trigger=lambda i: i == 0,
+        video_length=_len, disable_logger=True)
+    print(f"[play] 녹화 -> {args_cli.record}  ({_len} 프레임)", flush=True)
 
 agent_cfg = runner_cfg_for(args_cli.task)
 env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
@@ -296,7 +363,28 @@ def _draw_overlay():
 _hud = None
 _hud_plots = {}
 _HIST = 150  # 최근 3초 (0.02 s/step)
-_hist = {"vx": [], "vy": [], "yaw": [], "err": []}
+_hist = {"vx": [], "vy": [], "yaw": [], "err": [], "pitch": [], "chat": []}
+
+# ── sim2real 진단 상태 ──────────────────────────────────────────────────
+# 여기 있는 항목은 전부 **실기 로그(~/rl_walk_log.csv)와 같은 정의**로 잰다.
+# 그래야 "시뮬 0.63도 vs 실기 7도" 처럼 같은 자로 비교할 수 있다. 정의가
+# 조금이라도 다르면 갭인지 측정 방법 차이인지 못 가린다.
+_S2R_WIN = 100                  # 떨림 통계 창 (2 초)
+_prev_act = None
+_dsign_hist = []                # 액션 변화의 부호 (관절별), 최근 _S2R_WIN 스텝
+
+# HUD 한 줄에 관절 이름을 다 못 넣으므로 줄인다 (L/R + 관절 약자).
+_SHORT = [n.replace("left_", "L.").replace("right_", "R.")
+           .replace("hip_yaw", "hy").replace("hip_roll", "hr").replace("hip_pitch", "hp")
+           .replace("knee", "kn").replace("ankle", "an")
+           .replace("neck_pitch", "npi").replace("head_pitch", "hpi")
+           .replace("head_yaw", "hya").replace("head_roll", "hro")
+          for n in ACTUATOR_JOINT_NAMES]
+# 거울 규칙은 joint_order 가 URDF FK 로 확정한 것을 그대로 쓴다 (여기서 재정의하지 않는다).
+_SYM_L = torch.tensor([p[0] for p in LEG_MIRROR_PAIRS], dtype=torch.long)
+_SYM_R = torch.tensor([p[1] for p in LEG_MIRROR_PAIRS], dtype=torch.long)
+_SYM_S = torch.tensor([float(p[2]) for p in LEG_MIRROR_PAIRS])
+_SYM_NAME = [ACTUATOR_JOINT_NAMES[p[1]].replace("right_", "") for p in LEG_MIRROR_PAIRS]
 if args_cli.hud:
     try:
         import omni.ui as ui
@@ -323,6 +411,8 @@ if args_cli.hud:
                                 ("vy", "vy", 0xFF44FF88),
                                 ("yaw", "yaw", 0xFFFF8844),
                                 ("err", "jnt err", 0xFF8888FF),
+                                ("pitch", "tilt", 0xFF44FFFF),
+                                ("chat", "chatter", 0xFF4444FF),
                             ):
                                 with ui.HStack(height=ui.Pixel(26)):
                                     ui.Spacer(width=8)
@@ -380,6 +470,68 @@ def _update_ghost():
     _ghost.write_root_velocity_to_sim(torch.zeros(_ghost.num_instances, 6, device=u.device), env_ids=ids)
 
 
+def _hist_push(key, val):
+    h = _hist[key]
+    h.append(max(-1.0, min(1.0, val)))
+    if len(h) > _HIST:
+        del h[0]
+    if key in _hud_plots and len(h) == _HIST:
+        _hud_plots[key].set_data(*h)
+
+
+def _sim2real_stats():
+    """실기와 **같은 정의**로 잰 진단 수치. 정의가 어긋나면 갭인지 측정 차이인지
+    못 가리므로, 여기 있는 것은 전부 `~/rl_walk_log.csv` 로 재현 가능해야 한다."""
+    global _prev_act
+    import math as _m
+
+    # 몸통 기울기 — projected_gravity 기준. 직립이면 (0,0,-1) 이므로 x,y 가 기울기.
+    # 실기는 imu_map.projected_gravity(accel) 이 같은 벡터를 준다.
+    g = u._robot.data.projected_gravity_b[0]
+    pitch = _m.degrees(_m.atan2(float(g[0]), -float(g[2])))   # + 앞으로 숙임
+    roll = _m.degrees(_m.atan2(-float(g[1]), -float(g[2])))
+
+    w = u._robot.data.root_ang_vel_b[0]
+
+    # 떨림 — 액션 변화 부호가 뒤집히는 비율. 실기 정지에서 68.3% 가 나왔다.
+    # 백색잡음이면 50%, 그보다 높으면 음의 자기상관 = 능동 진동.
+    act = u._actions[0].detach()
+    chat = 0.5
+    if _prev_act is not None:
+        s = torch.sign(act - _prev_act)
+        _dsign_hist.append(s)
+        if len(_dsign_hist) > _S2R_WIN:
+            del _dsign_hist[0]
+        if len(_dsign_hist) > 1:
+            S = torch.stack(_dsign_hist)
+            chat = float((S[1:] * S[:-1] < 0).float().mean())
+    _prev_act = act.clone()
+
+    # 처짐 — 보낸 목표각 대비 실제 위치. 실기 좌 hip_pitch 가 6.77 deg 였다.
+    jp = u._robot.data.joint_pos[0, u._joint_ids]
+    sag = (u._motor_targets[0] - jp).abs()
+    si = int(torch.argmax(sag))
+
+    # 좌우 대칭 — joint_order 가 URDF FK 로 확정한 거울 규칙 기준.
+    # 인덱스 텐서는 모듈 상단에서 CPU 로 만들어졌으므로 한 번만 옮긴다.
+    global _SYM_L, _SYM_R, _SYM_S
+    if _SYM_L.device != jp.device:
+        _SYM_L, _SYM_R, _SYM_S = _SYM_L.to(jp.device), _SYM_R.to(jp.device), _SYM_S.to(jp.device)
+    sym = (jp[_SYM_R] - _SYM_S * jp[_SYM_L]).abs()
+    yi = int(torch.argmax(sym))
+
+    tq = float(u._robot.data.applied_torque[0, u._joint_ids].abs().max())
+    return {
+        "pitch": pitch, "roll": roll,
+        "gyro": float(torch.linalg.norm(w)),
+        "gx": float(w[0]), "gy": float(w[1]), "gz": float(w[2]),
+        "chat": chat,
+        "sag": _m.degrees(float(sag[si])), "sag_j": _SHORT[si],
+        "sym": _m.degrees(float(sym[yi])), "sym_j": _SYM_NAME[yi],
+        "tq": tq,
+    }
+
+
 def _update_hud(tag, cx, cy, cw):
     if _hud is None:
         return
@@ -406,7 +558,24 @@ def _update_hud(tag, cx, cy, cw):
         pe = u._path_error()[0]
         yaw_err = float(torch.atan2(pe[2], pe[1])) * 57.2958
         lines += ["", f"PATH ERR  lat {float(pe[0])*1000:+.0f} mm   yaw {yaw_err:+.1f} deg"]
+
+    s2r = _sim2real_stats()
+    lines += [
+        "",
+        "── sim2real ──────────────────",
+        # IMU 기준 몸통 기울기. 실기의 imu_map.projected_gravity() 와 같은 정의다.
+        f"TILT      pitch {s2r['pitch']:+6.2f} deg   roll {s2r['roll']:+6.2f}",
+        f"GYRO      |w| {s2r['gyro']:5.3f}  x{s2r['gx']:+.2f} y{s2r['gy']:+.2f} z{s2r['gz']:+.2f}",
+        # 실기에서 68.3% 가 나온 그 지표. 50% = 백색잡음, 높을수록 자기진동.
+        f"CHATTER   {s2r['chat']*100:4.1f} %   (50%=noise)",
+        # 실기 좌 hip_pitch 가 6.77 deg 처져 있었다. 시뮬은 얼마인가.
+        f"SAG       max {s2r['sag']:5.2f} deg  @{s2r['sag_j']}",
+        f"SYMMETRY  max {s2r['sym']:5.2f} deg  @{s2r['sym_j']}",
+        f"TORQUE    max {s2r['tq']:5.2f} Nm ({s2r['tq']/4.1*100:3.0f}% of 4.1)",
+    ]
     _hud.text = "\n".join(lines)
+    _hist_push("pitch", s2r["pitch"] / 15.0)
+    _hist_push("chat", (s2r["chat"] - 0.5) * 2.0)
 
     # 최근 3초 궤적. 숫자만으로는 "순간적으로 얼마나 튀는지"가 안 보이는데,
     # 좌우 명령에서 요가 ±1.5 rad/s로 요동치면서 평균은 0에 가까웠던 것이
@@ -427,6 +596,7 @@ def _update_hud(tag, cx, cy, cw):
 _pad = None
 if args_cli.joystick:
     from open_duck_mini_isaaclab.joystick_input import (  # noqa: E402
+        BUTTON_A as _BTN_A,
         Gamepad,
         GamepadUnavailable,
         command_from_gamepad,
@@ -443,7 +613,87 @@ if args_cli.joystick:
         print(f"[play] !! {exc}", flush=True)
         print("[play] 조이스틱 없이 계속합니다.", flush=True)
 
+# ── 실기로 명령 중계 (--cmd-udp) ────────────────────────────────────────────
+# 왜 UDP 인가: 명령은 **상태가 아니라 최신값**이다. 한 패킷을 놓쳐도 다음 것이
+# 20 ms 뒤에 오므로 재전송할 이유가 없고, TCP 로 하면 끊겼을 때 재연결을 기다리며
+# 오래된 명령을 붙들고 있게 된다. 실기 쪽은 워치독으로 끊김을 정지로 처리한다.
+_cmd_sock = None
+_cmd_addr = None
+_cmd_seq = 0
+if args_cli.cmd_udp:
+    import socket as _socket
+    import struct as _struct
+
+    try:
+        _h, _p = args_cli.cmd_udp.rsplit(":", 1)
+        _cmd_addr = (_h, int(_p))
+    except ValueError:
+        raise SystemExit(f"--cmd-udp 형식은 HOST:PORT 다: {args_cli.cmd_udp!r}")
+    _cmd_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    _cmd_sock.setblocking(False)
+    print(f"[play] 명령 중계 -> {_cmd_addr[0]}:{_cmd_addr[1]}  (UDP)", flush=True)
+    print("[play] ⚠️ 실기가 같은 명령으로 함께 움직인다. 로봇을 매달아 놓았는지 확인할 것.",
+          flush=True)
+
+
+def _send_cmd(cx: float, cy: float, cw: float, estop: bool) -> None:
+    """(seq, 보낸시각, vx, vy, yaw, estop) 24 바이트. 실패는 무시한다.
+
+    보내기가 60 Hz 루프를 붙잡으면 안 되므로 논블로킹이고, 버퍼가 차서 실패해도
+    다음 스텝에 새 값이 나가니 그냥 넘긴다.
+    """
+    global _cmd_seq
+    if _cmd_sock is None:
+        return
+    _cmd_seq += 1
+    try:
+        _cmd_sock.sendto(
+            _struct.pack("<IdfffB", _cmd_seq & 0xFFFFFFFF, time.time(),
+                         float(cx), float(cy), float(cw), 1 if estop else 0),
+            _cmd_addr)
+    except OSError:
+        pass
+
+
+# ── 관절추종 로그 ──────────────────────────────────────────────────────
+# 실기 `~/rl_walk_log.csv` 와 **열 이름·정의를 똑같이** 맞춘다. 그래야
+# scripts/diag/track_stats.py 한 자로 둘 다 잴 수 있다. goal_* 은 실기의
+# set_position_vec() 반환값(= 실제로 서보에 나간 각도, rad)에 해당하는
+# u._motor_targets 이고, pos_* 는 실측 관절각이다.
+_track_f = _track_w = None
+if args_cli.track_csv:
+    import csv as _csv
+    _track_f = open(args_cli.track_csv, "w", newline="")
+    _track_w = _csv.writer(_track_f)
+    _track_w.writerow(["t", "cmd_vx", "cmd_vy", "cmd_wz"]
+                      + [f"goal_{n}" for n in ACTUATOR_JOINT_NAMES]
+                      + [f"pos_{n}" for n in ACTUATOR_JOINT_NAMES]
+                      # 몸통 자세·각속도·접지도 실기와 같은 이름으로 남긴다.
+                      # 관절만으로는 "덜컹거린다" 를 못 잰다 — 목표각이
+                      # 매끈해도 몸통이 흔들릴 수 있고, 실제로 그랬다
+                      # (2026-08-13: 실기 목표각 떨림은 심보다 낮은데
+                      #  roll 이 21도 진폭으로 흔들렸다).
+                      + ["proj_grav_x", "proj_grav_y", "proj_grav_z",
+                         "gyro_x", "gyro_y", "gyro_z", "contact_l", "contact_r"])
+    print(f"[play] 관절추종 로그: {args_cli.track_csv}")
+
+
+def _track_row(t, cx, cy, cw):
+    if _track_w is None:
+        return
+    tgt = u._motor_targets[0].detach().cpu().tolist()
+    pos = u._robot.data.joint_pos[0, u._joint_ids].detach().cpu().tolist()
+    g = u._robot.data.projected_gravity_b[0].detach().cpu().tolist()
+    w = u._robot.data.root_ang_vel_b[0].detach().cpu().tolist()
+    c = u._get_foot_contact()[0].detach().cpu().tolist()
+    _track_w.writerow([f"{t:.4f}", f"{cx:.4f}", f"{cy:.4f}", f"{cw:.4f}"]
+                      + [f"{v:.6f}" for v in tgt] + [f"{v:.6f}" for v in pos]
+                      + [f"{v:.6f}" for v in g] + [f"{v:.6f}" for v in w]
+                      + [f"{int(bool(v))}" for v in c[:2]])
+
+
 obs = env.get_observations()
+_rt_t0 = time.time()          # 실시간 배속 측정 기준
 t_end = time.time() + args_cli.seconds
 step = 0
 hold_steps = max(1, int(args_cli.hold / dt))
@@ -469,8 +719,14 @@ while simulation_app.is_running() and time.time() < t_end:
     u._command[:, 0] = cx
     u._command[:, 1] = cy
     u._command[:, 2] = cw
+    # 화면의 로봇에 넣는 것과 **같은 값**을 보낸다 (클램프 뒤). 조이스틱 A 는
+    # 이 스크립트에서 이미 명령을 0 으로 만드는데, 실기에는 0 이 아니라 정지
+    # 의사를 명시적으로 알려야 워치독과 구분된다.
+    if _cmd_sock is not None:
+        _send_cmd(cx, cy, cw, bool(_pad is not None and _pad.button(_BTN_A)))
     with torch.inference_mode():
         obs, _, _, _ = env.step(policy(obs))
+    _track_row(step * dt, cx, cy, cw)
     _draw_overlay()
     _update_ghost()
     # 조이스틱일 때 cur_idx 는 -1 이라 CYCLE[cur_idx] 를 쓰면 엉뚱하게 TURN 이 뜬다.
@@ -483,7 +739,15 @@ while simulation_app.is_running() and time.time() < t_end:
         w = u._robot.data.root_ang_vel_b[0, 2]
         tag = mode_tag
         extra = f"  다리-몸통 최소 {_selfcol_min*1000:.0f}mm" if args_cli.overlay else ""
-        print(f"[play] {tag:4} vx={v[0]:+.3f} vy={v[1]:+.3f} yaw={w:+.3f}  (cmd {cx:+.2f},{cy:+.2f},{cw:+.2f}){extra}", flush=True)
+        # 실시간 배속. 이 루프는 dt 에서 **남는 시간만** 재우므로, 렌더링과
+        # 오버레이가 dt(20 ms)를 넘으면 조용히 슬로모션이 된다. 그러면 화면의
+        # 로봇만 느려 보이고 실기는 정상 속도라, 같은 정책인데 "심은 천천히
+        # 걷는데 실기는 너무 빠르다"로 오독하게 된다 (2026-08-10 실제로 겪음).
+        _wall = time.time() - _rt_t0
+        _rtf = (100 * dt) / _wall if _wall > 0 else 0.0
+        _rt_t0 = time.time()
+        rt = f"  실시간 {_rtf:.2f}x" + ("  <<< 슬로모션" if _rtf < 0.9 else "")
+        print(f"[play] {tag:4} vx={v[0]:+.3f} vy={v[1]:+.3f} yaw={w:+.3f}  (cmd {cx:+.2f},{cy:+.2f},{cw:+.2f}){extra}{rt}", flush=True)
     sleep = dt - (time.time() - t0)
     if sleep > 0:
         time.sleep(sleep)

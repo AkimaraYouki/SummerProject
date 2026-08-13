@@ -35,7 +35,7 @@ from open_duck_mini_isaaclab.joint_order import (
     ROOT_BODY_NAME,
 )
 from open_duck_mini_isaaclab.imu_map import MOUNT_POS as IMU_MOUNT_POS
-from open_duck_mini_isaaclab.robot_cfg import OPEN_DUCK_MINI_V2_CFG
+from open_duck_mini_isaaclab.robot_cfg import OPEN_DUCK_MINI_V2_CFG, OPEN_DUCK_MINI_V2_DC_CFG
 
 from .events import randomize_default_joint_pos as randomize_default_joint_pos_event
 
@@ -207,6 +207,10 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # 안 묶이고 자세만 무너졌다. 여기서는 실측 관절각에, 안쪽 한 방향만 건다.
     hip_inward_thresh = None
     hip_inward_scale = -25.0
+    # hip_inward 를 보행 중에만 걸지. 기본 False = 종전대로 정지에서도 건다.
+    # 이 항은 레퍼런스를 기준으로 삼는데 정지에서는 그 기준이 "걷는 중 한쪽 발을
+    # 든 순간" 이라, 정지 좌우대칭을 요구하는 leg_symmetry 와 정면으로 싸운다.
+    hip_inward_walking_only = False
 
     # 런타임 안전 필터 (safety_filter.py). 경로를 주면 켜진다.
     # 리워드는 위반을 줄일 뿐 0 을 보장하지 못한다 -- 액추에이터 파손이 걸린
@@ -297,6 +301,25 @@ class JoystickEnvCfg(DirectRLEnvCfg):
 
     action_min_delay = 0  # env steps
     action_max_delay = 3
+
+    # 액션 저역통과(EMA) 계수. 0 = 끔(기존 동작 그대로), 1 에 가까울수록 부드럽다.
+    #   a_f[t] = alpha*a_f[t-1] + (1-alpha)*a[t]
+    # 몸통 떨림을 줄이려고 넣었다. 기존 속도 제한(0.0964 rad/step)은 큰 도약만
+    # 막고 그 안에서 매 스텝 부호가 바뀌는 떨림은 통과시킨다.
+    # 50 Hz 기준 -3 dB 차단주파수: alpha 0.3 -> 11.0 Hz, 0.5 -> 5.8 Hz,
+    #                              0.6 -> 4.2 Hz, 0.7 -> 2.9 Hz, 0.8 -> 1.8 Hz.
+    # 보행 주기가 0.54 s(1.85 Hz)이므로 **0.8 은 이미 보행 주파수보다 낮다** —
+    # 떨림만 걷어내려면 0.5~0.7 이 상한이다.
+    action_lowpass_alpha = 0.0
+
+    # 정지에서 쓸 alpha. None 이면 위 값을 그대로 쓴다(구분 없음).
+    # 정지와 보행의 최적값이 다르다는 것이 스윕에서 나왔다 — 정지는 올릴수록
+    # 대가 없이 좋아지고(떨림도 정지 속력 오차도 같이 줌), 보행은 추종이
+    # 단조롭게 나빠진다. 명령을 아는데 하나로 타협할 이유가 없다.
+    action_lowpass_alpha_standstill = None
+    # cmd_norm 이 이 구간을 지나는 동안 두 alpha 를 smoothstep 으로 섞는다.
+    # 딱딱하게 전환하면 문턱을 넘는 순간 필터 상태가 튄다.
+    action_lowpass_blend = (0.01, 0.05)
     imu_min_delay = 0
     imu_max_delay = 3
 
@@ -352,12 +375,36 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     tracking_sigma = 0.01
     torques_scale = -1.0e-3
     action_rate_scale = -0.5
+    # 액션 2차차분(진동) 벌점. 기본 0 = 꺼짐 = 기존 태스크 리워드 불변.
+    # 실기 실측 2차차분^2 이 0.441 이므로 -0.25 면 벌점 -0.11 로, action_rate 의
+    # 기여(-0.5 x 0.148 = -0.074)와 같은 자릿수다.
+    action_jerk_scale = 0.0
     stand_still_scale = -0.2
+
+    # 정지했을 때 몸통 기울기(projected_gravity 의 x,y)를 직접 벌하는 계수.
+    # 기본 0 = 꺼짐 — v34 이하의 리워드를 한 항도 안 바꾸고 그대로 재현한다.
+    upright_standstill_scale = 0.0
+
+    # 정지에서 좌우 다리 자세가 거울에서 벗어난 만큼(제곱합, rad^2) 벌하는 계수.
+    # 기본 0 = 꺼짐. v35 실측 기준 어긋남 제곱합이 0.178 rad^2 이므로 -3 이면
+    # 벌점 -0.53 — upright(8도에서 -0.41) 과 같은 자릿수다.
+    leg_symmetry_scale = 0.0
 
     # 정지 명령(cmd_norm <= 0.01)에서 보행 위상을 0 에 묶는다.
     # 기본은 꺼짐 — v33n 이하를 그대로 재현할 수 있어야 한다.
     # 자세한 근거는 joystick_env.py 의 해당 지점 주석.
     standstill_hold = False
+
+    # 정지했을 때 `cost_stand_still` 이 목표로 삼을 자세 (14 관절, rad).
+    # None 이면 default_joint_pos(=보행 평균 자세)를 그대로 쓴다 — v34c10 까지의 동작.
+    #
+    # 왜 따로 두는가. default_joint_pos 는 **액션의 원점**이다
+    # (target = default + action * action_scale). 그래서 보행 궤적의 평균에
+    # 맞춰져 있어야 액션이 도달 가능한 범위에 들어온다 — v1~v9 를 아홉 번
+    # 실패시킨 지점이다. 그런데 그 평균 자세는 placo 의 walk_trunk_pitch=-4 도가
+    # 배어 있어서 **몸통이 4 도 앞으로 기운 자세**다. 정지 목표로는 부적절하다.
+    # 둘은 목적이 다르므로 분리한다.
+    standstill_joint_pos = None
     # alive_scale (2026-07-26): Playground's/Disney's original value is 20.0.
     # A whole night's worth of experiments (see docs/training_log.md) showed
     # this only works when `imitation` is active to counterbalance it —
@@ -1098,6 +1145,37 @@ READY_JOINT_POS_G135 = {
     "right_hip_yaw": -0.0036, "right_hip_roll": -0.0111, "right_hip_pitch": 0.8264,
     "right_knee": 1.4084, "right_ankle": -0.6522,
 }
+#: ref_g125sym (2026-08-11) 기준 홈 자세. `scripts/diag/calc_home.py` 로 뽑았다.
+#:
+#: 기존 G115 자세는 그 자체가 좌우 비대칭이었다 — hip_roll 이 좌 +0.0207 / 우 -0.0104
+#: 인데 거울 부호가 +1 이라 대칭이면 우도 +0.0207 이어야 한다 (**1.78도 어긋남**).
+#: 관측이 `joint_pos_rel = pos - READY` 라 이 어긋남이 정책 입력에 그대로 실린다.
+#: 대칭 레퍼런스로 다시 뽑으니 좌 +0.0074 / 우 +0.0043 로 **0.18도**가 됐다.
+READY_JOINT_POS_G125SYM = {
+    "left_hip_yaw": -0.0036,
+    "left_hip_roll": 0.0074,
+    "left_hip_pitch": 0.9052,
+    "left_knee": -1.5647,
+    "left_ankle": 0.7298,
+    "neck_pitch": 0.0,
+    "head_pitch": 0.0,
+    "head_yaw": 0.0,
+    "head_roll": 0.0,
+    "right_hip_yaw": -0.0039,
+    "right_hip_roll": 0.0043,
+    "right_hip_pitch": 0.9341,
+    "right_knee": 1.5859,
+    "right_ankle": -0.7220,
+}
+#: 학습은 목·머리를 30도 숙인 자세로 한다 (사용자 지시, v33n 이후 계속).
+#: settle_height.py 실측 (2026-08-11, 16 env x 400 스텝, 175 mm 스폰).
+#:   안착 149.2 mm (표준편차 1.9) · 최소/최대 146.1 / 152.0
+READY_BASE_HEIGHT_G125SYM = 0.1492
+SPAWN_BASE_HEIGHT_G125SYM = 0.1560
+
+READY_JOINT_POS_G125SYM_ZNECK = dict(READY_JOINT_POS_G125SYM)
+READY_JOINT_POS_G125SYM_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
+
 READY_JOINT_POS_G135_ZNECK = dict(READY_JOINT_POS_G135)
 READY_JOINT_POS_G135_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
 
@@ -1130,6 +1208,618 @@ class JoystickEnvCfg_V34C10(JoystickEnvCfg_V34C):
 
 
 @configclass
+class JoystickEnvCfg_V35(JoystickEnvCfg_V34C10):
+    """imitation_v35 — v34c10 + **정지 시 몸통 수직**을 중력벡터로 직접 요구.
+
+    목표는 사용자가 한 문장으로 준 것 그대로다: "정지시 몸통 수직".
+
+    왜 v34u 방식이 아닌가. v34u 는 같은 목표를 **정지 목표 관절각**으로 우회해서
+    풀었는데(FK 로 몸통이 수직이 되는 관절각을 계산해 cost_stand_still 의 목표로
+    넣음), 실측 몸통 피치가 +8.19 -> **+20.93 도로 2.5배 나빠졌다**. 관절각은
+    간접 손잡이라서다 — 발바닥이 지면에 눕도록 물리가 몸통을 돌려버리면 목표
+    관절각을 맞춰도 몸통은 안 선다. 그래서 이번엔 `projected_gravity` 의 x,y 를
+    직접 벌한다 (rewards.cost_upright_standstill).
+
+    계수 -20 의 근거: tilt = sin^2(theta) 이므로 8.19 도에서 0.41, 20.93 도에서
+    2.55 의 벌점이 된다. tracking(2.5/6.0) 과 같은 자릿수이고 alive(20) 보다는
+    작다 — 자세를 잡되 서 있는 것 자체를 포기하게 만들지는 않는 크기.
+    무릎은 건드리지 않는다 (사용자: 지금도 무릎 토크가 높다).
+
+    ⚠️ 로봇도 새 CAD 다. body tail 실측 113 g 을 밀도로 반영해 총질량
+    2.7140 -> 2.7430 kg (+1.07%), 전체 CoM 이 뒤로 1.06 mm. USD 를 백업본과
+    대조해 그 외에는 아무것도 안 바뀌었음을 확인했다(head_pitch 한계는 구 USD 도
+    이미 ±50도). 질량은 도메인 랜덤화 범위 안이지만 v34c10 과의 비교에는
+    섞여 있으니, 판정이 애매하면 계수만 0 으로 둔 순수 새-CAD 기준선을 따로 잰다.
+
+    비교 기준 (v34c10 @2999): 정지 0.0058 · 추종 0.0166 · 리워드 426.2 · 에피 778.7
+                    (@1500): 정지 0.0041 · 추종 0.0165
+    몸통 피치 @1500:  v34c10 +8.19 도 · v34u +20.93 도  <- **이걸 0 에 가깝게**
+    """
+
+    upright_standstill_scale = -20.0
+
+
+@configclass
+class JoystickEnvCfg_V36(JoystickEnvCfg_V35):
+    """imitation_v36 — v35 + **정지 좌우 대칭** + **액션 저역통과를 학습에 포함**.
+
+    ⚠️ 한 번에 둘을 바꾼다 (사용자 지시). 원칙에는 어긋나지만 **읽는 지표가
+    서로 달라서** 사후 귀속이 된다: 대칭 벌점은 leg_symmetry.py 의 좌우 어긋남
+    으로, 필터는 몸통 각속도 RMS 로 읽는다.
+
+    1) 정지 좌우 대칭 (`leg_symmetry_scale = -3.0`)
+       v35 실측: **보행은 이미 거의 완벽히 대칭**(모든 관절 1.03도 이내)인데
+       **정지만 크게 어긋난다** — 무릎 15.2도, hip_roll 12.3도, ankle 11.4도.
+       env 별 표준편차가 2.0~2.3도로 좁아 무작위가 아니라 32개 환경이 전부 같은
+       쪽으로 치우친 일관된 편향이다(한쪽 다리에 기대어 선다).
+       정지에서는 imitation 이 꺼지고 위상도 0 에 묶여, 좌우 대칭을 요구하는 항이
+       하나도 없던 것이 원인이다. 몸통 수직을 projected_gravity 로 직접 벌해
+       해결한 것과 같은 모양의 처방이다.
+
+    2) 액션 저역통과 (`action_lowpass_alpha = 0.5`, 차단 5.8 Hz, 지연 20 ms)
+       **배포에만 걸지 않고 학습에 넣는다.** 배포에서만 걸면 정책이 겪어본 적
+       없는 위상 지연이 생기고, 그건 우리가 줄이려는 sim2real 격차를 스스로
+       만드는 것이다. v35 로 잰 사후 스윕에서 추종 오차가 alpha 에 따라 단조롭게
+       나빠진 것(+2% @0.5, +26% @0.7)이 바로 그 대가였다. 플랜트의 일부로 넣으면
+       정책이 지연을 미리 보상하는 것을 배운다.
+       0.5 를 고른 근거: 그 스윕의 무릎점이다 — 정지 떨림 -44%, 보행 -14% 를
+       추종 +2% 로 얻는 지점. 0.7 이상은 추종 대가가 급히 커지고, 0.8 은 차단
+       1.8 Hz 로 보행 주파수(1.85 Hz)보다 낮아 보행 자체를 깎는다.
+
+    비교 기준 (v35 @2999): 정지 0.0030 · 몸통피치 +0.63도 · 추종 0.0206
+                            · 리워드 375.3 · 에피 683.8
+    정지 좌우 어긋남 (v35): 무릎 -15.24도 · hip_roll +12.26도 · ankle +11.35도
+    **판정: 몸통 수직(+0.63도)과 정지 속력을 지키면서 좌우 어긋남이 줄어드는가.**
+    """
+
+    leg_symmetry_scale = -3.0
+    action_lowpass_alpha = 0.5
+
+
+@configclass
+class JoystickEnvCfg_V37(JoystickEnvCfg_V36):
+    """imitation_v37 — v36 에서 **저역통과를 정지에만** 건다. 한 가지만 바뀐다.
+
+    v36 은 alpha 0.5 를 명령과 무관하게 걸었는데, 스윕이 그게 타협이었음을
+    보여줬다:
+
+    | | 정지 몸통각속도 | 정지 속력오차 | 보행 추종오차 |
+    |---|---|---|---|
+    | alpha 0.0 | 0.2408 | 0.0193 | 0.0828 |
+    | alpha 0.5 | 0.1357 | 0.0122 | 0.0803 |
+    | alpha 0.7 | 0.0934 | 0.0091 | 0.0963 |
+
+    **정지는 올릴수록 대가 없이 좋아진다** — 떨림도 줄고 정지 속력 오차까지 같이
+    준다. **보행만 0.7 에서 추종이 꺾인다**(0.0803 -> 0.0963). 명령을 아는데
+    하나로 타협할 이유가 없어서 갈랐다: 정지 0.7, 보행 0.
+
+    보행에서 0 으로 두는 근거: v35 사후 스윕에서 보행 떨림 감소가 alpha 0.5 에서
+    14%뿐이었고 추종은 그만큼 나빠졌다. 보행 쪽 떨림은 필터가 아니라 다른
+    수단(접촉 채터링, action_rate)으로 다뤄야 한다.
+
+    정지 0.7 의 위험: 군지연 47 ms 라 외란이 왔을 때 반응이 그만큼 늦는다.
+    사후 스윕은 push_robot 을 꺼서 이걸 시험하지 못했지만, **학습에는 외란이
+    켜져 있으므로 이 값이 균형 회복을 망치면 학습 중에 드러난다** — 넘어짐 비율과
+    에피소드 길이로 본다.
+
+    비교 기준 (v36 @2999): 정지 속력 0.0020 · 몸통피치 +0.52도(표준편차 6.05)
+      · 추종 0.0210 · 정지 좌우 어긋남 무릎 -2.57도 · 리워드 355.5 · 에피 644.3
+    v36 의 몸통피치 표준편차(6.05도)가 v35(3.32도)보다 나빴다 — 여기가 개선되는지도 본다.
+    """
+
+    action_lowpass_alpha = 0.0              # 보행 중에는 끈다
+    action_lowpass_alpha_standstill = 0.7   # 정지에서만 건다
+
+
+@configclass
+class JoystickEnvCfg_V38(JoystickEnvCfg_V37):
+    """imitation_v38 — v37 에서 **hip_inward 를 보행 중에만** 건다. 한 가지만 바뀐다.
+
+    v36 에 남은 정지 좌우 비대칭(hip_roll +4.66도)의 정체를 숫자까지 맞췄다.
+    `hip_inward`(-25.0)는 레퍼런스를 기준으로 고관절 4축(L/R yaw·roll)이 안쪽으로
+    3도 넘게 벗어나는 것을 벌하는데, **cmd_norm 게이트가 없어 정지에서도 산다.**
+    그리고 정지에서는 standstill_hold 가 위상을 0 에 묶으므로 그 기준이 "걷는 중
+    한쪽 발을 든 순간" 의 자세다 — 위상 0 의 hip_roll 이 좌 -7.69 / 우 +5.50 으로
+    13.19도 벌어져 있다.
+
+    그래서 정지에서 두 항이 정면으로 싸운다. leg_symmetry(-3.0)는 R_roll 을 L_roll
+    (+1.60도)과 같게 하라 하고, hip_inward(-25.0)는 R_roll 이 +2.50도 아래로 가면
+    벌한다. 계수가 8배라 hip_inward 가 이기고, 정책은 +6.26도에서 멈춘다.
+    **어긋남 6.26 - 1.60 = 4.66도, 측정값과 정확히 일치한다.**
+
+    정지에서 꺼도 되는 이유: 이 항의 목적은 보행 중 다리-몸통 자가충돌 방지인데
+    (접촉 = 액추에이터 파손), 정지에서는 양발이 땅에 붙어 거의 기본 자세이고
+    재생 실측 최소 간격이 62 mm 다 (위험선 5 mm).
+
+    비교 기준 (v36 @2999): 정지 hip_roll 어긋남 +4.66도 · hip_yaw -3.15도
+      · 몸통피치 +0.52도(표준편차 6.05) · 정지속력 0.0020 · 추종 0.0210
+    **판정: hip_roll 어긋남이 줄되 보행 대칭과 자가충돌 여유가 안 나빠지는가.**
+    (`scripts/diag/leg_symmetry.py` 와 `leg_trunk_clearance.py` 로 본다.)
+    """
+
+    hip_inward_walking_only = True
+
+
+@configclass
+class JoystickEnvCfg_V39(JoystickEnvCfg_V38):
+    """imitation_v39 — **저역통과 필터를 완전히 빼고, 진동을 리워드로 억제**한다.
+
+    필터는 증상을 가리는 도구였고 실제로 정책을 게으르게 만들었다. 필터로 학습한
+    v36 의 **원시 액션 요동이 0.0638 로 무필터 v35(0.0537)보다 컸다** — 필터가
+    결과를 흡수해 주니 정책이 거칠어져도 대가를 안 치른 것이다. 게다가 위상 지연
+    (alpha 0.5 에서 20 ms, 0.7 에서 47 ms)이 추종을 깎고 외란 극복의 여유를 먹는다.
+
+    **왜 기존 action_rate 로는 안 되는가.** 그건 1차차분이라 "빠른 움직임" 을
+    벌한다 — 진동이든 정상 보행이든 똑같이. 진동만 골라 누르지 못한다.
+    2차차분은 방향이 뒤집힐 때만 커지고 매끄러운 궤적에서는 정확히 0 이다:
+
+        매끄러운 램프        1차차분^2 0.0001   2차차분^2 0.0000
+        매 스텝 부호 반전    1차차분^2 1.0000   2차차분^2 4.0000
+
+    실기 로그(정지 10 초) 실측: 1차차분^2 0.148 / **2차차분^2 0.441**. 진동 성분이
+    지배적이고 이것이 액션 방향 반전 68.3% 의 정체다.
+
+    계수 -0.25 의 근거: 실측 2차차분^2 0.441 에 곱하면 -0.11 로, action_rate 의
+    기여(-0.5 x 0.148 = -0.074)와 같은 자릿수다. 첫 추정치이므로 결과를 보고
+    조정한다.
+
+    v38 에서 두 가지가 바뀐다 (읽는 지표가 달라 사후 귀속이 된다):
+      필터 제거 + 진동 벌점  ->  액션 방향 반전 %, 몸통 피치 표준편차, 추종
+      hip_inward 정지 게이트 ->  정지 hip_roll 좌우 어긋남 (v38 에서 물려받음)
+
+    비교 기준 (v37 @2000): 몸통피치 +2.38도(표준편차 3.36) · 정지 hip_roll 어긋남
+      +4.67도 · 추종 평균 0.0130 · 관절한계 포화 0.0% · 외란 1.0 m/s 넘어짐 28.1%
+    **판정: 필터 없이도 떨림이 안 늘고(액션 반전·피치 표준편차), 추종과 외란이
+    나아지는가.** 위상 지연이 사라지므로 그 둘은 좋아져야 앞뒤가 맞는다.
+    """
+
+    action_lowpass_alpha = 0.0
+    action_lowpass_alpha_standstill = 0.0   # 필터 완전히 끔
+    action_jerk_scale = -0.25
+
+
+@configclass
+class JoystickEnvCfg_V40(JoystickEnvCfg_V39):
+    """imitation_v40 — v39 에서 **action_rate 를 절반으로** 낮춘다. 한 가지만.
+
+    v39 는 떨림을 잡았지만(action_rate 비용 v37 대비 -45%, 원시 액션요동 v36 대비
+    -39%) 추종을 0.0120 -> 0.0197 로 내줬다. 원인은 취향이 아니라 **예산**이다:
+
+        매끄러움에 쓴 리워드   v37  -0.0304  (action_rate 만)
+                              v39  -0.0371  (rate -0.0167 + jerk -0.0204)
+
+    22% 더 쓴 만큼 추종에서 빠졌다. 그런데 두 항의 **역할이 겹치지 않는다** —
+    1차차분은 "빠른 움직임"을 벌하고 2차차분은 "진동만" 벌한다 (매끄러운 램프는
+    2차차분이 정확히 0). 진동 억제를 jerk 가 맡은 이상 action_rate 가 남아서 하는
+    일은 추종에 필요한 빠른 관절 이동을 이중과금하는 것뿐이다.
+
+    그래서 -0.5 -> -0.25. jerk(-0.25)는 건드리지 않는다. 예상 매끄러움 예산은
+    -0.008 - 0.020 = -0.028 로 v37(-0.0304)보다 낮아지고, 그 여유가 추종으로 간다.
+
+    비교 기준 (v39 @2600): 추종 0.0197 · 정지 원시 액션요동 0.0390 · 정지 몸통
+      각속도 0.1457 · 원시 2차차분 0.0816 · 정지 피치 +2.93도(표준편차 4.56)
+      · hip_roll 어긋남 +1.85도 · 외란 1.0 m/s 넘어짐 37.5%
+    (v37 @2000 참고: 추종 0.0120 · 피치 +2.38도(3.36) · 외란 28.1%)
+
+    **판정: 추종이 v37 수준(0.0120)으로 돌아오면서 원시 2차차분과 액션요동이
+    v39 수준을 지키는가.** 요동이 같이 늘면 진동 억제를 실제로 하고 있던 건
+    jerk 가 아니라 rate 였다는 뜻이므로, 되돌리고 jerk 계수 쪽을 만진다.
+    """
+
+    action_rate_scale = -0.25
+
+
+@configclass
+class JoystickEnvCfg_V41(JoystickEnvCfg_V40):
+    """imitation_v41 — 액추에이터를 **DCMotor 로**. 토크-속도 결합 하나만 바뀐다.
+
+    지금까지의 `ImplicitActuatorCfg` 는 effort_limit(4.1)과 velocity_limit(4.82)을
+    **서로 독립으로** 건다. 심의 다리는 "4.1 N·m 를 내면서 동시에 4.82 rad/s 로"
+    움직일 수 있는데 실제 DC 모터는 그 조합을 못 낸다. **정책은 존재하지 않는
+    액추에이터를 전제로 걸음을 배웠다.**
+
+    2026-08-10 실기가 이걸 정확히 짚었다 (docs/reports/hw_v40_followup...md §3).
+    전류 상한을 700 틱(1.88 A)으로 올려 **토크 포화를 0 % 로 없앤 뒤에도**
+    무릎·고관절이 지령 속도를 못 따라갔다:
+
+        관절             지령 p95   실측 최대      토크-속도 직선 사용률
+        left_knee          4.84       3.53              81 %
+        right_knee         5.17       3.98               —
+        left_hip_pitch     4.66       3.72              93 %
+        right_ankle          —          —               99 %
+        left/right hip_yaw  (오차 거의 없음)          51 / 57 %
+
+    같은 무릎이 **무부하** 계단시험에서는 4.41 rad/s (한계의 92 %) 를 낸다.
+    부하가 걸릴 때만 막히고, **직선에 붙은 축이 곧 뒤처지는 축이다.**
+
+    DCMotor 는 그 직선을 그대로 구현한다 (actuator_pd.py `_clip_effort`):
+        torque_speed_top = saturation_effort * (1 - joint_vel / velocity_limit)
+
+    값 (robot_cfg.py 참조): 스톨 4.1 · 무부하속도 4.82 · 연속토크 3.16
+    (= 실기 전류 상한 700 틱). stiffness/damping/armature/friction 은 그대로 —
+    37.65 는 실기 P 게인 800 을 넣어 BAM 실측으로 유도한 값이고, 실기에서 읽은
+    P/I/D 도 다리 전 축 800/0/4700 이다. **게인은 문제가 아니었다.**
+
+    비교 기준 (v40 @2000): 추종 0.0168 · 정지 피치 +3.26도(표준편차 2.77)
+      · 정지 hip_roll 어긋남 +0.40도 · 액션요동(정지) 0.0445 · 관절한계 0.0 %
+      · 외란 1.0 m/s 넘어짐 50.0 % · 보행 토크 제곱합 7.983
+
+    **판정: 실기가 낼 수 있는 걸음으로 바뀌는가.** 심 지표는 나빠질 수 있다 —
+    이번엔 그게 정상이다. 정책이 이제 못 내는 토크·속도를 못 쓰기 때문이다.
+    심 성능이 아니라 **실기 추종오차**(v40 무릎 28.10도)로 판정한다.
+    보행 중 관절 속도가 토크-속도 직선 안에 들어오는지도 같이 본다.
+
+    ⚠️ DCMotor 는 명시적 액추에이터라 PD 가 PhysX 에서 파이썬으로 옮겨온다.
+    같은 게인·같은 dt(0.002)라 발산할 이유는 없지만, 초반 리워드가 이전 곡선과
+    많이 다르면 액추에이터 모델 교체의 영향이므로 계수 탓으로 오독하지 말 것.
+    """
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G115),
+            joint_pos=dict(READY_JOINT_POS_G115_ZNECK),
+        ),
+    )
+
+
+@configclass
+class JoystickEnvCfg_V42(JoystickEnvCfg_V41):
+    """imitation_v42 — **대칭으로 다시 뽑은 레퍼런스**(ref_g125sym). 하나만 바뀐다.
+
+    v35 이후 모든 정책이 좌우 비대칭 레퍼런스를 모방해 왔다. 2026-08-11 에
+    원인을 셋 찾았고 전부 고쳤다 (docs/reports/reference_gaps_2026-08-11.md):
+
+      1. `fit_poly.py` 가 시간축을 **float32** 로 캐스팅했다. 15 차를 t∈[0,1) 에서
+         맞추면 조건수가 나빠 정밀도가 그대로 결과에 나온다 —
+         float32 재현오차 6.883도 / 무릎 좌우차 +16.4 %,
+         float64 재현오차 0.786도 / 무릎 좌우차 -3.1 % (녹화 원본 -1.8 %).
+      2. `poly_reference_motion.py` 가 계수를 float32 텐서에 담았다. 계수가 1e8 대라
+         Horner 평가에서 자릿수 소거가 나 무릎 좌우차가 +176 % 까지 튀었다.
+         평가를 float64 로 바꿨다.
+      3. `auto_waddle.py` 속도 필터가 격자의 45 % 를 삭제했다. 하필 직진 슬라이스의
+         dx = 0.0/0.148/0.222 가 전부 빠져 **전진 속도를 바꿔도 레퍼런스가 안 바뀌었다**
+         (저속 제자리걸음의 원인). `--no-speed-filter` 로 껐다.
+
+    추가로 직진 녹화 6 개를 반주기 거울로 시계열에서 대칭화했다.
+
+        지표 (vx=+0.222 직진)      ref_g125 -> ref_g125sym
+        격자 충전율                  55 %   ->  100 %
+        dy=0 존재                    없음   ->  있음
+        hip_pitch 진폭 좌우차      +41.0 %  ->  -2.9 %
+        knee                       +11.1 %  ->  +2.5 %
+        ankle                       -8.0 %  ->  +1.2 %
+
+    **READY 자세도 함께 바뀐다** — 레퍼런스에서 유도되는 값이라 분리할 수 없다.
+    기존 G115 자세는 그 자체가 hip_roll 1.78도 비대칭이었고 (관측이
+    `pos - READY` 라 정책 입력에 그대로 실린다) 새 자세는 0.18도다.
+
+    비교 기준 (v41 @800): 정지 피치 +0.59도(표준편차 4.82) · 정지 hip_yaw 어긋남
+      -3.89도 · hip_roll +0.73도 · 추종 6방향 · 실기 앞쏠림 +4.87도
+
+    **판정: 정지·보행 좌우 어긋남이 줄고, 저속에서 제자리걸음이 사라지는가.**
+    실기 앞쏠림(+4.87도)이 더 줄면 레퍼런스 비대칭이 그 일부였다는 뜻이다.
+    """
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_g125sym.pkl"
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G125SYM),
+            joint_pos=dict(READY_JOINT_POS_G125SYM_ZNECK),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_G125SYM
+
+
+@configclass
+class JoystickEnvCfg_V43(JoystickEnvCfg_V42):
+    """imitation_v43 — 액션 지연을 **실측 고정값**으로. 하나만 바뀐다.
+
+    2026-08-12 에 실기 14축 주파수 응답을 처음 쟀다 (`scripts/hw/full_check.py`).
+    하드웨어는 완전히 정상이었다 — 다리 10축 전부 이득 0.95~1.00, 좌우차 2 % 이내,
+    전류는 상한의 30 % 이하. 그동안 의심하던 무릎도 0.99 였다.
+
+    남은 것은 **위상 지연**이고, 두 주파수에서 같은 시간지연으로 환산된다:
+
+        1.85 Hz  +20.2도  ->  30.3 ms
+        3.00 Hz  +36.8도  ->  34.1 ms
+
+    두 값이 거의 같으므로 대역폭 부족이 아니라 **순수 시간지연**이다 (서보 내부
+    제어 주기 + 버스 왕복). 제어 주기 20 ms 기준 약 1.5 스텝이다.
+
+    지금까지는 `action_min_delay=0, action_max_delay=3` 으로 **0~60 ms 를 매
+    리셋마다 무작위**로 줬다. 평균은 맞지만 정책은 "지연이 얼마인지 모르는 채
+    평균적으로 버티기" 를 배운다. 실기 지연은 **항상 30 ms 로 일정**하므로,
+    그걸 전제로 미리 내다보는 여지를 정책이 못 쓰고 있었다.
+
+    실기 증상이 이걸로 설명된다: 목표를 내면 20도 늦게 따라오고, 정책이 그
+    오차를 더 큰 목표로 보상하다 URDF 한계(hip_pitch +70도)에 부딪힌다.
+    심 보행 목표 최대는 65.2도로 여유 4.8도인데, 실기에서는 같은 정책이
+    78.7도까지 갔다.
+
+    1~2 스텝(20~40 ms)으로 좁혀 실측 30 ms 를 감싸되 약간의 변동만 남긴다.
+    0 을 없애는 것이 핵심이다 — 지연 없는 세상은 실기에 존재하지 않는다.
+
+    비교 기준 (v42 @2000): 추종 0.0153 · 정지 피치 +0.86도(표준편차 6.53)
+      · 보행 hip_roll 여유 +1.3도 · hip_pitch 여유 +4.8도
+      · 실기 앞쏠림 +4.3도 (vx=0.05, 손 받침)
+
+    **판정: 보행 중 한계 여유가 늘고, 실기 앞쏠림이 줄어드는가.**
+    지연을 전제로 배우면 정책이 앞서 움직여 오차 보상이 줄고, 그러면 한계에
+    덜 붙는다.
+    """
+
+    action_min_delay = 1      # env step (20 ms)
+    action_max_delay = 2      # env step (40 ms) — 실측 30 ms 를 감싼다
+
+
+#: ref_g135sym (2026-08-12) 기준 홈 자세. calc_home.py 로 뽑았다.
+#: v42(g125sym) 대비 무릎이 13도 더 펴진다 — 실기 왼무릎이 -110도 아래에서
+#: 힘을 못 내는 것을 피하려는 것이다 (아래 V46 docstring 참고).
+READY_JOINT_POS_G135SYM = {
+    "left_hip_yaw": -0.0036,
+    "left_hip_roll": 0.0076,
+    "left_hip_pitch": 0.7827,
+    "left_knee": -1.3391,
+    "left_ankle": 0.6266,
+    "neck_pitch": 0.0,
+    "head_pitch": 0.0,
+    "head_yaw": 0.0,
+    "head_roll": 0.0,
+    "right_hip_yaw": -0.0037,
+    "right_hip_roll": 0.0027,
+    "right_hip_pitch": 0.8125,
+    "right_knee": 1.3654,
+    "right_ankle": -0.6230,
+}
+#: settle_height.py 실측 (2026-08-12, 16 env x 400 스텝, 185 mm 스폰).
+#:   안착 161.2 mm (표준편차 1.5) — v42(g125sym) 의 149.2 mm 보다 12 mm 더 선다.
+READY_BASE_HEIGHT_G135SYM = 0.1612
+SPAWN_BASE_HEIGHT_G135SYM = 0.1687
+
+READY_JOINT_POS_G135SYM_ZNECK = dict(READY_JOINT_POS_G135SYM)
+READY_JOINT_POS_G135SYM_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
+
+
+@configclass
+class _WideMassEventCfg(EventCfg):
+    """EventCfg 에서 **질량 배율 범위만** 넓힌 것. 나머지 무작위화는 그대로."""
+
+    scale_all_mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            # 0.9~1.1 -> 0.85~1.25. USD 2.6404 kg 기준 2.24~3.30 kg.
+            # 위쪽으로 더 넓힌 이유는 클래스 docstring 참고.
+            "mass_distribution_params": (0.85, 1.25),
+            "operation": "scale",
+        },
+    )
+
+
+@configclass
+class JoystickEnvCfg_V44(JoystickEnvCfg_V42):
+    """imitation_v44 — **질량 무작위화 범위를 넓힌다**. 하나만 바뀐다.
+
+    2026-08-12 에 심 로봇의 실제 질량을 처음 읽어 봤다: **2.6404 kg**.
+    그런데 README 와 training_log 는 **2.7430 kg** 으로 적고 있다 (body tail
+    113 g 을 밀도로 반영했다는 기록). **103 g (3.7 %) 이 어긋나 있다** — 그
+    반영이 USD 까지 안 갔거나 중간에 되돌아갔다.
+
+    실기 무게는 아직 안 쟀다. 하나에 베팅하는 대신 **범위로 학습**한다 —
+    무게를 재고 나서도 같은 정책을 그대로 쓸 수 있다.
+
+        scale_all_mass  0.90~1.10  ->  0.85~1.25
+        실효 질량       2.38~2.90  ->  2.24~3.30 kg
+        (add_base_mass ±0.1 kg 은 그대로라 실효 범위는 그만큼 더 넓다)
+
+    위쪽으로 더 넓힌 이유: 실기가 심보다 **무거울** 정황이 있다. 같은 READY
+    자세에서 심은 무릎에 1.14 N·m 를 쓰는데 실기는 전류가 무부하 수준이라
+    환산 토크가 0.2 N·m 다 — 질량 분포가 다르다는 뜻이고, 총 질량도 의심된다.
+
+    함께 확인된 것 (이번 실험 대상은 아니지만 기록):
+      * 무게중심이 **y 로 +26.1 mm** 치우쳐 있다. 좌우 대칭이어야 할 로봇인데
+        2.6 cm 다. 실기 몸통 롤이 +4.60도로 한쪽으로 기운 것과 방향이 맞는다.
+      * CoM 은 발 중심보다 16.7 mm **뒤**다. 앞으로 넘어질 자세가 아닌데
+        실기는 앞으로 넘어진다.
+
+    비교 기준 (v42 @2000): 추종 0.0153 · 정지 피치 +0.86도 · 보행 hip_roll
+      여유 +1.3도 · hip_pitch 여유 +4.8도
+
+    **판정: 넓은 질량 범위에서도 보행이 유지되는가.** 유지되면 그 정책은
+    실기 무게가 얼마로 나오든 쓸 수 있다. 무너지면 질량 민감도가 크다는
+    뜻이고, 그때는 무게를 먼저 재서 좁혀야 한다.
+    """
+
+    events: EventCfg = _WideMassEventCfg()
+
+
+@configclass
+class JoystickEnvCfg_V46(JoystickEnvCfg_V44):
+    """imitation_v46 — **몸통을 10 mm 더 세운다** (ref_g135sym). 하나만 바뀐다.
+
+    2026-08-12 실기에서 앞으로 넘어지는 원인을 관절 단위로 좁혔다.
+
+    **발목·고관절은 정상이다.** 앞으로 쏠릴 때 오차가 오히려 버티는 방향으로
+    움직였고 (left_ankle -4.96도, right_hip_pitch -5.88도) 목표 자체도
+    되돌리는 쪽으로 갔다 (right_ankle 목표가 -30.6 -> -41.2도). 정책은 일하고
+    있었다.
+
+    **하중에 밀린 것은 무릎뿐이다.** left_knee 는 앞쏠림 구간에서 오차가
+    13.94도 더 벌어졌고, 시작 1초 만에 -119도(URDF 한계 -120도에서 1.1도)에
+    처박혀 15초 내내 안 나왔다. 목표는 -75~-104도를 오가는데 실제는 -118도
+    고정, **전류 0.07 A** 였다. 결국 서보가 Overload(err=33)로 토크를 끊었다.
+
+    그런데 **하드웨어는 정상이다.** 두 번 확인했다:
+      * 주파수 응답 (READY -89.65도 중심 ±10도): 이득 0.99, 좌우차 1 %
+      * 손으로 몸통을 들고 보행: 무릎 -95~-70도 정상 추종, Overload 없음
+
+    즉 **-110도 아래에서만** 힘을 못 낸다. 그 구간은 한 번도 시험한 적이 없다.
+    원인(기어·혼·간섭)은 아직 모르지만, **그 구간을 안 지나가면 된다.**
+
+        walk_com_height  0.1973 -> 0.2073  (+10 mm)
+        READY 무릎       -89.7도 -> **-76.7도**  (13도 더 펴짐)
+        보행 목표 최저   -105.9도 -> 약 -93도
+        실기 14도 밀림   -119.9도 (한계) -> 약 -107도  (문제 구간 회피)
+
+    레퍼런스는 오늘 고친 파이프라인으로 새로 뽑았다 (격자 100 %, 직진 녹화
+    대칭화, float64 적합). 대칭성 유지: 진폭차 ±2 %, 중립 어긋남 <1도.
+
+    **주의: 심에서는 더 높은 자세가 나빴던 전례가 있다** (v34c20, +20 mm).
+    그래도 시도하는 이유는 실기 무릎이 특정 각도에서 죽기 때문이고, 심 점수를
+    조금 내주더라도 실기가 걷는 쪽이 낫기 때문이다.
+
+    비교 기준 (v44 @1000): 스텝당 0.5344 · (v42 @2000 추종 0.0153)
+    **판정: 실기에서 무릎이 -110도 아래로 안 가고 발이 떨어지는가.**
+    """
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_g135sym.pkl"
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G135SYM),
+            joint_pos=dict(READY_JOINT_POS_G135SYM_ZNECK),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_G135SYM
+
+
+@configclass
+class JoystickEnvCfg_V47(JoystickEnvCfg_V46):
+    """imitation_v47 — **액션 지연을 실측에 맞춘다** (2~3 스텝). 하나만 바뀐다.
+
+    2026-08-13, 실기가 처음으로 자기 발로 걷고 나서 심과 실기를 **같은 자로**
+    처음 비교했다 (`scripts/diag/track_stats.py`, vx=+0.15 구간).
+
+                  이득          지연        오프셋
+        관절    심     실기     심   실기    심     실기
+        L.knee   0.69  0.76    40ms  64ms  -2.48  -3.06
+        R.knee   0.71  0.83    20ms  64ms  +1.19  +1.15
+        L.hip_roll 0.70 0.86   20ms  43ms  +1.21  +1.15
+        L.hip_yaw  0.82 1.02   20ms  43ms  -0.09  +0.11
+
+    두 가지가 나왔다.
+
+    **강성은 이제 맞다.** 실기가 오히려 심보다 잘 따라간다 (무릎 이득 심
+    0.69~0.71, 실기 0.76~0.83). 중력에 눌려 처지는 양(오프셋)까지 재현된다.
+    그러니 P 게인을 더 올리면 안 된다 — 실기가 심보다 뻣뻣해져 반대 방향
+    갭이 생긴다. 오늘 맞춘 전류 700 틱 / P 1402 조합이 제대로 들어맞았다.
+
+    **남은 갭은 지연 하나다.** 실기가 심보다 정확히 **한 스텝(약 21 ms)**
+    느리다. 전 축이 일관되게 그렇다. 그런데 지금 설정은 그걸 못 담는다:
+
+        v46 (지금)   0~3 스텝  (0~60 ms, 평균 30 ms)
+        v43          1~2 스텝  (20~40 ms, 평균 30 ms)
+        실측         43 ms · 무릎 64 ms
+
+    v46 은 범위는 넓지만 절반이 실측보다 빠르고, v43 은 평균이 같을 뿐
+    상한이 실측 무릎에 못 미친다. **2~3 스텝(40~60 ms)** 이 실측을 감싼다.
+
+    지연을 늘리면 정책이 더 보수적으로 걷게 되어 심 점수는 내려갈 것이다.
+    그래도 하는 이유는, 지연은 **실기에서 P 로 못 고치는 유일한 항목**이라서
+    심 쪽을 실기에 맞추는 것 말고는 방법이 없기 때문이다 (버스·제어주기가
+    만드는 값이다. Return Delay Time 을 0 으로 낮추면 5 ms 쯤 줄지만 그뿐이다).
+
+    비교 기준 (v46 @999): 보상 293.4 · 에피소드 556.6
+    **판정: 실기 추종 RMS 가 줄고 접지 전환이 유지되는가.**
+    """
+
+    action_min_delay = 2      # env step (40 ms)
+    action_max_delay = 3      # env step (60 ms) — 실측 43~64 ms 를 감싼다
+
+
+@configclass
+class JoystickEnvCfg_V48(JoystickEnvCfg_V47):
+    """imitation_v48 — **action_rate 를 v40 이전으로 되돌린다** (-0.25 -> -0.5). 하나만.
+
+    2026-08-13, 실기가 걷기 시작한 뒤 사용자가 "좌우로 덜컹거리고 발이 팍팍
+    찍힌다" 고 했다. 심과 실기를 같은 자로 재서 원인을 갈랐다.
+
+    **배포 문제가 아니다.** 몸통 흔들림이 심과 소수점까지 같다:
+
+        항목                    심      실기    배율
+        roll 진폭 (p-p)       20.98°   20.39°  0.97x
+        각속도 roll RMS        1.22     1.22   0.99x
+        각속도 pitch RMS       0.79     0.76   0.96x
+
+    그러니 P 게인이나 필터로 고칠 것이 아니다 — 심에서도 똑같이 흔들린다.
+
+    **떨림도 아니다.** 목표각의 방향전환 비율이 실기 21.4 %, 심 29.7 % 로
+    둘 다 백색잡음(50 %) 아래다. 명령은 매끈하다.
+
+    **빠른 움직임이다.** 정책이 속도 클램프를 상시 물고 있다:
+
+        목표각 변화 속도 p95   심 4.82 rad/s  (= max_motor_velocity 그 값)
+                              실기 3.86~5.34
+        관절 실제 속도 p95     심 3.5~3.9 · 실기 3.7~4.4   (한계 4.82)
+        실기 착지 피크 가속도  중앙값 2.39 g · 최대 4.81 g
+
+    무부하 속도의 76~86 % 로 다리를 휘두르면 토크-속도 직선상 남는 토크가
+    거의 없다. 착지 직전에 감속할 힘이 없으니 발이 찍힌다.
+
+    그런데 **그게 v40 이 깎은 항목이다.** v40 독스트링:
+
+        1차차분(action_rate)은 "빠른 움직임"을 벌하고 2차차분(jerk)은
+        "진동만" 벌한다 (매끄러운 램프는 2차차분이 정확히 0). 진동 억제를
+        jerk 가 맡은 이상 action_rate 가 남아서 하는 일은 추종에 필요한
+        빠른 관절 이동을 이중과금하는 것뿐이다.
+
+    논리는 맞았고 심 점수도 올랐다. 다만 그때는 실기가 걷질 못해서 "빠른
+    관절 이동" 의 실기 대가를 볼 수 없었다. 이제 보인다 — 그 이중과금이
+    실은 필요했다. jerk(-0.25)는 그대로 둔다. 떨림은 문제가 아니었으므로.
+
+    대가는 추종이다. v40 이 -0.5 -> -0.25 로 얻은 것이 추종이었으니
+    되돌리면 그만큼 내준다 (v39 계열에서 0.0197 수준). 지금은 정확도보다
+    실기가 부드럽게 걷는 쪽이 낫다.
+
+    비교 기준 (v47 @1999): 보상 304.3 · 길이 558.3
+    **판정: 심에서 목표각 변화 속도 p95 가 4.82(클램프)에서 내려오는가.**
+    거기서 안 내려오면 리워드로는 부족한 것이고, 그때는
+    `max_motor_velocity` 를 직접 낮추는 쪽으로 간다.
+    """
+
+    action_rate_scale = -0.5
+
+
+@configclass
+class JoystickEnvCfg_V49(JoystickEnvCfg_V48):
+    """imitation_v49 — v48 + **속도 한계를 직접 낮춘다** (4.82 -> 3.50 rad/s).
+
+    v48 은 리워드로 "천천히 움직이라" 고 말한다. 이건 **말 대신 벽을 세운다.**
+    둘을 한 설정에 합치지 않고 나눈 이유는, 합치면 어느 쪽이 들었는지 못
+    가리기 때문이다.
+
+    왜 이 값인가. `max_motor_velocity` 는 목표각이 한 스텝에 움직일 수 있는
+    양의 상한이다. 지금 정책은 이 값을 **상시 물고 있다** (목표각 변화 속도
+    p95 가 심에서 정확히 4.82 = 클램프 값). 즉 상한이 곧 정책의 동작점이다.
+
+        4.82 rad/s = 무부하 속도 그 자체. 여기서는 토크가 0 이다.
+        3.50 rad/s = 무부하의 73 %. 토크-속도 직선상 스톨 토크의 27 % 가
+                     남는다 — 착지 직전에 감속할 힘이 그만큼 생긴다.
+
+    실측 근거: 실기 무릎·발목이 3.5~4.2 rad/s 로 휘둘리고 (한계의 76~86 %)
+    착지 피크가 중력의 2.39 배(중앙값)·4.81 배(최대) 였다.
+
+    **주의: 이 값은 배포 계약이다.** `rl_walk.py` 가 policy.meta.json 에서
+    `max_motor_velocity` 를 읽어 그대로 쓰므로 (MAX_MOTOR_VEL) 실기에도
+    자동으로 따라간다. 심에서만 낮추고 실기에서 안 낮추는 사고는 안 난다.
+
+    대가는 최대 보행 속도다. 다리를 느리게 흔들면 같은 보폭을 같은 시간에
+    못 낸다. 명령 범위(vx ±0.15)를 못 따라갈 수 있다.
+
+    비교 기준 (v48): 목표각 변화 속도 p95 · 접지 전환 · 추종
+    **판정: v48 만으로 p95 가 충분히 내려오면 v49 는 버린다.** 벽보다 말이
+    낫다 — 벽은 정책이 그 앞에서 여전히 bang-bang 으로 붙어 있게 만든다.
+    """
+
+    max_motor_velocity = 3.50
+
+
+@configclass
 class JoystickEnvCfg_V34C20(JoystickEnvCfg_V34C):
     """imitation_v34c20 — v34c(정지 위상 고정) + 레퍼런스 높이 +20 mm (ref_g135)."""
 
@@ -1153,3 +1843,60 @@ class JoystickEnvCfg_V34C2(JoystickEnvCfg_V34C):
     """
 
     stand_still_scale = -1.0
+
+
+# ── 정지 전용 자세: 몸통 수직 ──────────────────────────────────────────────
+# 보행 평균 자세(READY_JOINT_POS_G125)를 몸통 수직으로 놓고 FK 로 재면 **발이
+# 4.03 도 기울어 있다.** placo 프리셋의 walk_trunk_pitch=-4 도가 관절각에 배어
+# 있기 때문이다. 시뮬에서는 발바닥이 지면에 눕도록 물리가 몸통을 그만큼 돌리므로,
+# 서 있을 때 몸통이 4 도 앞으로 기운다.
+#
+# "발 피치" 는 관절이 아니라 발 링크의 기울기다 — hip_pitch + knee + ankle 의
+# 합으로 정해진다. 그 합이 0 이면 발바닥이 지면과 평행하고 몸통이 수직으로 선다.
+#
+# 그래서 **무릎은 그대로 두고 hip_pitch 에서 ankle 로 6.3 도만 옮긴다.**
+# hip_pitch = ankle = knee/2 인 완전 대칭 자세가 된다:
+#
+#                     무릎    hip    ankle   발피치   높이     무릎토크
+#   현재 READY_G125   89.9   51.3    42.6   +4.03   145.4    0.871 N·m
+#   이 자세           89.9   45.0    45.0    0.00   146.1    0.840 N·m
+#
+# 무릎 각도는 그대로인데 토크가 3.5 % **줄어든다**. 높이도 0.7 mm 올라간다.
+# CoM 은 발 지지면 안에서 앞여유 56.7 / 뒤여유 47.2 mm 로 거의 정중앙이다
+# (현재는 45.4 / 58.5 로 앞으로 치우쳐 있다). 좌우도 완전 대칭이라 레퍼런스의
+# 좌우 비대칭(0.03 rad)도 함께 사라진다.
+#
+# ⚠️ 처음엔 "CoM 을 지지면 정중앙에" 라는 조건까지 넣어 풀었다가 무릎이
+# 89.9 -> 101.7 도로 늘고 토크가 0.925 N·m 로 올랐다. 목표 높이를 133.8 mm
+# (ref_g115 값) 로 잘못 넣은 탓이었다 — ref_g125 의 실제 높이는 145.4 다.
+# 무릎은 이 로봇에서 토크가 가장 큰 관절이라(평균 1.6 N·m, 스톨의 39 %)
+# 더 굽히는 방향은 피해야 한다.
+STANDSTILL_JOINT_POS_UP = {
+    "left_hip_yaw": 0.0, "left_hip_roll": 0.0,
+    "left_hip_pitch": 0.7846, "left_knee": -1.5693, "left_ankle": 0.7846,
+    "neck_pitch": 0.5236, "head_pitch": 0.5236, "head_yaw": 0.0, "head_roll": 0.0,
+    "right_hip_yaw": 0.0, "right_hip_roll": 0.0,
+    "right_hip_pitch": 0.7846, "right_knee": 1.5693, "right_ankle": -0.7846,
+}
+
+
+@configclass
+class JoystickEnvCfg_V34U(JoystickEnvCfg_V34C10):
+    """imitation_v34u — v34c10 + **정지 목표 자세를 몸통 수직으로**.
+
+    v34c10 은 정지 속력 0.0058 m/s 로 잘 서지만, 서 있는 **자세**가 몸통이 4 도
+    앞으로 기운 채다. `cost_stand_still` 이 default_joint_pos(보행 평균)를 목표로
+    삼는데 그 자세에 placo 의 walk_trunk_pitch=-4 도가 배어 있기 때문이다.
+
+    무릎은 건드리지 않는다 — hip_pitch 에서 ankle 로 6.3 도를 옮길 뿐이고,
+    그 결과 무릎 토크는 0.871 -> 0.840 N·m 로 오히려 준다.
+
+    액션 원점(default_joint_pos)은 그대로 둔다 — 그건 보행 궤적 평균에 맞춰져
+    있어야 액션이 도달 가능하고, 건드리면 v1~v9 를 아홉 번 실패시킨 상황이 된다.
+    바뀌는 것은 **정지했을 때 무엇을 목표로 삼는가** 하나뿐이다.
+
+    비교 기준 (v34c10): 정지 0.0058 · 추종 0.0166 · 리워드 426.2 · 에피 778.7.
+    **판정은 정지 속력이 유지되면서 몸통이 실제로 수직으로 서는가로 한다.**
+    """
+
+    standstill_joint_pos = STANDSTILL_JOINT_POS_UP

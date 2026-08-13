@@ -69,16 +69,74 @@ LEG_IDS = [BY_NAME[n][1] for n in LEG_NAMES]
 # 완전히 없앤 것이라 외란(런 중 몸통 진동)이 들어오면 크게 출렁인다.
 #
 # 2026-08-09 계단응답 실측(+100 tick, 정착 후 잔여 변동):
-#     축          P=200/D=0    P=200/D=2000   P=800/D=4700(공장)
+#     축          P=200/D=0    P=200/D=2000   P=800/D=4700(모드5 기본)
 #     head_pitch    9 tick        1 tick          1 tick
 #     head_yaw     66 tick        0 tick          1 tick
 #     head_roll    95 tick        1 tick          3 tick
 # P=200/D=2000 이 세 축 모두에서 잔여 진동이 가장 작고 오버슈트도 작다
-# (head_roll +4 tick). 공장값도 안정적이지만 강성이 높아 전류를 더 쓴다.
-# neck_pitch(ID2)는 요청 범위 밖이라 공장값 그대로 둔다.
+# (head_roll +4 tick). 기본값도 안정적이지만 강성이 높아 전류를 더 쓴다.
+# neck_pitch(ID2)는 요청 범위 밖이라 기본값 그대로 둔다.
 HEAD_GAIN_IDS = (12, 13, 14)
 HEAD_P = 200
 HEAD_D = 2000
+
+# ── 위치 PID 게인이 어디서 오는가 ─────────────────────────────────────────
+#
+# 800/0/4700 은 **아무도 쓰지 않았다.** Operating Mode(11) 를 바꾸면 펌웨어가
+# 그 모드에 맞는 게인을 다시 넣는다. 2026-08-12 실측 (left_knee, 토크 off):
+#
+#     모드 3 (위치제어)          P 800  I 0  D    0
+#     모드 5 (전류기반 위치제어)  P 800  I 0  D 4700   <- 우리가 쓰는 모드
+#     모드 4 (확장위치제어)       P 800  I 0  D    0
+#
+# 그래서 이 값들은 RAM 이고, 전원 재인가·reboot **그리고 모드 전환** 때마다
+# 되돌아간다. arm() 이 모드를 5 로 쓴 **뒤에** 게인을 걸어야 하는 이유다.
+# 순서를 뒤집으면 조용히 무효가 된다.
+#
+# e매뉴얼 환산: KPP = P/128, KPI = I/65536, KPD = D/16.
+
+#: 위치 PID 출력 1 단위가 만드는 관절 토크 (N·m).
+#: 모드 5 에서 위치 PID 의 출력은 곧 목표 전류다 (Goal Current 로 잘린다).
+#: 전류 1 단위 = 2.69 mA, 토크 = 1.96·(I − 0.27) 이므로 기울기는 1.96 N·m/A
+#: (robot_cfg.py 와 같은 값 — ROBOTIS 성능그래프에서 뽑았다).
+TORQUE_PER_AMP = 1.96
+TORQUE_PER_CURRENT_UNIT = TORQUE_PER_AMP * CURRENT_UNIT_MA / 1000.0
+
+
+def joint_stiffness(p_gain: int) -> float:
+    """Position P Gain 레지스터값 -> 실효 관절강성 (N·m/rad).
+
+    심의 액추에이터 `stiffness` 와 **같은 단위**라 바로 비교할 수 있다.
+
+        kp = (P/128) [전류단위/tick] × TORQUE_PER_CURRENT_UNIT [N·m/전류단위]
+                                     ÷ TICK_RAD [rad/tick]
+
+    2026-08-12: P=800 -> 21.5 N·m/rad. 심은 37.65 다 — **실기가 1.75 배 무르다.**
+    같은 부하에서 실기 관절이 1.75 배 더 밀린다는 뜻이고, 정책이 명령한
+    위치에 실제 관절이 못 따라가던 것의 정체다.
+    """
+    return (p_gain / 128.0) * TORQUE_PER_CURRENT_UNIT / TICK_RAD
+
+
+def p_gain_for_stiffness(stiffness: float) -> int:
+    """원하는 관절강성(N·m/rad) 을 내는 Position P Gain 레지스터값. 위의 역함수."""
+    return int(round(stiffness * TICK_RAD / TORQUE_PER_CURRENT_UNIT * 128.0))
+
+
+#: 레지스터가 받을 수 있는 최대값 (XM430-W350).
+#: 전류 1193 틱 = 3.21 A 인데 12 V 스톨 전류가 2.3 A(=855 틱)라 855 를 넘기면
+#: **물리적으로 안 걸린다** — 1193 은 "전류 상한 없음" 과 같은 뜻이다.
+CURRENT_LIMIT_MAX = 1193
+#: 1023 틱 = 234 rpm. 출하 초기값 200(=45.8 rpm)이 이 모델의 무부하 속도라
+#: 여기를 올려도 더 못 돈다. 중력에 끌려 순간적으로 넘을 때 서보가 제동을
+#: 거는 것만 없어진다.
+VEL_LIMIT_MAX = 1023
+
+#: 심 `robot_cfg.py` 의 다리 액추에이터 stiffness. 실기를 여기에 맞춘다.
+SIM_STIFFNESS = 37.65
+#: 위 강성을 내는 P 게인 (= 1402). 기본값 800 이 아니라 이 값을 걸어야
+#: 실기 관절이 심에서 학습한 만큼 따라간다.
+LEG_P_MATCHED = p_gain_for_stiffness(SIM_STIFFNESS)
 
 
 def tick_of(name, rad):
@@ -95,8 +153,16 @@ def rad_of(name, tick):
 class HWI:
     """14축 일괄 read/write. 각도는 전부 rad (URDF 관절각), 내부에서만 tick 변환."""
 
-    def __init__(self, port="/dev/ttyUSB0", current_limit=350):
+    def __init__(self, port="/dev/ttyUSB0", current_limit=350, leg_p=None, leg_d=None,
+                 vel_limit=None):
+        #: 다리 10축 Position P/D Gain. None 이면 펌웨어 모드 기본값(800/4700)
+        #: 을 그대로 둔다. arm() 이 모드를 건 **뒤에** 적용한다 — 위 주석 참고.
+        self.leg_p = leg_p
+        self.leg_d = leg_d
         self.current_limit = current_limit
+        #: Velocity Limit(44). None 이면 안 건드린다. **EEPROM 이라 한 번 쓰면
+        #: 전원을 내려도 남는다** — 매번 쓰지 않고 값이 다를 때만 쓴다.
+        self.vel_limit = vel_limit
         self.io = rustypot.Xl430PyController(port, BAUD, 0.05)
         # Shutdown 레지스터(addr 63, EEPROM)에 켜진 비트만 실제로 토크를 끊는다.
         # 여기 없는 에러 비트는 상태 기록일 뿐 모터는 계속 돈다. 이 로봇은
@@ -114,9 +180,59 @@ class HWI:
         self.io.sync_write_torque_enable(IDS, [0] * 14)
         self.io.sync_write_operating_mode(IDS, [MODE_CURRENT_POSITION] * 14)
         self.io.sync_write_current_limit(IDS, [self.current_limit] * 14)
+        self._apply_vel_limit()
         self.io.sync_write_torque_enable(IDS, [1] * 14)
 
+        # 게인은 반드시 모드 전환 **뒤** — 모드를 쓰면 펌웨어가 게인을 덮는다.
         self._apply_head_gains()
+        self._apply_leg_gains()
+
+    def _apply_vel_limit(self):
+        """Velocity Limit(44) 을 vel_limit 으로 맞춘다. 토크가 꺼진 동안만 쓸 수 있다.
+
+        EEPROM 이라 쓰기 수명이 있다 — **이미 그 값이면 안 쓴다.** ProfileVelocity
+        가 0(궤적생성 끔)이면 이 레지스터가 곧 속도 캡이 된다.
+        """
+        if self.vel_limit is None:
+            return
+        want = int(self.vel_limit)
+        cur = self.io.sync_read_velocity_limit(IDS)
+        if all(v == want for v in cur):
+            return
+        self.io.sync_write_velocity_limit(IDS, [want] * 14)
+        got = self.io.sync_read_velocity_limit(IDS)
+        bad = [(NAMES[k], got[k]) for k in range(14) if got[k] != want]
+        if bad:
+            print(f"[hwi] !! Velocity Limit {want} 을 못 걸었다: {bad}")
+        else:
+            print(f"[hwi] Velocity Limit {cur[0]} -> {want} (EEPROM 에 저장됐다)")
+
+    def _apply_leg_gains(self):
+        """다리 10축 위치 PID 게인. leg_p/leg_d 가 None 이면 건드리지 않는다."""
+        if self.leg_p is None and self.leg_d is None:
+            return
+        for i in LEG_IDS:
+            if self.leg_p is not None:
+                self.io.write_position_p_gain(i, int(self.leg_p))
+            if self.leg_d is not None:
+                self.io.write_position_d_gain(i, int(self.leg_d))
+
+    def read_leg_gains(self):
+        """다리 10축의 (P, D) 를 LEG_NAMES 순서로 읽어 온다. 검증용."""
+        raw = self.io.sync_read_raw_data(LEG_IDS, 80, 6)   # D(80,2) I(82,2) P(84,2)
+        out = []
+        for b in raw:
+            if len(b) != 6:
+                out.append((None, None))
+                continue
+            d, _i, p = struct.unpack("<HHH", bytes(b))
+            out.append((p, d))
+        return out
+
+    def read_leg_limits(self):
+        """다리 10축의 (전류상한, 속도상한) 을 실제로 읽어 온다. 검증용."""
+        return list(zip(self.io.sync_read_current_limit(LEG_IDS),
+                        self.io.sync_read_velocity_limit(LEG_IDS)))
 
     def _apply_head_gains(self, ids=None):
         """머리 3축(head_pitch/yaw/roll)의 위치 PID 게인을 HEAD_P/HEAD_D 로 건다.
@@ -141,9 +257,16 @@ class HWI:
         self.io.sync_write_goal_position(ids, ticks)
 
     def set_position_vec(self, rad_vec):
-        """rad_vec: NAMES 순서의 14-길이 배열/리스트."""
+        """rad_vec: NAMES 순서의 14-길이 배열/리스트.
+
+        **실제로 서보에 나간 각도를 rad 로 돌려준다** (14-길이). tick_of 가 URDF
+        한계에서 자르므로 이 값이 지령과 다를 수 있다 — 로그에는 이걸 남겨야
+        한다. 2026-08-10 에 이걸 안 남겨서, 계단시험의 "18.7° 잔여오차" 가 실제
+        추종오차인지 클램프인지 구분하느라 한참 헤맸다 (클램프였다).
+        """
         ticks = [tick_of(NAMES[k], rad_vec[k]) for k in range(14)]
         self.io.sync_write_goal_position(IDS, ticks)
+        return [rad_of(NAMES[k], ticks[k]) for k in range(14)]
 
     def get_present_positions(self):
         """NAMES 순서의 14-길이 리스트 (rad)."""
@@ -156,7 +279,7 @@ class HWI:
         return [BY_NAME[NAMES[k]][2] * raw[k] * VEL_UNIT_RAD_S for k in range(14)]
 
     def _sync_read_pos_vel_raw(self, ids, retries=6):
-        """sync_read_raw_data(ids, 128, 8) 을 하되, 응답이 손상된(8바이트가 아닌)
+        """sync_read_raw_data(ids, 124, 12) 을 하되, 응답이 손상된(12바이트가 아닌)
         축이 있으면 몇 번 재시도한다.
 
         2026-08-08 실기에서 겪음: arm() 직후 램프인(연속 SyncWrite)이 끝나자마자
@@ -169,10 +292,25 @@ class HWI:
         2026-08-09: FTDI latency_timer 를 16->1ms 로 낮추자 이 손상이 훨씬 잦아졌다
         (응답 패킷이 USB 전송 여러 개로 쪼개져 도착하는 빈도가 늘어난 것으로 추정).
         2ms 로 절충하고, 재시도 횟수도 2->6 으로 올려 여유를 더 뒀다.
+
+        2026-08-10: 주소를 128->126 으로 내리고 8->10 바이트로 늘렸다. 126 은
+        present_current 라, 전류를 **공짜로** 같이 얻는다 (레지스터가 126/128/132
+        로 붙어 있어 read 가 하나 더 늘지 않는다; 실측 12.1 -> 12.4 ms). 전류는
+        토크 포화를 직접 재는 유일한 신호다 — current_limit=350 이 심의
+        effort_limit_sim=4.1 N·m 의 41% 밖에 안 된다는 게 v40 주저앉음의 1번
+        원인으로 지목됐고, 다음 런에서 그걸 로그로 확인해야 한다.
+
+        2026-08-10(2): 다시 124/12 로 늘려 present_pwm 까지 넣었다. 보행 중
+        left_knee 가 목표에서 33° 벌어진 채 **전류 0.000 A, 속도 0** 으로 100~240ms
+        씩 멈춰 서는 구간이 7번 나왔는데(다른 축은 없음), 전류만으로는
+        "제어기가 출력을 안 낸다" 와 "출력은 내는데 전류가 안 흐른다" 를 못 가른다.
+        PWM 은 제어기 출력 그 자체라 그 둘을 가른다:
+          PWM 0    + 오차 큼 -> 제어기가 목표를 그 위치로 알고 있다(토크off/지령문제)
+          PWM 최대 + 전류 0  -> 구동단/배선 쪽
         """
         for attempt in range(retries + 1):
-            raw = self.io.sync_read_raw_data(ids, 128, 8)
-            bad = [i for i, r in enumerate(raw) if len(r) != 8]
+            raw = self.io.sync_read_raw_data(ids, 124, 12)
+            bad = [i for i, r in enumerate(raw) if len(r) != 12]
             if not bad:
                 return raw
             if attempt == retries:
@@ -193,15 +331,15 @@ class HWI:
         raw = self._sync_read_pos_vel_raw(IDS)
         pos, vel = [], []
         for k in range(14):
-            v_raw, p_raw = struct.unpack("<ii", raw[k])
+            _w, _c, v_raw, p_raw = struct.unpack("<hhii", raw[k])
             sign = BY_NAME[NAMES[k]][2]
             pos.append(rad_of(NAMES[k], p_raw))
             vel.append(sign * v_raw * VEL_UNIT_RAD_S)
         return pos, vel
 
     def get_leg_pos_vel(self):
-        """다리 10축만 pos+vel 을 한 번의 SyncRead 로. (positions_rad, velocities_rad_s)
-        튜플, 둘 다 LEG_NAMES 순서. 머리 4축을 뺀 버전 — get_present_pos_vel() 참고
+        """다리 10축만 pos+vel+current+pwm 을 한 번의 SyncRead 로.
+        (positions_rad, velocities_rad_s, currents_A, pwm_frac) 튜플, 넷 다 LEG_NAMES 순서. 머리 4축을 뺀 버전 — get_present_pos_vel() 참고
         (같은 8바이트 결합 read, ID 수만 14->10).
 
         2026-08-08 실측: 14축 combined read 가 ~28ms 로 50Hz(20ms) 예산을 그 자체로
@@ -209,22 +347,30 @@ class HWI:
         10/14 로 줄어 버스 시간도 대략 그 비율로 준다.
         """
         raw = self._sync_read_pos_vel_raw(LEG_IDS)
-        pos, vel = [], []
+        pos, vel, cur, pwm = [], [], [], []
         for k, name in enumerate(LEG_NAMES):
-            v_raw, p_raw = struct.unpack("<ii", raw[k])
+            w_raw, c_raw, v_raw, p_raw = struct.unpack("<hhii", raw[k])
             sign = BY_NAME[name][2]
             pos.append(rad_of(name, p_raw))
             vel.append(sign * v_raw * VEL_UNIT_RAD_S)
-        return pos, vel
+            cur.append(c_raw * CURRENT_UNIT_MA / 1000.0)   # A, 부호는 모터 방향
+            pwm.append(w_raw / 885.0)                      # -1..+1 (885 = 100% 듀티)
+        return pos, vel, cur, pwm
 
-    def get_hw_errors(self):
+    def get_hw_errors(self, confirm=True):
         """NAMES 순서의 14-길이 리스트. 값은 원본 hw_error_status 비트마스크
         (0=정상, bit0=Input Voltage, bit2=Overheating, bit3=MotorEncoder,
         bit4=ElectricalShock, bit5=Overload).
 
-        두 번 연속 읽어서 같은 축이 에러일 때만 믿는다 — sync_read_raw_data 처럼
-        길이체크가 있는 게 아니라 rustypot 내장 파서라, 응답이 쪼개져 도착하면
-        예외 없이 조용히 틀린 값을 만들 수 있어서다.
+        confirm=True 면 두 번 연속 읽어서 같은 축이 에러일 때만 믿는다 —
+        sync_read_raw_data 처럼 길이체크가 있는 게 아니라 rustypot 내장 파서라,
+        응답이 쪼개져 도착하면 예외 없이 조용히 틀린 값을 만들 수 있어서다.
+
+        confirm=False 는 **한 번만** 읽는다(SyncRead 1회 ~16ms). 제어 루프처럼
+        예산이 빡빡한 곳에서 쓰고, 확인은 다음 루프에서 다시 읽어서 하면 된다.
+        (2026-08-09: 보행 중 Input Voltage 비트가 거의 항상 떠 있어 confirm 경로가
+        상시 2회 read 로 동작했고, 루프에서 이 함수를 두 번 부르는 바람에 10스텝마다
+        4회 read = +65ms 스톨이 났다.)
 
         2026-08-09 실기 확인: 램프인 직후 첫 체크에서 여러 축에 Input Voltage
         Error(bit0)가 반복적으로 뜬다(그때그때 다른 조합) — 전압 자체는 재보면
@@ -233,10 +379,15 @@ class HWI:
         생겼다). reboot 로 풀리는 걸 확인했다 — recover_input_voltage_errors() 참고.
         """
         first = list(self.io.sync_read_hardware_error_status(IDS))
-        if not any(first):
+        if not confirm or not any(first):
             return first
         second = list(self.io.sync_read_hardware_error_status(IDS))
         return [a if (a and b) else 0 for a, b in zip(first, second)]
+
+    def mask_fatal(self, raw_errors):
+        """이미 읽어둔 원본 에러 리스트를 Shutdown 마스크로 거른다. 루프에서
+        read 를 한 번만 하고 치명/비치명을 둘 다 판단할 때 쓴다."""
+        return [e & m for e, m in zip(raw_errors, self.shutdown_mask)]
 
     def get_fatal_errors(self):
         """get_hw_errors() 를 각 축의 Shutdown 마스크로 걸러, **실제로 토크가
@@ -245,7 +396,7 @@ class HWI:
         마스크 밖 비트(이 로봇에서는 Input Voltage)는 모터가 계속 도는 상태라
         멈출 이유가 없다 — 알고 싶으면 get_hw_errors() 원본을 따로 보면 된다.
         """
-        return [e & m for e, m in zip(self.get_hw_errors(), self.shutdown_mask)]
+        return self.mask_fatal(self.get_hw_errors())
 
     def recover_input_voltage_errors(self, raw_errors):
         """get_hw_errors() 결과 중 **Input Voltage Error(bit0)만 단독으로** 켜진

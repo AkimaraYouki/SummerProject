@@ -39,6 +39,32 @@ def cost_action_rate(act: torch.Tensor, last_act: torch.Tensor) -> torch.Tensor:
     return torch.sum((act - last_act) ** 2, dim=-1)
 
 
+def cost_action_jerk(act: torch.Tensor, last_act: torch.Tensor, last2_act: torch.Tensor) -> torch.Tensor:
+    """액션의 **2차차분**을 벌한다 — 진동 그 자체를 겨냥한 항.
+
+    `cost_action_rate`(1차차분)로는 진동을 못 잡는다. 1차차분은 "빠른 움직임" 을
+    벌하는 것이라 정상 보행도 똑같이 벌받고, 진동만 골라 누를 수가 없다.
+    2차차분은 방향이 뒤집힐 때만 커진다 — 같은 크기의 두 신호를 비교하면:
+
+        매끄러운 램프        1차차분^2 0.0001   2차차분^2 0.0000
+        매 스텝 부호 반전    1차차분^2 1.0000   2차차분^2 4.0000
+
+    **매끄러운 궤적은 2차차분이 정확히 0 이다.** 그래서 보행을 깎지 않으면서
+    진동만 벌할 수 있다.
+
+    실기 로그(정지 10 초)에서 실측한 값: 1차차분^2 0.148 / 2차차분^2 0.441.
+    진동 성분이 지배적이고, 이것이 액션 방향 반전 68.3% 의 정체다.
+
+    저역통과 필터 대신 이것을 쓰는 이유:
+      * 필터는 결과를 흡수해 정책을 게으르게 만든다. 실제로 필터로 학습한 v36 의
+        원시 액션 요동이 0.0638 로 무필터 v35(0.0537)보다 **컸다**.
+      * 필터는 위상 지연(20~47 ms)을 낳아 추종을 깎고 외란 극복의 여유를 먹는다.
+        이 항은 지연이 0 이다.
+      * 배포 때 필터를 실기에 복제할 필요가 없다 (정책-필터 결합이 사라진다).
+    """
+    return torch.sum((act - 2.0 * last_act + last2_act) ** 2, dim=-1)
+
+
 def reward_alive(num_envs: int, device: torch.device) -> torch.Tensor:
     return torch.ones(num_envs, device=device)
 
@@ -49,11 +75,75 @@ def cost_stand_still(
     qvel: torch.Tensor,
     default_pose: torch.Tensor,
 ) -> torch.Tensor:
-    """ignore_head=False path only (the one joystick.py actually calls)."""
+    """ignore_head=False path only (the one joystick.py actually calls).
+
+    `default_pose` 는 호출부가 정한다. 보통은 env 의 default_joint_pos 지만,
+    cfg.standstill_joint_pos 가 있으면 그쪽이 들어온다 — 액션의 원점(보행 평균
+    자세)과 정지 목표 자세는 목적이 달라서 분리했다 (joystick_env_cfg.py 주석).
+    """
     cmd_norm = torch.linalg.norm(commands[:, :3], dim=-1)
     pose_cost = torch.sum(torch.abs(qpos - default_pose), dim=-1)
     vel_cost = torch.sum(torch.abs(qvel), dim=-1)
     return (pose_cost + vel_cost) * (cmd_norm < 0.01).float()
+
+
+def cost_upright_standstill(
+    commands: torch.Tensor,
+    projected_gravity_b: torch.Tensor,
+) -> torch.Tensor:
+    """정지 명령일 때 **몸통이 수직에서 벗어난 만큼** 벌한다.
+
+    왜 관절각이 아니라 중력벡터인가. v34u 는 "정지 목표 관절각" 을 몸통이 수직이
+    되도록 FK 로 풀어서 넣었는데, 실측 몸통 피치가 오히려 +8.19 -> +20.93 도로
+    나빠졌다. 관절각은 몸통 기울기의 **간접** 손잡이다 — 발바닥이 지면에 눕도록
+    물리가 몸통을 돌려버리면 목표 관절각을 맞춰도 몸통은 안 선다. 게다가
+    `cost_stand_still` 계수(-0.2)는 imitation 의 1/30 이라 자세를 강제할 힘도 없다.
+
+    `projected_gravity_b` 는 직립일 때 정확히 (0,0,-1) 이므로 x,y 성분이 그대로
+    기울기다 (g_x = sin(pitch), g_y = -sin(roll)cos(pitch)). 이걸 직접 벌하면
+    어느 관절로 세우든 정책이 알아서 고른다.
+
+    제곱을 쓰는 이유: 수직 근처에서 기울기가 0 으로 죽어 마지막 1 도를 두고
+    다른 항과 싸우지 않는다. 8.19 도에서 0.0203, 20.93 도에서 0.1276 이다.
+    """
+    cmd_norm = torch.linalg.norm(commands[:, :3], dim=-1)
+    tilt = projected_gravity_b[:, 0] ** 2 + projected_gravity_b[:, 1] ** 2
+    return tilt * (cmd_norm < 0.01).float()
+
+
+def cost_leg_symmetry(
+    commands: torch.Tensor,
+    qpos: torch.Tensor,
+    left_idx: torch.Tensor,
+    right_idx: torch.Tensor,
+    mirror_sign: torch.Tensor,
+) -> torch.Tensor:
+    """정지 명령일 때 **좌우 다리 자세가 거울이 아닌 만큼** 벌한다.
+
+    왜 정지에서만인가. 실측해 보면 **보행은 이미 거의 완벽히 대칭**이고
+    (모든 관절 1.03 도 이내) **정지만 크게 어긋난다** — 무릎 15.2 도,
+    hip_roll 12.3 도. env 별 표준편차가 2.0~2.3 도로 좁아서 무작위가 아니라
+    32 개 환경이 전부 같은 쪽으로 치우친 일관된 편향이다. 좌 무릎이 보행 때보다
+    17 도 더 굽으므로 한쪽 다리에 기대어 서는 자세다.
+
+    이유는 구조적이다. 정지에서는 imitation 이 꺼지고(`cmd_norm > 0.01` 게이트)
+    위상도 0 에 묶이며, 남는 것은 `cost_stand_still`(-0.2) 뿐인데 그 목표 자세
+    (레퍼런스 평균)조차 2 도 비대칭이다. **좌우 대칭을 요구하는 항이 하나도
+    없어서** 정책이 편한 짝다리를 찾은 것이다. 보행이 멀쩡한 건 imitation 이
+    켜져서 레퍼런스가 양쪽을 다 붙잡아 주기 때문이다.
+
+    보행에도 걸지 않는 이유: 보행은 원래 좌우가 **반주기 어긋난** 운동이라
+    같은 시각의 좌우 관절각이 거울이면 안 된다. 정지에서만 의미가 있다.
+
+    거울 부호는 joint_order.LEG_MIRROR_PAIRS — URDF 에서 FK 로 확정한 것이고,
+    그 규칙에서 로봇 모델 자체는 대칭이다(발 위치 오차 0.5 mm, 질량 동일).
+
+    제곱을 쓰는 이유는 `cost_upright_standstill` 과 같다 — 대칭 근처에서
+    기울기가 죽어 마지막 1 도를 두고 다른 항과 싸우지 않는다.
+    """
+    cmd_norm = torch.linalg.norm(commands[:, :3], dim=-1)
+    err = qpos[:, right_idx] - mirror_sign * qpos[:, left_idx]
+    return torch.sum(err * err, dim=-1) * (cmd_norm < 0.01).float()
 
 
 def reward_imitation(

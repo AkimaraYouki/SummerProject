@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/open_duck_mini_isaaclab.iml" filepath="$PROJECT_DIR$/.idea/open_duck_mini_isaaclab.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/open_duck_reference_motion_generator.iml" filepath="$PROJECT_DIR$/.idea/open_duck_reference_motion_generator.iml" />
     </modules>
   </component>
 </project>
