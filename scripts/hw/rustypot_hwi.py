@@ -123,6 +123,41 @@ def p_gain_for_stiffness(stiffness: float) -> int:
     return int(round(stiffness * TICK_RAD / TORQUE_PER_CURRENT_UNIT * 128.0))
 
 
+#: 위치 PID 제어주기 (s). X 시리즈 펌웨어의 위치 루프는 1 kHz 다.
+#: D 항이 이 주기당 오차 변화에 곱해지므로 감쇠 환산에 들어간다.
+POS_LOOP_DT = 1.0e-3
+
+
+def joint_damping(d_gain: int) -> float:
+    """Position D Gain 레지스터값 -> 실효 관절감쇠 (N·m·s/rad).
+
+    심의 액추에이터 `damping` 과 **같은 단위**라 바로 비교할 수 있다.
+
+        kd = (D/16) [전류단위/(tick/주기)] × TORQUE_PER_CURRENT_UNIT [N·m/전류단위]
+                                           ÷ TICK_RAD [rad/tick]
+                                           × POS_LOOP_DT [s/주기]
+
+    마지막 항이 핵심이다. 펌웨어는 미분을 **주기당 오차 차분**으로 계산하지
+    dt 로 나누지 않는다. 나눈다고 보면 D=4700 이 1010 N·m·s/rad 가 나와
+    물리적으로 말이 안 된다 (심이 1.352 다).
+
+    ⚠️ 이 1 ms 가정은 e매뉴얼 블록도에서 읽은 것이고 **실측한 적 없다.**
+    다만 자기점검이 하나 붙는다: 펌웨어 기본값 D=4700 을 넣으면 1.010 이
+    나와 심의 1.352 와 25 % 안에 든다. 같은 실물 모터를 두고 각각 정한
+    값이므로 이 정도로 맞는 것은 우연이 아닐 가능성이 높다. 그래도
+    실기에서 감쇠를 바꿔야 한다면 추종오차를 재고 결정할 것.
+
+    2026-08-14: 기본 4700 -> 1.010, 심 1.352. P 가 기본 800 에서 1.75 배
+    어긋났던 것에 비하면 D 는 이미 거의 맞다.
+    """
+    return (d_gain / 16.0) * TORQUE_PER_CURRENT_UNIT / TICK_RAD * POS_LOOP_DT
+
+
+def d_gain_for_damping(damping: float) -> int:
+    """원하는 관절감쇠(N·m·s/rad) 를 내는 Position D Gain. 위의 역함수."""
+    return int(round(damping * TICK_RAD / TORQUE_PER_CURRENT_UNIT / POS_LOOP_DT * 16.0))
+
+
 #: 레지스터가 받을 수 있는 최대값 (XM430-W350).
 #: 전류 1193 틱 = 3.21 A 인데 12 V 스톨 전류가 2.3 A(=855 틱)라 855 를 넘기면
 #: **물리적으로 안 걸린다** — 1193 은 "전류 상한 없음" 과 같은 뜻이다.
@@ -137,6 +172,15 @@ SIM_STIFFNESS = 37.65
 #: 위 강성을 내는 P 게인 (= 1402). 기본값 800 이 아니라 이 값을 걸어야
 #: 실기 관절이 심에서 학습한 만큼 따라간다.
 LEG_P_MATCHED = p_gain_for_stiffness(SIM_STIFFNESS)
+
+#: robot_cfg.py 의 액추에이터 `damping`.
+SIM_DAMPING = 1.352
+#: 위 감쇠를 내는 D 게인. 펌웨어 기본 4700 은 1.010 이라 이미 25 % 안이다.
+#: 기본값을 이걸로 바꾸지 않는 이유는, 추종오차를 재기 전에 두 변수를 동시에
+#: 움직이면 무엇이 들었는지 못 가리기 때문이다.
+LEG_D_MATCHED = d_gain_for_damping(SIM_DAMPING)
+#: 펌웨어가 모드 전환 때 되돌려 놓는 값 (모드 5 기준).
+LEG_D_FIRMWARE_DEFAULT = 4700
 
 
 def tick_of(name, rad):
