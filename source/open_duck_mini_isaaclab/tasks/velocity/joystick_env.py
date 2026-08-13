@@ -67,8 +67,12 @@ from .observations import DelayBuffer, apply_uniform_noise
 from .rewards import (
     cost_action_jerk,
     cost_action_rate,
+    cost_foot_clearance,
     cost_foot_lateral,
     cost_foot_lift,
+    cost_foot_slip,
+    cost_joint_accel,
+    cost_torso_ang_vel,
     cost_leg_symmetry,
     cost_stand_still,
     cost_torques,
@@ -626,6 +630,24 @@ class JoystickEnv(DirectRLEnv):
                 self._foot_z_offset(), cfg.foot_clearance,
             ) * cfg.foot_lift_scale,
             "foot_lateral": cost_foot_lateral(self._feet_vel_b()) * cfg.foot_lateral_scale,
+            # 스윙 중 발을 목표 높이로 유지. 발을 끄는 것과 과하게 드는 것을
+            # 한 항으로 잡는다. 기본 계수 0.
+            "foot_clearance": cost_foot_clearance(
+                self._robot.data.body_pos_w[:, self._feet_ids], self._feet_vel_b(),
+                self._foot_z_offset(), cfg.foot_clearance_target,
+            ) * cfg.foot_clearance_scale,
+            # 딛고 있는 발이 수평으로 쓸리면 벌. 기본 계수 0.
+            "foot_slip": cost_foot_slip(
+                self._feet_vel_b(), self._get_foot_contact(),
+            ) * cfg.foot_slip_scale,
+            # 몸통 roll/pitch 각속도 감쇠. 기본 계수 0.
+            "torso_ang_vel": cost_torso_ang_vel(
+                self._robot.data.root_ang_vel_b,
+            ) * cfg.torso_ang_vel_scale,
+            # 관절 가속도 감쇠. 기본 계수 0.
+            "joint_accel": cost_joint_accel(
+                self._robot.data.joint_acc[:, self._joint_ids],
+            ) * cfg.joint_accel_scale,
         }
         # Stage 1 (use_imitation=False): omitted entirely, not just
         # zero-weighted — reward_imitation would divide-by-nothing-useful

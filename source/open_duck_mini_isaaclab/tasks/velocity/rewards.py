@@ -88,6 +88,100 @@ def cost_foot_lift(feet_pos_w: torch.Tensor, offset: torch.Tensor, clearance: fl
     return torch.sum(over**2, dim=-1)
 
 
+def cost_torso_ang_vel(ang_vel_b: torch.Tensor) -> torch.Tensor:
+    """몸통의 **roll·pitch 각속도**를 벌한다 — 토르소를 부드럽게.
+
+    2026-08-14, 사용자: "보행시 토르소를 최대한 부드럽게 제어할 수 있게".
+
+    지금까지 몸통 흔들림은 `reward_imitation` 안의 `ang_vel_xy` 항으로만
+    간접 다뤘다. 그건 **레퍼런스 각속도를 따라가라**는 추종 항이라, 레퍼런스
+    자체가 흔들리면 흔들림을 그대로 배운다. 실측 roll 진폭이 심 21.0° ·
+    실기 20.4° 로 같았던 것이 그 증거다 — 배포 문제가 아니라 학습된 걸음이다.
+
+    이 항은 레퍼런스와 무관하게 **각속도 자체를 0 으로 끌어당긴다.** yaw(z)는
+    빼는데, 제자리 회전 명령이 yaw 각속도를 요구하기 때문이다. roll·pitch 는
+    어떤 명령에서도 커야 할 이유가 없다.
+
+    Args:
+        ang_vel_b: (N, 3) 몸통 기준 각속도 (자이로).
+    """
+    return torch.sum(ang_vel_b[:, :2] ** 2, dim=-1)
+
+
+def cost_joint_accel(joint_acc: torch.Tensor) -> torch.Tensor:
+    """관절 **가속도**를 벌한다 — 다리 움직임을 부드럽게.
+
+    `action_rate`/`action_jerk` 는 **정책 출력**의 변화를 본다. 그건 명령의
+    매끄러움이지 실제 다리의 매끄러움이 아니다 — PD 게인과 부하가 사이에
+    끼어 있어서, 부드러운 명령도 다리에서는 덜컹일 수 있다.
+
+    이 항은 관절이 실제로 얼마나 급하게 속도를 바꾸는지를 직접 본다. 급가속은
+    곧 큰 토크이고, 실기에서 그것이 착지 피크 2.4 g 와 전압 강하로 나타났다.
+
+    Args:
+        joint_acc: (N, J) 다리 관절 가속도 (rad/s^2).
+    """
+    return torch.sum(joint_acc ** 2, dim=-1)
+
+
+def cost_foot_slip(feet_vel_b: torch.Tensor, contact: torch.Tensor) -> torch.Tensor:
+    """**땅에 닿아 있는 동안** 발이 수평으로 움직이면 벌한다.
+
+    2026-08-14, 사용자: "발이 좀 미끄러지는데". 발에 3 mm 고무패드를 붙여
+    이중지지 요동은 0.672 -> 0.167 rad/s 로 잡혔지만 아직 남아 있다.
+
+    미끄러짐은 마찰만의 문제가 아니다. 발이 **수평 속도를 가진 채로 착지**
+    하면 마찰계수가 얼마든 그 속도만큼 쓸린다. 그래서 접지 마스크를 곱해
+    "딛고 있는 발은 정지해 있어야 한다" 를 직접 가르친다. 다리 보행에서
+    가장 표준적인 미끄러짐 항이다.
+
+    `cost_foot_lateral` 과 다르다: 저쪽은 **스윙 중** 좌우 흔들림을 줄여
+    몸통 roll 을 잡고, 이쪽은 **접지 중** 앞뒤·좌우 쓸림을 없앤다.
+    `cost_foot_clearance` 와 합치면 "수직으로 들어서 수직으로 내리고, 딛는
+    동안은 붙잡는다" 가 된다 — 사용자가 말한 "직선으로 움직이게".
+
+    Args:
+        feet_vel_b: (N, 2, 3) 몸통 기준 발 속도.
+        contact: (N, 2) 접지 여부 0/1.
+    """
+    vxy2 = torch.sum(feet_vel_b[..., :2] ** 2, dim=-1)
+    return torch.sum(vxy2 * (contact > 0.5).float(), dim=-1)
+
+
+def cost_foot_clearance(feet_pos_w: torch.Tensor, feet_vel_b: torch.Tensor,
+                        offset: torch.Tensor, target: float) -> torch.Tensor:
+    """스윙 중 발을 **목표 높이로 유지**한다. 낮아도 높아도 벌한다.
+
+    ## `cost_foot_lift` 와 무엇이 다른가
+
+    `cost_foot_lift` 는 "너무 높으면 벌" 이라 한 방향만 본다. 2026-08-14 에
+    발에 3 mm 고무패드를 붙이고 나서 **발이 바닥을 쓸기 시작했다.** 그때
+    필요한 것은 낮추는 쪽이 아니라 **목표 높이로 붙잡는 것**이다.
+
+    실측: 스윙 여유가 중앙값 5.8 mm · p90 10.6 mm 인데, 몸통이 roll ±10° 로
+    흔들리면 반스탠스 폭 70 mm 에서 발 모서리가 **12 mm** 내려간다. 즉 roll
+    만으로도 스윙 발이 바닥에 닿는다. 패드가 미끄러지지 않게 되자 그것이
+    곧바로 끌림으로 나타났다.
+
+    ## 수평 속도로 가중하는 이유
+
+    `(높이 - 목표)^2` 만 쓰면 발을 떼는 순간과 딛는 순간까지 벌한다 — 그때는
+    발이 지면에 있는 것이 맞는데도. 수평 속도를 곱하면 **발이 실제로 스윙
+    하는 동안에만** 걸린다. 이·착지 순간은 수평 속도가 작아 자연히 빠진다.
+    다리 보행에서 흔히 쓰는 형태다.
+
+    Args:
+        feet_pos_w: (N, 2, 3) 월드 좌표 발 링크 위치.
+        feet_vel_b: (N, 2, 3) 몸통 기준 발 속도.
+        offset: (1, 2) 양발이 땅에 있을 때의 z 오프셋. `cost_foot_lift` 주석 참고.
+        target: 목표 여유 (m). 실측 roll 이 발을 12 mm 내리므로 그보다 커야 한다.
+    """
+    z = feet_pos_w[..., 2] - offset
+    lift = z - z.min(dim=1, keepdim=True).values
+    vxy = torch.norm(feet_vel_b[..., :2], dim=-1)
+    return torch.sum((lift - target) ** 2 * vxy, dim=-1)
+
+
 def cost_foot_lateral(feet_vel_b: torch.Tensor) -> torch.Tensor:
     """발의 **좌우(몸통 y) 속도**를 벌한다 — "발을 최소한만 움직여라".
 
