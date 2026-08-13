@@ -2371,6 +2371,49 @@ class JoystickEnvCfg_V55(JoystickEnvCfg_V48):
 
 
 @configclass
+class JoystickEnvCfg_V56(JoystickEnvCfg_V55):
+    """imitation_v56 — v55 + **발 떨기 봉쇄**. v55 가 여전히 떨 때만 쓴다.
+
+    2026-08-14, v53 이 roll 을 20.7 -> 11.0 도로 반토막 냈는데 걸음이 아니라
+    **바닥에서 떤 것**이었다. 오른발 주기 140 ms(7 Hz), 접지의 58 % 가 100 ms
+    미만. 발을 바닥 근처에서 잘게 떨면 좌우 이동이 최소가 되므로
+    `foot_lateral` 벌점을 그렇게 피한 것이다.
+
+    ## 같은 일이 전에도 있었다
+
+    `imitation_v12` 에서 사용자가 발이 "진동하는것마냥" 떤다고 했다. 원인은
+    `swing_only_contact` 의 구조였다 — 레퍼런스가 들라는 발을 들면 보상을
+    주는데, **딛으라는 발을 들어도 벌이 없었다.** 그래서 양발을 깜빡이면
+    스윙 구간과 겹칠 확률이 올라 이득이었다. `w_stance_violation` 이 그때
+    만들어진 답이고, 현재 1.0 이다.
+
+    v53 이 그걸 뚫었다. 계산해 보면 뚫린 이유가 보인다:
+
+        contact_rew = (swing - 1.0 x stance_violation) x w_contact(2.0)
+
+    떨면 swing 도 stance_violation 도 같이 오르는데 계수가 1:1 이라 상쇄되고,
+    남는 `foot_lateral` 절감이 순이득이 된다. 벌을 이득보다 크게 만들어야
+    한다.
+
+    ## 무엇을 바꾸나
+
+        imitation_w_stance_violation  1.0 -> 3.0
+
+    딛으라는 발을 드는 것이 드는 이득의 3 배 비용이 된다. 정상 보행은
+    영향받지 않는다 — 레퍼런스대로 딛으면 이 항은 0 이다.
+
+    한 가지만 바꾸는 이유는 v55 의 네 항 중 무엇이 떨림을 못 막았는지와
+    섞이지 않게 하려는 것이다.
+
+    비교 기준: v55
+    **판정: 걸음 주기가 540 ms 근처로 돌아오고 100 ms 미만 접지가 20 % 아래로
+    내려가는가.** 그러면서 roll 이 v48(20.7 도)보다 낮게 유지되는가.
+    """
+
+    imitation_w_stance_violation = 3.0
+
+
+@configclass
 class JoystickEnvCfg_V34C20(JoystickEnvCfg_V34C):
     """imitation_v34c20 — v34c(정지 위상 고정) + 레퍼런스 높이 +20 mm (ref_g135)."""
 
