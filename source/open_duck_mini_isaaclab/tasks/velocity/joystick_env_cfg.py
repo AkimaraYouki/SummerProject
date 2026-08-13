@@ -1582,6 +1582,42 @@ SPAWN_BASE_HEIGHT_G135SYM = 0.1687
 READY_JOINT_POS_G135SYM_ZNECK = dict(READY_JOINT_POS_G135SYM)
 READY_JOINT_POS_G135SYM_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
 
+# ref_g135fh20 — g135sym 에서 walk_foot_height 만 0.04 -> 0.02 로 낮춘 레퍼런스.
+# calc_home.py --pkl ref_g135fh20.pkl (2026-08-13). 최대 |action| 1.05.
+READY_JOINT_POS_G135FH20 = {
+    "left_hip_yaw": -0.0039,
+    "left_hip_roll": 0.0044,
+    "left_hip_pitch": 0.7447,
+    "left_knee": -1.2694,
+    "left_ankle": 0.5948,
+    "neck_pitch": 0.0000,
+    "head_pitch": 0.0000,
+    "head_yaw": 0.0000,
+    "head_roll": 0.0000,
+    "right_hip_yaw": -0.0035,
+    "right_hip_roll": -0.0007,
+    "right_hip_pitch": 0.7677,
+    "right_knee": 1.2841,
+    "right_ankle": -0.5866,
+}
+READY_JOINT_POS_G135FH20_ZNECK = dict(READY_JOINT_POS_G135FH20)
+READY_JOINT_POS_G135FH20_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
+
+# 이 두 높이는 settle_height.py 실측이 아니라 **FK + 계통보정** 이다.
+# GPU 가 학습으로 차 있어 실측을 못 돌렸다.
+#
+#   leg_fk 로 READY 자세의 몸통-발 거리를 구하면
+#       G135SYM   0.1568 m   (settle_height 실측 0.1612 → -4.4 mm)
+#       G135FH20  0.1604 m
+#   FK 체인이 발바닥이 아니라 발 프레임 원점에서 끝나 생기는 일정 오차이므로
+#   같은 -4.4 mm 를 보정했다: 0.1604 + 0.0044 = 0.1648.
+#   SPAWN 은 READY 와의 차이(0.1687-0.1612 = 7.5 mm)를 그대로 얹었다.
+#
+# ⚠️ GPU 가 비면 `scripts/diag/settle_height.py` 로 확인할 것. 어긋나면 리셋
+#    직후 로봇이 지면을 파고들거나 떠서 시작한다.
+READY_BASE_HEIGHT_G135FH20 = 0.1648
+SPAWN_BASE_HEIGHT_G135FH20 = 0.1723
+
 
 @configclass
 class _WideMassEventCfg(EventCfg):
@@ -1893,6 +1929,83 @@ class JoystickEnvCfg_V50(JoystickEnvCfg_V47):
         ),
         debug_vis=False,
     )
+
+
+@configclass
+class JoystickEnvCfg_V51(JoystickEnvCfg_V47):
+    """imitation_v51 — **발 들림을 절반으로** (ref_g135fh20). 레퍼런스만 바뀐다.
+
+    v48/v49(리워드·속도한계), v50(마찰)과 섞이지 않게 v47 에서 따로 갈라 나온다.
+
+    ## 왜 — 발을 다리 길이의 23 % 나 들고 있었다
+
+    2026-08-13, 사용자가 "보폭이 너무 크거나 발을 너무 위로 들어서 그런 걸
+    수도 있다" 고 했다. URDF FK 로 몸통 기준 발 궤적을 재 보니 맞았다
+    (`scripts/diag/foot_traj.py`).
+
+                    발 들림          보폭(x)
+        심 목표     31.3 / 39.9 mm   79 / 84 mm
+        심 실제     20.5 / 29.4 mm   63 / 73 mm
+        실기 실제   32.7 / 36.2 mm   76 / 71 mm
+
+    다리 마디가 78.65 mm × 2 = 157 mm 다. 발 들림 36 mm 는 **다리 길이의 23 %**
+    이고, 사람 보행의 발 여유는 1~2 % 다. 걷기가 아니라 행진이다.
+
+    **보폭은 줄일 수 없다.** 76 mm × (1/0.54 s) = 0.14 m/s 로 명령 속도 0.15 와
+    맞는다 — 속도가 보폭을 정한다. **발 들림만 자유 변수다.**
+
+    이것이 세 증상의 공통 원인이다. 스윙 0.18 초에 36 mm 를 올렸다 내리면
+    평균 0.4 m/s, 피크 약 0.63 m/s 로 착지한다:
+
+      * 착지 충격이 중력의 2.39 배(중앙값)·4.81 배(최대) — "발이 팍팍 찍힌다"
+      * 그 속도를 내려면 모터 속도 한계(4.82 rad/s)를 물어야 한다 — 여유가 0
+      * 발을 높이 들려면 무게를 한쪽 다리로 완전히 옮겨야 한다 — roll ±10°
+
+    그리고 `imitation_scale` 이 4.0 으로 지배적이라 **이걸 벌점으로 이기려는
+    것은 헛수고다.** 레퍼런스를 고치는 쪽이 맞다.
+
+    원본 리포 비교: v1(open_duck_mini) 은 `walk_foot_height` 0.03 /
+    `feet_spacing` 0.14, v2 는 0.04 / 0.18 이다. 우리 `gen_reference_local.sh`
+    는 `walk_com_height` 만 덮고 나머지는 medium 프리셋 그대로라 0.04 가
+    그대로 들어가 있었다.
+
+    ## 무엇을 바꾸나
+
+    `walk_foot_height` 0.04 -> 0.02 로 레퍼런스를 다시 뽑았다. 나머지는
+    ref_g135sym 과 완전히 같은 레시피다 (`--height 0.2073 --yaw-sweep 0.28`).
+
+    생성 후 실측 (레퍼런스 자체를 FK 로):
+
+        ref_g135sym    발 들림 44.8 / 44.0 mm   보폭 56.9 / 56.7 mm
+        ref_g135fh20   발 들림 23.5 / 23.0 mm   보폭 56.5 / 56.6 mm
+
+    **발 들림만 47 % 줄고 보폭은 그대로다.** 다리 길이 대비 28 % -> 15 %.
+    좌우 대칭도 유지된다 (직진 녹화 대칭화 후 무릎 진폭차 ±2.5 % 이내).
+
+    READY 자세는 calc_home.py 로 다시 뽑았다 (최대 |action| 1.05). 무릎이
+    -76.7° -> -72.7° 로 4° 더 펴진다.
+
+    ## 대가
+
+    발 여유가 23 mm 로 줄어 바닥이 고르지 않거나 몸통이 기울면 발끝이 걸릴 수
+    있다. 다만 지금 roll 이 ±10° 라 오히려 그 흔들림이 줄면 여유가 더 생긴다.
+
+    비교 기준 (v47 @1999): 보상 304.3 · 길이 558.3
+    **판정: 심에서 목표각 변화 속도 p95 가 4.82(클램프)에서 내려오고 roll
+    진폭이 21° 에서 줄어드는가.** 이게 되면 v48/v49 의 리워드·속도한계는
+    필요 없을 수도 있다.
+    """
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_g135fh20.pkl"
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G135FH20),
+            joint_pos=dict(READY_JOINT_POS_G135FH20_ZNECK),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_G135FH20
 
 
 @configclass
