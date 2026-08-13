@@ -97,6 +97,38 @@ def analyse(path, skip=4.0):
               + sum(1 for a, b in zip(cr, cr[1:]) if a != b))
         out["contact_hz"] = tr / dur
 
+    # 스윙(발이 떠 있는) 구간의 궤적 모양 — 수직으로 드는가.
+    #
+    # 2026-08-14, 사용자가 다른 빌더의 로봇 영상을 보고 "발을 거의 수직으로
+    # 들고 높이도 사람처럼 매우 작은데 앞뒤양옆 다 잘 간다" 고 했다. 재 보니
+    # 우리는 한 번 스윙에 위로 22 mm 뜨는 동안 **옆으로 33~39 mm** 움직인다.
+    # 수직이 아니라 옆으로 호를 그리는 것이고, 그만큼 몸통이 좌우로 무게를
+    # 옮겨야 해서 roll 이 흔들린다.
+    if "contact_l" in rows[0]:
+        for side, ck in (("left", "contact_l"), ("right", "contact_r")):
+            segs, cur = [], []
+            for r in rows:
+                ja = {n: f(r, "pos_" + n) for n in NAMES}
+                if any(v != v for v in ja.values()):
+                    continue
+                pt = foot_in_trunk(ja)[side]
+                if f(r, ck) < 0.5:
+                    cur.append(pt)
+                elif cur:
+                    if len(cur) >= 4:
+                        segs.append(cur)
+                    cur = []
+            if len(segs) < 3:
+                continue
+            rise = statistics.median(max(p[2] for p in g) - min(p[2] for p in g) for g in segs) * 1000
+            lat = statistics.median(max(p[1] for p in g) - min(p[1] for p in g) for g in segs) * 1000
+            out.setdefault("rise", []).append(rise)
+            out.setdefault("lat", []).append(lat)
+        if "rise" in out:
+            out["swing_rise"] = sum(out.pop("rise")) / 2
+            out["swing_lat"] = sum(out.pop("lat")) / 2
+            out["vertical"] = out["swing_rise"] / max(out["swing_lat"], 1e-6)
+
     # 발 궤적 (FK)
     lifts, strides = [], []
     for side in ("left", "right"):
@@ -155,6 +187,9 @@ def main():
     row("  다리 길이 대비", "lift", "{:.0f}", "")
     row("보폭", "stride", "{:.1f}", "mm")
     row("접지 전환", "contact_hz", "{:.1f}", "/s")
+    row("스윙 상승", "swing_rise", "{:.1f}", "mm · 한 번 스윙에")
+    row("스윙 좌우", "swing_lat", "{:.1f}", "mm · 작을수록 수직")
+    row("수직성 (상승/좌우)", "vertical", "{:.2f}", "1.0 이상이면 위로 더 간다")
     print()
     for lab, a in res:
         if "lift" in a:
