@@ -40,7 +40,7 @@ import time
 
 from dynamixel_sdk import PortHandler, PacketHandler, GroupSyncWrite, COMM_SUCCESS
 
-BAUD = 57600
+BAUD = 1_000_000
 TICK_RAD = 2.0 * math.pi / 4096.0
 CENTER = 2048
 
@@ -60,8 +60,8 @@ JOINTS = [
     ("left_hip_pitch",   9, -1, -0.5236, 1.2217),
     ("left_knee",       10, +1, -2.0944, 2.0944),
     ("left_ankle",      11, +1, -1.5708, 1.5708),
-    ("neck_pitch",       2, -1, -0.3491, 1.1345),
-    ("head_pitch",      12, +1, -0.7854, 0.7854),
+    ("neck_pitch",       2, +1, -0.3491, 1.1345),
+    ("head_pitch",      12, -1, -0.7854, 0.7854),
     ("head_yaw",        13, -1, -2.7925, 2.7925),
     ("head_roll",       14, -1, -0.5236, 0.5236),
     ("right_hip_yaw",    1, -1, -0.5236, 0.5236),

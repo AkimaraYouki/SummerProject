@@ -123,6 +123,15 @@ def p_gain_for_stiffness(stiffness: float) -> int:
     return int(round(stiffness * TICK_RAD / TORQUE_PER_CURRENT_UNIT * 128.0))
 
 
+#: 레지스터가 받을 수 있는 최대값 (XM430-W350).
+#: 전류 1193 틱 = 3.21 A 인데 12 V 스톨 전류가 2.3 A(=855 틱)라 855 를 넘기면
+#: **물리적으로 안 걸린다** — 1193 은 "전류 상한 없음" 과 같은 뜻이다.
+CURRENT_LIMIT_MAX = 1193
+#: 1023 틱 = 234 rpm. 출하 초기값 200(=45.8 rpm)이 이 모델의 무부하 속도라
+#: 여기를 올려도 더 못 돈다. 중력에 끌려 순간적으로 넘을 때 서보가 제동을
+#: 거는 것만 없어진다.
+VEL_LIMIT_MAX = 1023
+
 #: 심 `robot_cfg.py` 의 다리 액추에이터 stiffness. 실기를 여기에 맞춘다.
 SIM_STIFFNESS = 37.65
 #: 위 강성을 내는 P 게인 (= 1402). 기본값 800 이 아니라 이 값을 걸어야
@@ -144,12 +153,16 @@ def rad_of(name, tick):
 class HWI:
     """14축 일괄 read/write. 각도는 전부 rad (URDF 관절각), 내부에서만 tick 변환."""
 
-    def __init__(self, port="/dev/ttyUSB0", current_limit=350, leg_p=None, leg_d=None):
+    def __init__(self, port="/dev/ttyUSB0", current_limit=350, leg_p=None, leg_d=None,
+                 vel_limit=None):
         #: 다리 10축 Position P/D Gain. None 이면 펌웨어 모드 기본값(800/4700)
         #: 을 그대로 둔다. arm() 이 모드를 건 **뒤에** 적용한다 — 위 주석 참고.
         self.leg_p = leg_p
         self.leg_d = leg_d
         self.current_limit = current_limit
+        #: Velocity Limit(44). None 이면 안 건드린다. **EEPROM 이라 한 번 쓰면
+        #: 전원을 내려도 남는다** — 매번 쓰지 않고 값이 다를 때만 쓴다.
+        self.vel_limit = vel_limit
         self.io = rustypot.Xl430PyController(port, BAUD, 0.05)
         # Shutdown 레지스터(addr 63, EEPROM)에 켜진 비트만 실제로 토크를 끊는다.
         # 여기 없는 에러 비트는 상태 기록일 뿐 모터는 계속 돈다. 이 로봇은
@@ -167,11 +180,32 @@ class HWI:
         self.io.sync_write_torque_enable(IDS, [0] * 14)
         self.io.sync_write_operating_mode(IDS, [MODE_CURRENT_POSITION] * 14)
         self.io.sync_write_current_limit(IDS, [self.current_limit] * 14)
+        self._apply_vel_limit()
         self.io.sync_write_torque_enable(IDS, [1] * 14)
 
         # 게인은 반드시 모드 전환 **뒤** — 모드를 쓰면 펌웨어가 게인을 덮는다.
         self._apply_head_gains()
         self._apply_leg_gains()
+
+    def _apply_vel_limit(self):
+        """Velocity Limit(44) 을 vel_limit 으로 맞춘다. 토크가 꺼진 동안만 쓸 수 있다.
+
+        EEPROM 이라 쓰기 수명이 있다 — **이미 그 값이면 안 쓴다.** ProfileVelocity
+        가 0(궤적생성 끔)이면 이 레지스터가 곧 속도 캡이 된다.
+        """
+        if self.vel_limit is None:
+            return
+        want = int(self.vel_limit)
+        cur = self.io.sync_read_velocity_limit(IDS)
+        if all(v == want for v in cur):
+            return
+        self.io.sync_write_velocity_limit(IDS, [want] * 14)
+        got = self.io.sync_read_velocity_limit(IDS)
+        bad = [(NAMES[k], got[k]) for k in range(14) if got[k] != want]
+        if bad:
+            print(f"[hwi] !! Velocity Limit {want} 을 못 걸었다: {bad}")
+        else:
+            print(f"[hwi] Velocity Limit {cur[0]} -> {want} (EEPROM 에 저장됐다)")
 
     def _apply_leg_gains(self):
         """다리 10축 위치 PID 게인. leg_p/leg_d 가 None 이면 건드리지 않는다."""
@@ -194,6 +228,11 @@ class HWI:
             d, _i, p = struct.unpack("<HHH", bytes(b))
             out.append((p, d))
         return out
+
+    def read_leg_limits(self):
+        """다리 10축의 (전류상한, 속도상한) 을 실제로 읽어 온다. 검증용."""
+        return list(zip(self.io.sync_read_current_limit(LEG_IDS),
+                        self.io.sync_read_velocity_limit(LEG_IDS)))
 
     def _apply_head_gains(self, ids=None):
         """머리 3축(head_pitch/yaw/roll)의 위치 PID 게인을 HEAD_P/HEAD_D 로 건다.
