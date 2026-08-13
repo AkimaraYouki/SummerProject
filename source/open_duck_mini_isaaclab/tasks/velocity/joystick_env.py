@@ -67,6 +67,8 @@ from .observations import DelayBuffer, apply_uniform_noise
 from .rewards import (
     cost_action_jerk,
     cost_action_rate,
+    cost_foot_lateral,
+    cost_foot_lift,
     cost_leg_symmetry,
     cost_stand_still,
     cost_torques,
@@ -540,6 +542,16 @@ class JoystickEnv(DirectRLEnv):
         )
         return torch.stack([lateral, torch.cos(yaw_err), torch.sin(yaw_err)], dim=-1)
 
+    def _feet_vel_b(self) -> torch.Tensor:
+        """발 선속도를 **몸통 기준**으로. (N, 2, 3).
+
+        월드 속도를 그대로 쓰면 로봇이 도는 동안 전후 성분이 y 로 섞여 들어와
+        "옆으로 안 움직였는데 벌점" 이 된다.
+        """
+        v = self._robot.data.body_lin_vel_w[:, self._feet_ids]        # (N, F, 3)
+        q = self._robot.data.root_quat_w.unsqueeze(1).expand(-1, v.shape[1], -1)
+        return math_utils.quat_rotate_inverse(q.reshape(-1, 4), v.reshape(-1, 3)).view_as(v)
+
     def _get_foot_contact(self) -> torch.Tensor:
         forces = self._contact_sensor.data.net_forces_w_history[:, 0, self._feet_ids, :]
         return (torch.norm(forces, dim=-1) > FOOT_CONTACT_FORCE_THRESHOLD).float()
@@ -592,6 +604,14 @@ class JoystickEnv(DirectRLEnv):
             "leg_symmetry": cost_leg_symmetry(
                 self._command, joint_pos, self._sym_l, self._sym_r, self._sym_s,
             ) * cfg.leg_symmetry_scale,
+            # 발 궤적을 **직접** 벌하는 두 항. 레퍼런스로 발 궤적을 바꾸려던
+            # 시도(v51 발 들림 반토막, v52 보간격 좁힘)가 두 번 다 의도와
+            # 반대로 나왔다 — 모방 리워드는 관절각을 비교하지 발 위치를 보지
+            # 않기 때문이다. 기본 계수 0 이라 기존 태스크는 한 항도 안 바뀐다.
+            "foot_lift": cost_foot_lift(
+                self._robot.data.body_pos_w[:, self._feet_ids], cfg.foot_clearance,
+            ) * cfg.foot_lift_scale,
+            "foot_lateral": cost_foot_lateral(self._feet_vel_b()) * cfg.foot_lateral_scale,
         }
         # Stage 1 (use_imitation=False): omitted entirely, not just
         # zero-weighted — reward_imitation would divide-by-nothing-useful
