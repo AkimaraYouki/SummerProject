@@ -2425,7 +2425,7 @@ class JoystickEnvCfg_V56(JoystickEnvCfg_V55):
     미만 접지가 38 % 아래로 내려가는가.** 그러면서 roll 과 추종이 유지되는가.
     """
 
-    foot_impact_scale = None   # probe_terms.py 로 재서 채운다
+    foot_impact_scale = -90.64
 
 
 

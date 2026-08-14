@@ -75,6 +75,10 @@ store = {}
 for name, cx, cy, cw in CONDS:
     obs, _ = env.reset()
     q, qr, dq, dqr, vb, vw, vr, ft, wz, wr, pe = [], [], [], [], [], [], [], [], [], [], []
+    # 2·3 순위(안정성·효율)를 같은 롤아웃에서 재려고 2026-08-14 추가.
+    # 그전에는 자세도 토크도 안 남아서, 6 방향 롤아웃이 있는데도 판정은
+    # 전진 한 방향짜리 gait_quality.py 로 했다 — 1 순위를 놓치는 구조였다.
+    gv, tq, fz, fv = [], [], [], []   # 투영중력 / 관절토크 / 발 z / 발 속도(몸통)
     bh, fr = [], []   # 몸통 높이 / 레퍼런스 접지
     for step in range(args_cli.num_steps):
         u._command[:, 0] = cx
@@ -100,6 +104,10 @@ for name, cx, cy, cw in CONDS:
         # 어디에도 안 남으므로, 이 값이 직진성을 재는 유일한 직접 지표다.
         if getattr(u.cfg, "use_path_frame", False):
             pe.append(u._path_error().cpu().numpy())
+        gv.append(u._robot.data.projected_gravity_b.cpu().numpy())
+        tq.append(u._robot.data.applied_torque[:, u._joint_ids].cpu().numpy())
+        fz.append(u._robot.data.body_pos_w[:, u._feet_ids, 2].cpu().numpy())
+        fv.append(u._feet_vel_b().cpu().numpy())
         vb.append(u._robot.data.root_lin_vel_b[:, :2].cpu().numpy())   # command frame
         vw.append(u._robot.data.root_lin_vel_w[:, :2].cpu().numpy())   # reference frame
         vr.append(rf[:, 30:32].cpu().numpy())
@@ -112,6 +120,8 @@ for name, cx, cy, cw in CONDS:
         cmd=np.array([cx, cy, cw]),
         base_h=np.asarray(bh), feet_ref=np.asarray(fr),
         path_err=np.asarray(pe) if pe else np.zeros((0, 0, 3)),
+        grav=np.asarray(gv), tau=np.asarray(tq),
+        foot_z=np.asarray(fz), foot_v=np.asarray(fv),
     )
     err = np.linalg.norm(np.asarray(vb)[100:].mean(axis=(0, 1)) - np.array([cx, cy]))
     print(f"[ok] {name:9s} cmd=({cx:+.2f},{cy:+.2f},{cw:+.2f})  "
