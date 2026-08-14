@@ -124,6 +124,49 @@ def cost_joint_accel(joint_acc: torch.Tensor) -> torch.Tensor:
     return torch.sum(joint_acc ** 2, dim=-1)
 
 
+def cost_foot_impact(feet_pos_w: torch.Tensor, feet_vel_b: torch.Tensor,
+                     offset: torch.Tensor, band: float) -> torch.Tensor:
+    """지면 근처에서 **빠르게 내려오는 것**을 벌한다 — 부드러운 착지.
+
+    2026-08-14. 사용자가 계속 말한 "퉁퉁거린다" 의 정체를 드디어 잡았다.
+
+    접지 전환만 세면 v53 이 주기 195 ms, v55 가 210 ms 로 나와 **레퍼런스
+    540 ms 의 4 분의 1** 이었다. 그래서 "발을 7 Hz 로 떨고 있다" 고 판단했는데
+    **틀렸다.** 접지 신호를 디바운스해서 다시 재니:
+
+        디바운스     없음   20 ms   40 ms   60 ms
+        v48           480     540     540     540
+        v53           195     385     490     540
+        v55@2k        210     480     500     540
+        v55@3k        340     430     490     540
+
+    **전부 540 ms 로 수렴한다.** 걸음 주기는 처음부터 옳았고, 다른 것은 한
+    스텝 안에서 발이 **착지하며 튀는 정도**였다. 걸음이 가짜였던 게 아니라
+    착지가 거칠었던 것이다.
+
+    ## 왜 상태를 안 쓰나
+
+    "착지 순간" 을 잡으려면 이전 스텝의 접지를 들고 있어야 한다. 대신 지면
+    **근처** 에서 하강 속도를 벌하면 같은 것을 상태 없이, 그리고 매끄럽게
+    가르칠 수 있다 — 착지 직전부터 기울기가 생기므로 정책이 미리 감속한다.
+    접지 순간에만 벌하면 이미 늦어서 고칠 방법이 없다.
+
+    양발이 땅에 있으면 lift 가 둘 다 0 이라 가중치는 1 이지만 하강 속도가
+    0 이므로 비용도 0 이다 — 정지에서 상시 세금이 붙지 않는다.
+
+    Args:
+        feet_pos_w: (N, 2, 3) 월드 좌표 발 링크 위치.
+        feet_vel_b: (N, 2, 3) 몸통 기준 발 속도.
+        offset: (1, 2) 좌우 발 링크의 z 오프셋. `cost_foot_lift` 주석 참고.
+        band: 이 높이(m) 아래에서 선형으로 가중치가 1 까지 오른다.
+    """
+    z = feet_pos_w[..., 2] - offset
+    lift = z - z.min(dim=1, keepdim=True).values
+    near = torch.clamp(1.0 - lift / band, min=0.0)
+    v_down = torch.clamp(-feet_vel_b[..., 2], min=0.0)
+    return torch.sum(v_down ** 2 * near, dim=-1)
+
+
 def cost_foot_slip(feet_vel_b: torch.Tensor, contact: torch.Tensor) -> torch.Tensor:
     """**땅에 닿아 있는 동안** 발이 수평으로 움직이면 벌한다.
 

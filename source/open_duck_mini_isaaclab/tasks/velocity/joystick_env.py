@@ -70,6 +70,7 @@ from .rewards import (
     cost_foot_clearance,
     cost_foot_lateral,
     cost_foot_lift,
+    cost_foot_impact,
     cost_foot_slip,
     cost_joint_accel,
     cost_torso_ang_vel,
@@ -640,6 +641,11 @@ class JoystickEnv(DirectRLEnv):
             "foot_slip": cost_foot_slip(
                 self._feet_vel_b(), self._get_foot_contact(),
             ) * cfg.foot_slip_scale,
+            # 지면 근처 하강 속도 = 착지 충격. 기본 계수 0.
+            "foot_impact": cost_foot_impact(
+                self._robot.data.body_pos_w[:, self._feet_ids], self._feet_vel_b(),
+                self._foot_z_offset(), cfg.foot_impact_band,
+            ) * cfg.foot_impact_scale,
             # 몸통 roll/pitch 각속도 감쇠. 기본 계수 0.
             "torso_ang_vel": cost_torso_ang_vel(
                 self._robot.data.root_ang_vel_b,

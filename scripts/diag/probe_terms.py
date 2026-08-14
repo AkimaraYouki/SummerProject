@@ -58,6 +58,7 @@ from open_duck_mini_isaaclab.tasks.task_registry import (  # noqa: E402
 )
 from open_duck_mini_isaaclab.tasks.velocity.rewards import (  # noqa: E402
     cost_foot_clearance,
+    cost_foot_impact,
     cost_foot_lateral,
     cost_foot_slip,
     cost_joint_accel,
@@ -95,6 +96,7 @@ def raw_terms():
     con = u._get_foot_contact()
     return {
         "foot_clearance": cost_foot_clearance(fpos, fvel, off, cfg.foot_clearance_target),
+        "foot_impact": cost_foot_impact(fpos, fvel, off, cfg.foot_impact_band),
         "foot_lateral": cost_foot_lateral(fvel),
         "foot_slip": cost_foot_slip(fvel, con),
         "torso_ang_vel": cost_torso_ang_vel(u._robot.data.root_ang_vel_b),
