@@ -98,6 +98,7 @@ def raw_terms():
         "foot_clearance": cost_foot_clearance(fpos, fvel, off, cfg.foot_clearance_target),
         "foot_impact": cost_foot_impact(fpos, fvel, off, cfg.foot_impact_band),
         "foot_lateral": cost_foot_lateral(fvel),
+        "foot_lat_rel": cost_foot_lateral(fvel, u._command[:, 1]),
         "foot_slip": cost_foot_slip(fvel, con),
         "torso_ang_vel": cost_torso_ang_vel(u._robot.data.root_ang_vel_b),
         "joint_accel": cost_joint_accel(u._robot.data.joint_acc[:, u._joint_ids]),
