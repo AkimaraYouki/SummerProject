@@ -120,6 +120,29 @@ class JoystickEnv(DirectRLEnv):
         self._feet_ids, _feet_names = self._contact_sensor.find_bodies(
             [LEFT_FOOT_BODY_NAME, RIGHT_FOOT_BODY_NAME], preserve_order=True
         )
+        # ⚠️ `_feet_ids` 는 **접촉센서**의 body 목록에 대한 인덱스다. 같은 숫자를
+        # `_robot.data.*` 에 쓰면 전혀 다른 링크가 나온다 — 두 목록의 순서가
+        # 다르기 때문이다. 2026-08-14 에 실측한 이 로봇의 경우:
+        #
+        #     접촉센서   [5] foot_assembly      [14] foot_assembly_2
+        #     아티큘레이션 [5] head_pitch_assembly [14] foot_assembly_2
+        #
+        # 즉 `_robot.data.body_pos_w[:, self._feet_ids]` 는 (머리, 오른발) 을
+        # 돌려줬다. body_pos_w 의 z 가 [0.329, 0.016] 로 나와서 잡았다 — 몸통이
+        # 0.19 m 인데 "발" 하나가 0.33 m 에 있을 수는 없다.
+        #
+        # 이 실수로 2026-08-14 의 발 관련 리워드(foot_lift/lateral/clearance/
+        # slip/impact)가 전부 왼발 대신 머리를 봤다. v53 의 roll 이 절반으로
+        # 준 것도 발이 아니라 **머리의 좌우 속도**를 벌한 결과였고, 옆걸음
+        # 추종이 명령의 60 % 로 무너진 것도 같은 이유다.
+        #
+        # 아티큘레이션용 인덱스는 반드시 아티큘레이션에서 뽑는다.
+        self._foot_body_ids, _fb_names = self._robot.find_bodies(
+            [LEFT_FOOT_BODY_NAME, RIGHT_FOOT_BODY_NAME], preserve_order=True
+        )
+        assert _fb_names == [LEFT_FOOT_BODY_NAME, RIGHT_FOOT_BODY_NAME], (
+            f"발 링크 순서가 어긋났다: {_fb_names}"
+        )
         # Disney BD-X paper (Grandia et al. 2024), V-B: terminate on
         # torso/head ground contact rather than (only) a height-ratio/flip
         # heuristic — a contact condition can't be evaded by folding into a
@@ -494,7 +517,7 @@ class JoystickEnv(DirectRLEnv):
         # feet_air_time is not tracked by this env, and imitation_i is dropped
         # since imitation_phase already encodes it.
         if self.cfg.state_space > 0:
-            feet_vel = self._robot.data.body_lin_vel_w[:, self._feet_ids].reshape(self.num_envs, -1)
+            feet_vel = self._robot.data.body_lin_vel_w[:, self._foot_body_ids].reshape(self.num_envs, -1)
             critic = torch.cat(
                 [
                     state,
@@ -555,7 +578,7 @@ class JoystickEnv(DirectRLEnv):
         (2026-08-14 에 그것으로 v53 을 한 번 날렸다).
         """
         if getattr(self, "_foot_z0", None) is None:
-            z = self._robot.data.body_pos_w[:, self._feet_ids, 2]
+            z = self._robot.data.body_pos_w[:, self._foot_body_ids, 2]
             self._foot_z0 = (z - z.min(dim=1, keepdim=True).values).mean(
                 dim=0, keepdim=True).detach()
         return self._foot_z0
@@ -566,7 +589,7 @@ class JoystickEnv(DirectRLEnv):
         월드 속도를 그대로 쓰면 로봇이 도는 동안 전후 성분이 y 로 섞여 들어와
         "옆으로 안 움직였는데 벌점" 이 된다.
         """
-        v = self._robot.data.body_lin_vel_w[:, self._feet_ids]        # (N, F, 3)
+        v = self._robot.data.body_lin_vel_w[:, self._foot_body_ids]        # (N, F, 3)
         q = self._robot.data.root_quat_w.unsqueeze(1).expand(-1, v.shape[1], -1)
         return math_utils.quat_rotate_inverse(q.reshape(-1, 4), v.reshape(-1, 3)).view_as(v)
 
@@ -627,14 +650,14 @@ class JoystickEnv(DirectRLEnv):
             # 반대로 나왔다 — 모방 리워드는 관절각을 비교하지 발 위치를 보지
             # 않기 때문이다. 기본 계수 0 이라 기존 태스크는 한 항도 안 바뀐다.
             "foot_lift": cost_foot_lift(
-                self._robot.data.body_pos_w[:, self._feet_ids],
+                self._robot.data.body_pos_w[:, self._foot_body_ids],
                 self._foot_z_offset(), cfg.foot_clearance,
             ) * cfg.foot_lift_scale,
             "foot_lateral": cost_foot_lateral(self._feet_vel_b()) * cfg.foot_lateral_scale,
             # 스윙 중 발을 목표 높이로 유지. 발을 끄는 것과 과하게 드는 것을
             # 한 항으로 잡는다. 기본 계수 0.
             "foot_clearance": cost_foot_clearance(
-                self._robot.data.body_pos_w[:, self._feet_ids], self._feet_vel_b(),
+                self._robot.data.body_pos_w[:, self._foot_body_ids], self._feet_vel_b(),
                 self._foot_z_offset(), cfg.foot_clearance_target,
             ) * cfg.foot_clearance_scale,
             # 딛고 있는 발이 수평으로 쓸리면 벌. 기본 계수 0.
@@ -643,7 +666,7 @@ class JoystickEnv(DirectRLEnv):
             ) * cfg.foot_slip_scale,
             # 지면 근처 하강 속도 = 착지 충격. 기본 계수 0.
             "foot_impact": cost_foot_impact(
-                self._robot.data.body_pos_w[:, self._feet_ids], self._feet_vel_b(),
+                self._robot.data.body_pos_w[:, self._foot_body_ids], self._feet_vel_b(),
                 self._foot_z_offset(), cfg.foot_impact_band,
             ) * cfg.foot_impact_scale,
             # 몸통 roll/pitch 각속도 감쇠. 기본 계수 0.

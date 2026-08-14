@@ -106,7 +106,7 @@ for name, cx, cy, cw in CONDS:
             pe.append(u._path_error().cpu().numpy())
         gv.append(u._robot.data.projected_gravity_b.cpu().numpy())
         tq.append(u._robot.data.applied_torque[:, u._joint_ids].cpu().numpy())
-        fz.append(u._robot.data.body_pos_w[:, u._feet_ids, 2].cpu().numpy())
+        fz.append(u._robot.data.body_pos_w[:, u._foot_body_ids, 2].cpu().numpy())
         fv.append(u._feet_vel_b().cpu().numpy())
         vb.append(u._robot.data.root_lin_vel_b[:, :2].cpu().numpy())   # command frame
         vw.append(u._robot.data.root_lin_vel_w[:, :2].cpu().numpy())   # reference frame
