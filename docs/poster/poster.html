@@ -1,0 +1,810 @@
+<title>측정이 뒤집은 네 가지 믿음</title>
+
+<style>
+  :root {
+    --paper:   #EDF0F4;
+    --surface: #FFFFFF;
+    --sunk:    #E3E8EF;
+    --ink:     #12203A;
+    --ink-2:   #465A78;
+    --ink-3:   #7B8CA5;
+    --rule:    #C9D3E0;
+    --rule-2:  #DCE3EC;
+    --sim:     #2A62A8;
+    --real:    #C0492B;
+    --warn:    #9A6B1E;
+    --good:    #2E6B4F;
+    --sim-bg:  #E4EDF7;
+    --real-bg: #F8E7E2;
+    --warn-bg: #F6EEDD;
+
+    --sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard",
+            "Noto Sans KR", "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Menlo", "Consolas",
+            "D2Coding", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:   #0C1523;
+      --surface: #142033;
+      --sunk:    #101B2C;
+      --ink:     #E3E9F2;
+      --ink-2:   #A9B9CE;
+      --ink-3:   #74879F;
+      --rule:    #2A3A52;
+      --rule-2:  #223148;
+      --sim:     #6BA3DE;
+      --real:    #E0785A;
+      --warn:    #D6A855;
+      --good:    #6FBF95;
+      --sim-bg:  #17293F;
+      --real-bg: #33211C;
+      --warn-bg: #2E2717;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:   #0C1523;
+    --surface: #142033;
+    --sunk:    #101B2C;
+    --ink:     #E3E9F2;
+    --ink-2:   #A9B9CE;
+    --ink-3:   #74879F;
+    --rule:    #2A3A52;
+    --rule-2:  #223148;
+    --sim:     #6BA3DE;
+    --real:    #E0785A;
+    --warn:    #D6A855;
+    --good:    #6FBF95;
+    --sim-bg:  #17293F;
+    --real-bg: #33211C;
+    --warn-bg: #2E2717;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 0 5rem;
+    -webkit-font-smoothing: antialiased;
+    word-break: keep-all;
+  }
+
+  .wrap { max-width: 1500px; margin: 0 auto; padding: 0 clamp(1rem, 3vw, 3rem); }
+
+  /* ── masthead ─────────────────────────────────────────────── */
+  header {
+    border-bottom: 3px solid var(--ink);
+    padding: clamp(2rem, 5vw, 3.5rem) 0 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 1rem;
+  }
+  h1 {
+    font-size: clamp(2.4rem, 6.2vw, 4.6rem);
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    font-weight: 800;
+    margin: 0 0 0.5rem;
+    text-wrap: balance;
+  }
+  .deck {
+    font-size: clamp(1.05rem, 1.9vw, 1.4rem);
+    color: var(--ink-2);
+    max-width: 62ch;
+    margin: 0 0 2rem;
+    line-height: 1.5;
+  }
+  .byline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 2rem;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-2);
+    border-top: 1px solid var(--rule);
+    padding-top: 1rem;
+  }
+  .byline .fill { color: var(--ink-3); border-bottom: 1px dashed var(--rule); }
+
+  /* ── stat strip ───────────────────────────────────────────── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-bottom: 2.5rem;
+  }
+  .stat { background: var(--surface); padding: 1.1rem 1.25rem; }
+  .stat b {
+    display: block;
+    font-family: var(--mono);
+    font-size: clamp(1.5rem, 3vw, 2.1rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat span {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--ink-3);
+    margin-top: 0.3rem;
+  }
+
+  /* ── poster grid ──────────────────────────────────────────── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 1.75rem;
+    align-items: start;
+  }
+  .span2 { grid-column: span 2; }
+  @media (max-width: 760px) { .span2 { grid-column: span 1; } }
+
+  section {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 1.5rem 1.5rem 1.75rem;
+  }
+  section > :last-child { margin-bottom: 0; }
+
+  h2 {
+    font-size: 1.18rem;
+    font-weight: 750;
+    letter-spacing: -0.015em;
+    margin: 0 0 1rem;
+    padding-bottom: 0.6rem;
+    border-bottom: 2px solid var(--ink);
+    display: flex;
+    align-items: baseline;
+    gap: 0.7rem;
+  }
+  h2 .n {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--surface);
+    background: var(--ink);
+    padding: 0.12rem 0.45rem;
+    letter-spacing: 0.04em;
+    flex: none;
+  }
+  h3 {
+    font-size: 0.86rem;
+    font-family: var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+    margin: 1.5rem 0 0.6rem;
+  }
+  p { margin: 0 0 0.9rem; }
+  strong { font-weight: 700; }
+  .lead { font-size: 1.02rem; }
+
+  /* ── tables ───────────────────────────────────────────────── */
+  .tw { overflow-x: auto; margin: 0 0 1rem; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+  th, td {
+    text-align: right;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--rule-2);
+    white-space: nowrap;
+  }
+  th:first-child, td:first-child { text-align: left; white-space: normal; }
+  thead th {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.05em;
+    color: var(--ink-3);
+    font-weight: 600;
+    border-bottom: 1.5px solid var(--rule);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.sim  { color: var(--sim);  font-weight: 650; }
+  td.real { color: var(--real); font-weight: 650; }
+  td.good { color: var(--good); font-weight: 700; }
+  td.bad  { color: var(--real); font-weight: 700; }
+  .num { font-family: var(--mono); }
+
+  /* ── ledger ───────────────────────────────────────────────── */
+  .ledger { display: flex; flex-direction: column; gap: 1px; background: var(--rule); }
+  .entry { background: var(--surface); padding: 1.1rem 1.25rem; }
+  .entry-h {
+    display: flex;
+    gap: 0.7rem;
+    align-items: baseline;
+    margin-bottom: 0.7rem;
+  }
+  .entry-h .idx {
+    font-family: var(--mono);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--rule);
+    line-height: 1;
+    flex: none;
+    letter-spacing: -0.05em;
+  }
+  .entry-h .t { font-weight: 700; font-size: 1rem; letter-spacing: -0.01em; }
+  .bmf { display: grid; gap: 0.55rem; font-size: 0.88rem; }
+  .bmf > div { display: grid; grid-template-columns: 5.2rem 1fr; gap: 0.7rem; }
+  .bmf dt {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    padding: 0.18rem 0.4rem;
+    text-align: center;
+    height: fit-content;
+    font-weight: 600;
+  }
+  .bmf dd { margin: 0; }
+  .k-belief { background: var(--warn-bg); color: var(--warn); }
+  .k-meas   { background: var(--sim-bg);  color: var(--sim); }
+  .k-truth  { background: var(--real-bg); color: var(--real); }
+
+  /* ── pipeline ─────────────────────────────────────────────── */
+  .pipe {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+  }
+  .pipe .node {
+    flex: 1 1 108px;
+    border: 1px solid var(--rule);
+    background: var(--sunk);
+    padding: 0.6rem 0.7rem;
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+  .pipe .node b {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.07em;
+    color: var(--ink-3);
+    font-weight: 600;
+    margin-bottom: 0.2rem;
+  }
+  .pipe .node.hw { background: var(--real-bg); border-color: var(--real); }
+  .pipe .node.hw b { color: var(--real); }
+  .pipe .arw {
+    align-self: center;
+    color: var(--ink-3);
+    font-family: var(--mono);
+    flex: none;
+  }
+  @media (max-width: 640px) { .pipe .arw { display: none; } }
+
+  /* ── photo slots ──────────────────────────────────────────── */
+  .photo {
+    border: 2px dashed var(--rule);
+    background: var(--sunk);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 1.5rem 1rem;
+    margin: 0 0 1rem;
+    color: var(--ink-3);
+    min-height: 170px;
+  }
+  .photo .cam { font-size: 1.6rem; line-height: 1; margin-bottom: 0.5rem; opacity: 0.55; }
+  .photo b {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    color: var(--ink-2);
+    font-weight: 600;
+  }
+  .photo span { font-size: 0.75rem; margin-top: 0.25rem; }
+  .photo.tall { min-height: 300px; }
+
+  /* ── misc ─────────────────────────────────────────────────── */
+  .callout {
+    border-left: 3px solid var(--ink);
+    padding: 0.1rem 0 0.1rem 1rem;
+    margin: 0 0 1rem;
+    color: var(--ink-2);
+  }
+  .callout b { color: var(--ink); }
+  ul { margin: 0 0 1rem; padding-left: 1.15rem; }
+  li { margin-bottom: 0.4rem; }
+  li::marker { color: var(--ink-3); }
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--sunk);
+    padding: 0.08em 0.32em;
+    border: 1px solid var(--rule-2);
+  }
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    padding: 0.12rem 0.42rem;
+    border: 1px solid currentColor;
+    margin-right: 0.3rem;
+    vertical-align: 0.08em;
+  }
+  .t-sim { color: var(--sim); }
+  .t-real { color: var(--real); }
+  .t-open { color: var(--warn); }
+  .note { font-size: 0.8rem; color: var(--ink-3); }
+  footer {
+    border-top: 3px solid var(--ink);
+    margin-top: 2.5rem;
+    padding-top: 1.25rem;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--ink-3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 2rem;
+    justify-content: space-between;
+  }
+
+  @media print {
+    body { background: #fff; }
+    section { break-inside: avoid; }
+    .grid { gap: 1rem; }
+  }
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">학부 여름 연구 · 2026-07-17 → 2026-08-14</p>
+  <h1>측정이 뒤집은 네 가지 믿음</h1>
+  <p class="deck">
+    이족 보행 로봇 <strong>Open Duck Mini V2</strong> 를 강화학습으로 걷게 하고
+    실제 하드웨어로 옮기는 과정. 4 주 동안 그럴듯한 가설이 네 번 측정에
+    뒤집혔고, 그 기록이 이 연구의 실제 내용이다.
+  </p>
+  <div class="byline">
+    <span>발표자 <span class="fill">&nbsp;&nbsp;박수호&nbsp;&nbsp;</span></span>
+    <span>소속 <span class="fill">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></span>
+    <span>지도 <span class="fill">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></span>
+    <span>Isaac Lab 0.54 · rsl-rl 5.0 · RTX 5080 · Jetson Orin Nano</span>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="stat"><b>29 일</b><span>CAD 에서 실기 보행까지</span></div>
+  <div class="stat"><b>290</b><span>커밋</span></div>
+  <div class="stat"><b>57</b><span>학습 런 (v1 → v57)</span></div>
+  <div class="stat"><b>14 축</b><span>Dynamixel XM430-W350</span></div>
+  <div class="stat"><b>151.8 초</b><span>최장 연속 보행</span></div>
+</div>
+
+<div class="grid">
+
+  <!-- ───────────────────────────────────────── -->
+  <section class="span2">
+    <h2><span class="n">00</span>결과</h2>
+    <p class="lead">
+      <strong>2026-08-13, 로봇이 처음으로 자기 발로 걸었다.</strong>
+      시뮬레이터에서 학습한 정책을 수정 없이 그대로 실기에 올려서다.
+      며칠 동안 "앞으로 꼬꾸라진다" 던 것의 원인은 정책도, 게인도,
+      무릎 고장도 아니었다.
+    </p>
+    <div class="photo tall">
+      <span class="cam">📷</span>
+      <b>실기 보행 연속 사진</b>
+      <span>가로로 긴 사진 또는 스트립 (권장 3:1)</span>
+    </div>
+    <p class="note">
+      정책은 Isaac Lab 에서 PPO 로 학습한 뒤 ONNX 로 내보내 Jetson 에서
+      50 Hz 로 추론한다. 관절 목표각은 Dynamixel 전류제한 위치제어(모드 5)로
+      나간다.
+    </p>
+  </section>
+
+  <!-- ───────────────────────────────────────── -->
+  <section>
+    <h2><span class="n">01</span>파이프라인</h2>
+    <div class="pipe">
+      <div class="node"><b>CAD</b>OnShape 조립체</div>
+      <span class="arw">→</span>
+      <div class="node"><b>MODEL</b>URDF → USD<br>질량·관성 기입</div>
+      <span class="arw">→</span>
+      <div class="node"><b>REF</b>placo 로 뽑은<br>모방용 보행 궤적</div>
+    </div>
+    <div class="pipe">
+      <div class="node"><b>TRAIN</b>Isaac Lab PPO<br>4096 env · 3000 iter</div>
+      <span class="arw">→</span>
+      <div class="node"><b>EXPORT</b>ONNX<br>107 → 512 → 256 → 128 → 14</div>
+      <span class="arw">→</span>
+      <div class="node hw"><b>DEPLOY</b>Jetson 50 Hz<br>XM430 × 14</div>
+    </div>
+    <p class="note">
+      정책은 관측 107 차원(관절각·각속도·자이로·투영중력·명령·모방 위상·
+      이전 액션)을 받아 14 관절의 목표각 오프셋을 낸다. 보행 궤적을
+      <em>모방</em>하는 리워드가 전체의 지배적 항이다.
+    </p>
+  </section>
+
+  <!-- ───────────────────────────────────────── -->
+  <section>
+    <h2><span class="n">02</span>연구 방법</h2>
+    <p>
+      이 프로젝트에서 반복해서 확인한 것은 <strong>지표가 사람을 속인다</strong>
+      는 사실이다. 그래서 방법을 규칙으로 굳혔다.
+    </p>
+    <ul>
+      <li><strong>심과 실기를 같은 자로 잰다.</strong> 같은 열 이름, 같은 정의로
+        로그를 남긴다. 정의가 다르면 sim2real 갭인지 측정 방법 차이인지
+        구분할 수 없다.</li>
+      <li><strong>한 번에 하나만 바꾼다.</strong> 학습 런마다 부모 설정과
+        바뀐 항목 하나, 그리고 판정 기준을 문서에 적고 시작한다.</li>
+      <li><strong>리워드 계수를 추정하지 않는다.</strong> 새 항을 넣기 전에
+        기존 정책에서 원시값을 재고 목표 비중으로 역산한다.</li>
+      <li><strong>보상으로 걸음을 판정하지 않는다.</strong> 보상이 오르면서
+        걸음이 나빠지는 경우가 실제로 있었다.</li>
+    </ul>
+    <div class="callout">
+      <b>규칙이 생긴 계기</b>는 대부분 실패다. 아래 원장의 네 항목이 각각
+      위 규칙 하나씩을 만들었다.
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────────────── -->
+  <section class="span2">
+    <h2><span class="n">03</span>진단 원장 — 측정이 뒤집은 것들</h2>
+    <div class="ledger">
+
+      <div class="entry">
+        <div class="entry-h"><span class="idx">1</span>
+          <span class="t">"왼쪽 무릎이 고장났다"</span></div>
+        <div class="bmf">
+          <div><dt class="k-belief">믿음</dt><dd>왼무릎만 목표각을 22.9° 못 따라간다.
+            분해해 보니 유독 뻣뻣하다. 서보 교체를 검토했다.</dd></div>
+          <div><dt class="k-meas">측정</dt><dd>서보 49 개 레지스터를 전 축 덤프해
+            좌우 비교 → <strong>설정 동일</strong>. 보행 중 버스 전압을 로깅 →
+            <strong>8.6 V 로 붕괴</strong> (XM430 최소 동작전압 9.5 V).</dd></div>
+          <div><dt class="k-truth">사실</dt><dd><strong>전원 문제였다.</strong>
+            USB-PD 어댑터의 12 V / 3 A 로는 보행 전류를 못 댄다. 측정된 5.22 A 는
+            로봇의 수요가 아니라 <em>어댑터의 상한</em>이었다.</dd></div>
+        </div>
+      </div>
+
+      <div class="entry">
+        <div class="entry-h"><span class="idx">2</span>
+          <span class="t">"발을 7 Hz 로 떨고 있다"</span></div>
+        <div class="bmf">
+          <div><dt class="k-belief">믿음</dt><dd>접지 전환을 세니 걸음 주기가
+            195 ms — 레퍼런스 540 ms 의 4 분의 1. 리워드 해킹으로 판단하고
+            해당 정책을 실기에서 배제했다.</dd></div>
+          <div><dt class="k-meas">측정</dt><dd>접지 신호를 디바운스해 다시 계산 →
+            40 ms 에서 <strong>모든 정책이 540 ms 로 수렴</strong>.</dd></div>
+          <div><dt class="k-truth">사실</dt><dd>걸음 주기는 처음부터 옳았다.
+            달랐던 것은 한 스텝 안에서 발이 <strong>착지하며 튀는 정도</strong>다.
+            걸음이 가짜였던 게 아니라 착지가 거칠었던 것 — 사용자가 계속 말한
+            "퉁퉁거림" 의 정체였다.</dd></div>
+        </div>
+      </div>
+
+      <div class="entry">
+        <div class="entry-h"><span class="idx">3</span>
+          <span class="t">"발 리워드가 걸음을 부드럽게 했다"</span></div>
+        <div class="bmf">
+          <div><dt class="k-belief">믿음</dt><dd>발의 좌우 속도를 벌하는 항을
+            넣자 몸통 roll 이 20.7° → 11.0° 로 절반이 됐다. 성공으로 보고했다.</dd></div>
+          <div><dt class="k-meas">측정</dt><dd>발 링크의 월드 좌표 z 를 찍어 보니
+            <span class="num">[0.329, 0.016] m</span>. 몸통이 0.19 m 인데
+            "발" 하나가 0.33 m 에 있을 수 없다.</dd></div>
+          <div><dt class="k-truth">사실</dt><dd><strong>접촉센서의 body 인덱스를
+            아티큘레이션에 그대로 썼다.</strong> 두 목록의 순서가 달라
+            <code>[5]</code> 가 발이 아니라 <em>머리</em>였다. roll 이 준 것은
+            발이 아니라 머리의 좌우 속도를 벌한 결과였고, 그래서 옆걸음이
+            명령의 60 % 로 무너졌다.</dd></div>
+        </div>
+      </div>
+
+      <div class="entry">
+        <div class="entry-h"><span class="idx">4</span>
+          <span class="t">"좌우 추종은 리워드로 고친다"</span></div>
+        <div class="bmf">
+          <div><dt class="k-belief">믿음</dt><dd>측정한 25 개 정책 <em>전부</em>
+            좌/우 오차가 전진의 2~4 배였다. 리워드 계수를 여러 방향으로
+            바꿔 봤지만 안 고쳐졌다.</dd></div>
+          <div><dt class="k-meas">측정</dt><dd>학습의 명령 샘플링을 확인 →
+            vx·vy·wz 를 <strong>축별 독립 균등</strong>으로 뽑는다.</dd></div>
+          <div><dt class="k-truth">사실</dt><dd>세 축이 항상 섞여 나오므로
+            "옆으로만", "제자리 회전만" 같은 <strong>순수 단일축 명령은 학습에서
+            거의 안 나온다.</strong> 그런데 평가와 조이스틱은 순수 단일축이다 —
+            <em>학습에서 안 본 분포로 시험을 봤다.</em> 리워드가 아니라 구조의
+            문제였다.</dd></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────────────── -->
+  <section>
+    <h2><span class="n">04</span>전원 — 단일 최대 효과</h2>
+    <p>전원만 바꾸고 <strong>다른 것은 하나도 안 바꾼</strong> 대조 실험.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>항목</th><th>PD 어댑터</th><th>전원 교체 후</th></tr></thead>
+        <tbody>
+          <tr><td>버스 전압 최저</td><td class="num bad">8.6 V</td><td class="num good">11.2 V</td></tr>
+          <tr><td>다리 합계 전류 최대</td><td class="num">5.22 A</td><td class="num good">10.12 A</td></tr>
+          <tr><td>왼무릎 평균 추종오차</td><td class="num bad">+22.9°</td><td class="num good">+2.7°</td></tr>
+          <tr><td>접지 전환</td><td class="num">1.56 /s</td><td class="num good">8.26 /s</td></tr>
+          <tr><td>몸통 pitch 범위</td><td class="num bad">−33 ~ +34°</td><td class="num good">−0.4 ~ +16.9°</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <b>부하 쪽 계측만 보고 공급이 충분하다고 판단하면 안 된다.</b>
+      전류계는 어댑터의 상한을 로봇의 수요로 보여 준다.
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────────────── -->
+  <section>
+    <h2><span class="n">05</span>sim2real 계약</h2>
+    <p>
+      심의 액추에이터 파라미터와 실기 서보 레지스터를 <strong>같은 물리 단위로
+      환산해</strong> 하나씩 맞췄다.
+    </p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>항목</th><th>심</th><th>실기 (조정 후)</th><th>일치</th></tr></thead>
+        <tbody>
+          <tr><td>관절 강성</td><td class="num sim">37.65</td>
+              <td class="num real">37.65 <span class="note">(P=1402)</span></td><td class="num good">100 %</td></tr>
+          <tr><td>관절 감쇠</td><td class="num sim">1.352</td>
+              <td class="num real">1.010 <span class="note">(D=4700)</span></td><td class="num">75 %</td></tr>
+          <tr><td>토크 상한</td><td class="num sim">4.10 N·m</td>
+              <td class="num real">3.16 N·m</td><td class="num">77 %</td></tr>
+          <tr><td>속도 상한</td><td class="num sim">4.82 rad/s</td>
+              <td class="num real">4.82 rad/s</td><td class="num good">100 %</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      강성 환산: <code>kp = (P/128) × 토크/전류단위 ÷ 틱당 라디안</code>.
+      기본값 P=800 은 21.48 N·m/rad 로 <strong>심의 57 %</strong> 였다 —
+      정책이 명령한 위치에 실제 관절이 못 가던 것의 정체다.
+    </p>
+    <h3>관절 추종 · vx = +0.15</h3>
+    <div class="tw">
+      <table>
+        <thead><tr><th>관절</th><th>심 이득</th><th>실기 이득</th><th>심 지연</th><th>실기 지연</th></tr></thead>
+        <tbody>
+          <tr><td>L.knee</td><td class="num sim">0.69</td><td class="num real">0.76</td>
+              <td class="num sim">40 ms</td><td class="num real">64 ms</td></tr>
+          <tr><td>R.knee</td><td class="num sim">0.71</td><td class="num real">0.83</td>
+              <td class="num sim">20 ms</td><td class="num real">64 ms</td></tr>
+          <tr><td>L.hip_roll</td><td class="num sim">0.70</td><td class="num real">0.86</td>
+              <td class="num sim">20 ms</td><td class="num real">43 ms</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      강성을 맞추자 <strong>실기가 심보다 잘 따라간다.</strong> 무릎이 명령보다
+      25 % 덜 움직이는 것은 하드웨어 부족이 아니라 심에서도 똑같이 일어나는
+      물리(체중)다. <strong>남은 갭은 지연 하나</strong>이고, 그것이 다음 문제로
+      이어진다.
+    </p>
+  </section>
+
+  <!-- ───────────────────────────────────────── -->
+  <section>
+    <h2><span class="n">06</span>발 미끄러짐</h2>
+    <p>
+      실기가 걷기 시작하자 제자리에서 도는 드리프트가 나타났다. 두 발이 모두
+      땅에 있는 <strong>이중지지 구간의 요 각속도</strong>를 보면 미끄러짐이
+      직접 드러난다 — 두 발이 땅에 있으면 몸통은 돌 수 없어야 한다.
+    </p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>항목</th><th>패드 전</th><th>3 mm 고무패드</th></tr></thead>
+        <tbody>
+          <tr><td>이중지지 요 각속도</td><td class="num bad">0.672</td><td class="num good">0.167 rad/s</td></tr>
+          <tr><td>요 드리프트</td><td class="num bad">24 °/s</td><td class="num good">~1 °/s</td></tr>
+          <tr><td>연속 보행 시간</td><td class="num">26.6 s</td><td class="num good">151.8 s</td></tr>
+          <tr><td>수직 가속도 RMS</td><td class="num">6.46</td><td class="num good">3.92</td></tr>
+          <tr><td>착지 피크 (중앙값)</td><td class="num">2.39 g</td><td class="num good">2.12 g</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      심의 이중지지 요 각속도는 −0.069 rad/s 다. 패드 후 0.167 은 아직 심보다
+      크지만, 패드 전 0.672 은 <strong>물리적으로 불가능한 값</strong>이었고
+      그것이 미끄러짐의 증거였다.
+    </p>
+    <div class="photo">
+      <span class="cam">📷</span>
+      <b>발바닥 고무패드</b>
+      <span>패드 전 / 후 비교 (권장 4:3)</span>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────────────── -->
+  <section class="span2">
+    <h2><span class="n">07</span>평가 — 무엇을 재느냐가 결론을 정한다</h2>
+    <p class="lead">
+      한동안 판정을 <strong>전진 한 방향</strong>으로만 했다. 그 자로는 두 정책이
+      0.0231 대 0.0234 로 구분되지 않았는데, 여섯 방향으로 재자 최악 방향이
+      0.0298 대 0.0878 로 <strong>3 배</strong> 갈렸다. 평가 기준을 바꾸자
+      "성공" 이라고 보고했던 정책이 최하위가 됐다.
+    </p>
+    <h3>우선순위 가중 판정 · 앞뒤 3 : 회전 2 : 옆걸음 1</h3>
+    <div class="tw">
+      <table>
+        <thead><tr>
+          <th>정책</th><th>앞뒤</th><th>회전</th><th>옆걸음</th>
+          <th>가중 점수</th><th>비고</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>v40</td><td class="num">0.0065</td><td class="num">0.0114</td>
+              <td class="num">0.0294</td><td class="num good">0.0121</td>
+              <td class="note">추종 최고점</td></tr>
+          <tr><td>v42</td><td class="num">0.0098</td><td class="num good">0.0040</td>
+              <td class="num">0.0318</td><td class="num good">0.0131</td>
+              <td class="note">회전 최고</td></tr>
+          <tr><td>v47</td><td class="num">0.0115</td><td class="num bad">0.0672</td>
+              <td class="num">0.0190</td><td class="num">0.0241</td>
+              <td class="note">액션지연 2~3 스텝</td></tr>
+          <tr><td>v48</td><td class="num bad">0.0211</td><td class="num bad">0.0644</td>
+              <td class="num">0.0258</td><td class="num">0.0307</td>
+              <td class="note">action_rate 되돌림</td></tr>
+          <tr><td>v55</td><td class="num bad">0.0242</td><td class="num bad">0.0782</td>
+              <td class="num bad">0.0806</td><td class="num bad">0.0463</td>
+              <td class="note">발 인덱스 버그</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>퇴행 역추적</h3>
+    <div class="tw">
+      <table>
+        <thead><tr><th>무엇이</th><th>언제</th><th>바뀐 것</th><th>얼마나</th></tr></thead>
+        <tbody>
+          <tr><td><strong>회전</strong> 붕괴</td><td>v42 → v47</td>
+              <td>액션 지연 0~3 → 2~3 스텝</td>
+              <td class="num bad">0.0040 → 0.0672 (17×)</td></tr>
+          <tr><td><strong>앞뒤</strong> 붕괴</td><td>v47 → v48</td>
+              <td>action_rate −0.25 → −0.5</td>
+              <td class="num bad">0.0115 → 0.0211 (1.8×)</td></tr>
+          <tr><td><strong>옆걸음</strong></td><td>전 버전</td>
+              <td>명령 분포 (원장 4)</td>
+              <td class="num">항상 전진의 2~4 배</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <b>지연은 줄일 수 없었다.</b> 통신 타이밍을 직접 재니 매 루프 약 13 ms 로
+      20 ms 예산의 65 % 다. Return Delay 를 낮추면 반이중 버스의 방향 전환이
+      모자라 통신이 깨지고, FTDI 지연 타이머는 이미 최소, 읽기는 이미 한
+      블록으로 합쳐져 있다. <strong>43 ms 는 하드웨어의 사실</strong>이므로,
+      지연을 없애는 대신 <em>그 지연 아래에서 회전을 제대로 가르치는</em>
+      방향으로 갔다.
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────────────── -->
+  <section>
+    <h2><span class="n">08</span>도구</h2>
+    <p>
+      결론을 바꾼 것은 모델이 아니라 <strong>측정 도구</strong>였다. 각 도구는
+      한 번의 오진에서 태어났다.
+    </p>
+    <ul>
+      <li><code>track_stats.py</code> — 심과 실기의 관절추종을 같은 정의로.
+        <span class="note">강성이 맞았는지 판정</span></li>
+      <li><code>verdict.py</code> — 6 방향을 우선순위 가중으로 판정.
+        <span class="note">전진만 보던 것을 교정</span></li>
+      <li><code>probe_terms.py</code> — 새 리워드 항의 원시 크기를 재고
+        계수를 역산. <span class="note">정지 명령에서 0 인지 확인</span></li>
+      <li><code>bus_timing.py</code> — 제어 루프의 시간이 어디로 가는지.
+        <span class="note">지연을 못 줄인다는 근거</span></li>
+      <li><code>gain_report.py</code> — 서보 레지스터를 물리 단위로 환산해 출력.
+        <span class="note">"1402 가 800 보다 크다" 이상을 보려고</span></li>
+    </ul>
+    <div class="photo">
+      <span class="cam">📷</span>
+      <b>실험 환경</b>
+      <span>로봇 · Jetson · 전원 (권장 4:3)</span>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────────────── -->
+  <section>
+    <h2><span class="n">09</span>진행 중 · 남은 것</h2>
+    <h3>지금 돌리는 것</h3>
+    <p>
+      <span class="tag t-sim">학습</span>
+      <strong>v57</strong> — 순수 단일축 명령을 학습 분포에 넣는다
+      (<code>pure_axis_prob = 0.35</code>). 축은 앞뒤 &gt; 회전 &gt; 옆걸음
+      순으로 가중 추첨한다. 원장 4 를 구조로 고치는 첫 시도다.
+    </p>
+    <p class="note">
+      판정 기준을 미리 적어 둔다: 우선순위 점수가 v42 의 0.0131 아래로
+      내려가는가. 특히 v47 의 회전 0.0672 가 얼마나 회복되는가.
+    </p>
+    <h3>확인되지 않은 것</h3>
+    <ul>
+      <li><span class="tag t-open">미확정</span>실제 바닥 마찰계수를 아직
+        측정하지 않았다. 심은 0.5~1.0 을 가정한다.</li>
+      <li><span class="tag t-open">미확정</span>발 인덱스를 고친 뒤의 발
+        리워드 효과. 지금까지의 측정은 전부 무효다.</li>
+      <li><span class="tag t-open">미확정</span>오도메트리가 없어 실기에서는
+        경로 오차를 정책에 되먹일 수 없다. 요 드리프트의 잔여분이 여기서 온다.</li>
+    </ul>
+  </section>
+
+  <!-- ───────────────────────────────────────── -->
+  <section class="span2">
+    <h2><span class="n">10</span>배운 것</h2>
+    <div class="grid" style="gap:1.25rem">
+      <div>
+        <h3>측정 없이 말하지 않는다</h3>
+        <p>
+          네 번의 오진이 모두 같은 형태였다 — 그럴듯한 인과를 먼저 세우고
+          그것에 맞는 지표를 골랐다. 전류계는 어댑터의 상한을 로봇의 수요로
+          보여 줬고, 접지 카운터는 착지 바운스를 리워드 해킹으로 보여 줬다.
+          <strong>지표가 무엇을 재는지 확인하는 것이 지표를 읽는 것보다
+          먼저다.</strong>
+        </p>
+      </div>
+      <div>
+        <h3>평가 기준이 곧 최적화 대상이다</h3>
+        <p>
+          전진만 재는 동안 정책은 전진만 잘하게 됐고, 실제로 한 정책은
+          우선순위와 정확히 반대로 — 가장 덜 중요한 옆걸음만 제일 잘하도록 —
+          최적화돼 있었다. <strong>무엇을 재느냐가 무엇을 얻느냐를 정한다.</strong>
+        </p>
+      </div>
+      <div>
+        <h3>구조가 계수보다 먼저다</h3>
+        <p>
+          좌우 추종은 리워드 계수를 아무리 바꿔도 안 고쳐졌다. 원인은 학습의
+          명령 분포였다. <strong>계수로 안 고쳐지는 문제는 대개 계수의 문제가
+          아니다.</strong>
+        </p>
+      </div>
+      <div>
+        <h3>실패를 기록으로 남긴다</h3>
+        <p>
+          모든 학습 설정에 부모 · 바뀐 항목 하나 · 판정 기준 · 결과를 적었다.
+          철회한 가설도 지우지 않고 왜 틀렸는지 함께 남긴다.
+          <strong>같은 길을 두 번 파지 않기 위해서다.</strong>
+        </p>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <span>Open Duck Mini V2 · Isaac Lab sim-to-real</span>
+  <span>2026-07-17 → 2026-08-14 · 290 commits · v1 → v57</span>
+  <span>측정치는 모두 실측이며 재현 절차가 저장소에 있다</span>
+</footer>
+
+</div>
