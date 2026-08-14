@@ -322,6 +322,29 @@ class JoystickEnv(DirectRLEnv):
         cmd[:, 4] = math_utils.sample_uniform(*cfg.head_pitch_range, (n,), dev)
         cmd[:, 5] = math_utils.sample_uniform(*cfg.head_yaw_range, (n,), dev)
         cmd[:, 6] = math_utils.sample_uniform(*cfg.head_roll_range, (n,), dev)
+        # 순수 단일축 명령. 위처럼 축별 독립 균등으로만 뽑으면 vx·vy·wz 가
+        # **항상 섞여서** 나오고, "옆으로만" 이나 "제자리 회전만" 같은 명령은
+        # 확률적으로 거의 안 나온다.
+        #
+        # 그런데 시험은 순수 단일축으로 본다 — `gait_compare` 의 6 방향이 그렇고,
+        # 사람이 조이스틱을 한 방향으로 밀 때도 그렇다. 2026-08-14 에 측정한
+        # 25 개 버전 **전부** 좌/우 오차가 전진의 2~4 배였는데, 리워드가 아니라
+        # 여기가 원인이었다: 학습에서 거의 안 본 분포로 시험을 본 것이다.
+        #
+        # 다른 두 축을 0 으로 만들 뿐 범위는 그대로라, 섞인 명령을 못 하게
+        # 되지는 않는다 (나머지 확률은 여전히 섞인 명령이다).
+        if cfg.pure_axis_prob > 0.0:
+            pure = torch.rand(n, device=dev) < cfg.pure_axis_prob
+            # 축을 **가중** 추첨한다. 사용자 순위가 앞뒤 > 회전 > 옆이므로
+            # 균등하게 뽑으면 가장 덜 중요한 옆걸음에 순수축 예산의 3 분의 1 을
+            # 쓰게 된다.
+            w = torch.tensor(cfg.pure_axis_weights, device=dev, dtype=torch.float)
+            axis = torch.multinomial(w / w.sum(), n, replacement=True)
+            for k in range(3):
+                keep = pure & (axis == k)
+                for j in range(3):
+                    if j != k:
+                        cmd[keep, j] = 0.0
         zero_mask = torch.rand(n, device=dev) < cfg.zero_command_prob
         cmd[zero_mask] = 0.0
         return cmd

@@ -11,7 +11,7 @@
 
 2026-08-14 에 사용자가 순위를 못박았다:
 
-    1 순위  6 방향 추종 성능
+    1 순위  6 방향 추종 성능 — 그 안에서도 **앞뒤 > 회전 > 완전 옆걸음**
     2 순위  보행 안정성 (덜컹거림, 좌우 흔들림, 발 쿵쾅거림)
     3 순위  보행 효율 (토크 사용, 진동)
 
@@ -39,6 +39,11 @@ import argparse
 import os
 
 import numpy as np
+
+#: 6 방향 가중치. 사용자 순위 (2026-08-14): 앞뒤 > 회전 > 완전 옆걸음.
+#: 최악 방향만 보면 가장 덜 중요한 옆걸음이 판정을 지배한다 — 실제로
+#: 모든 버전에서 좌/우가 최악이라 그 줄만으로는 순위가 안 갈렸다.
+PRIO_W = {"forward": 3.0, "backward": 3.0, "turn": 2.0, "left": 1.0, "right": 1.0}
 
 #: 스톨 토크 (N·m). robot_cfg.py 의 effort_limit_sim 과 같은 값.
 STALL_NM = 4.1
@@ -76,7 +81,9 @@ def analyse(path):
         w = d["w_base"][SKIP:]                       # (T, N)
         e_v = float(np.linalg.norm(v.mean(axis=(0, 1)) - cmd[:2]))
         e_w = float(abs(w.mean() - cmd[2]))
-        p = {"v_err": e_v, "w_err": e_w}
+        # 회전 명령의 추종은 **요레이트**로 본다. 선속도 오차로 보면 "제자리에
+        # 잘 머무는가" 를 재는 것이지 "명령한 속도로 도는가" 가 아니다.
+        p = {"v_err": e_w if c == "turn" else e_v, "w_err": e_w, "lin_err": e_v}
 
         if "grav" in d:
             g = d["grav"][SKIP:]                     # (T, N, 3)
@@ -117,6 +124,17 @@ def analyse(path):
         r["v_err_worst"] = max(r["per"][c]["v_err"] for c in moving)
         r["v_err_mean"] = float(np.mean([r["per"][c]["v_err"] for c in moving]))
         r["w_err_worst"] = max(r["per"][c]["w_err"] for c in moving)
+        # 우선순위 가중 점수. 이게 최종 판정 숫자다.
+        num = sum(PRIO_W[c] * r["per"][c]["v_err"] for c in PRIO_W if c in r["per"])
+        den = sum(PRIO_W[c] for c in PRIO_W if c in r["per"])
+        if den:
+            r["prio"] = num / den
+        fb = [r["per"][c]["v_err"] for c in ("forward", "backward") if c in r["per"]]
+        lr = [r["per"][c]["v_err"] for c in ("left", "right") if c in r["per"]]
+        if fb:
+            r["fb"] = float(np.mean(fb))
+        if lr:
+            r["lr"] = float(np.mean(lr))
         for k in ("roll_pp", "roll_rms", "impact", "impact_rms", "bounce", "clear"):
             vals = [r["per"][c][k] for c in moving if k in r["per"][c]]
             if vals:
@@ -192,13 +210,16 @@ def main():
 
     print("\n  " + " " * 24 + "".join(f"{l:>{W}}" for l, _ in res))
     print("  " + "-" * (24 + W * len(res) + 3))
-    print("  [1순위] 6방향 추종 — 여기가 무너지면 나머지는 의미 없다")
-    for c, ko in (("forward", "전진"), ("backward", "후진"), ("left", "좌"),
-                  ("right", "우"), ("turn", "회전"), ("stop", "정지")):
-        prow(f"  {ko} 속도오차", c, "v_err", "{:.4f}", "m/s")
-    row("  최악 방향", "v_err_worst", "{:.4f}", "m/s · 이게 실력이다")
-    row("  6방향 평균", "v_err_mean", "{:.4f}", "m/s")
-    row("  요 오차 최악", "w_err_worst", "{:.4f}", "rad/s")
+    print("  [1순위] 추종 — 앞뒤 > 회전 > 옆걸음 순으로 중요")
+    row("  ★ 우선순위 점수", "prio", "{:.4f}", "가중 3:2:1 · 최종 판정값")
+    row("  1) 앞뒤 평균", "fb", "{:.4f}", "m/s")
+    prow("     전진", "forward", "v_err", "{:.4f}", "m/s")
+    prow("     후진", "backward", "v_err", "{:.4f}", "m/s")
+    prow("  2) 회전", "turn", "v_err", "{:.4f}", "rad/s · 요레이트 오차")
+    row("  3) 옆걸음 평균", "lr", "{:.4f}", "m/s")
+    prow("     좌", "left", "v_err", "{:.4f}", "m/s")
+    prow("     우", "right", "v_err", "{:.4f}", "m/s")
+    prow("  정지 유지", "stop", "v_err", "{:.4f}", "m/s")
 
     print("  [2순위] 보행 안정성")
     row("  roll 진폭 최악", "roll_pp_worst", "{:.1f}", "도 · 좌우 흔들림")
