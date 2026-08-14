@@ -676,7 +676,10 @@ class JoystickEnv(DirectRLEnv):
                 self._robot.data.body_pos_w[:, self._foot_body_ids],
                 self._foot_z_offset(), cfg.foot_clearance,
             ) * cfg.foot_lift_scale,
-            "foot_lateral": cost_foot_lateral(self._feet_vel_b()) * cfg.foot_lateral_scale,
+            "foot_lateral": cost_foot_lateral(
+                self._feet_vel_b(),
+                self._command[:, 1] if cfg.foot_lateral_cmd_relative else None,
+            ) * cfg.foot_lateral_scale,
             # 스윙 중 발을 목표 높이로 유지. 발을 끄는 것과 과하게 드는 것을
             # 한 항으로 잡는다. 기본 계수 0.
             "foot_clearance": cost_foot_clearance(

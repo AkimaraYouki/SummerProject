@@ -225,7 +225,8 @@ def cost_foot_clearance(feet_pos_w: torch.Tensor, feet_vel_b: torch.Tensor,
     return torch.sum((lift - target) ** 2 * vxy, dim=-1)
 
 
-def cost_foot_lateral(feet_vel_b: torch.Tensor) -> torch.Tensor:
+def cost_foot_lateral(feet_vel_b: torch.Tensor,
+                      cmd_vy: torch.Tensor | None = None) -> torch.Tensor:
     """발의 **좌우(몸통 y) 속도**를 벌한다 — "발을 최소한만 움직여라".
 
     2026-08-14 실측: 한 번 스윙에 발이 위로 23 mm 뜨는 동안 **옆으로 30~41 mm**
@@ -241,8 +242,24 @@ def cost_foot_lateral(feet_vel_b: torch.Tensor) -> torch.Tensor:
     Args:
         feet_vel_b: (N, 2, 3) **몸통 기준** 발 속도. 월드로 주면 로봇이 도는
             동안 전후 성분이 y 로 섞여 들어온다.
+    
+    ## 명령 상대형 (2026-08-14 추가)
+
+    `cmd_vy` 를 주면 **명령한 좌우 속도를 뺀 나머지**만 벌한다. 원래 식은
+    명령과 무관하게 발의 좌우 속도를 벌해서, 옆으로 걸으라는 명령 자체를
+    막았다 — v55 의 옆걸음이 명령의 56~64 % 로 무너진 원인이다.
+
+    `cmd_vy = None` 이면 예전 식 그대로다 (v53·v55 재현용).
     """
-    return torch.sum(feet_vel_b[..., 1] ** 2, dim=-1)
+    v_y = feet_vel_b[..., 1]
+    if cmd_vy is not None:
+        # 명령한 좌우 속도만큼은 공짜다. 옆으로 걸으라고 해 놓고 발이 옆으로
+        # 움직이는 것을 벌하면 그 명령을 수행할 방법이 없다 — 2026-08-14 에
+        # v55 의 옆걸음이 명령의 60 % 로 무너진 것이 정확히 그 때문이었다.
+        # cmd_vy = 0 이면 예전 식과 완전히 같아서, 전진·정지에서 얻었던
+        # 안정성은 그대로 남는다.
+        v_y = v_y - cmd_vy.unsqueeze(-1)
+    return torch.sum(v_y ** 2, dim=-1)
 
 
 def cost_action_jerk(act: torch.Tensor, last_act: torch.Tensor, last2_act: torch.Tensor) -> torch.Tensor:

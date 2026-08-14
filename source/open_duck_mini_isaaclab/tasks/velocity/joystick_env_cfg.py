@@ -394,6 +394,8 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     #: 실측 수직성(스윙 상승/좌우)이 0.47~0.78 로 1 을 못 넘는다 — 발을 위로
     #: 드는 것보다 옆으로 더 많이 던지고 있고, 그것이 roll ±10° 의 원인이다.
     foot_lateral_scale = 0.0
+    #: True 면 명령한 좌우 속도를 뺀 나머지만 벌한다. False 는 v53·v55 재현용.
+    foot_lateral_cmd_relative = False
     #: 스윙 중 유지할 발 여유 (m). 실측 roll ±10° 가 발을 12 mm 내리므로
     #: 그보다 커야 끌리지 않는다.
     foot_clearance_target = 0.020
