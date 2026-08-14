@@ -678,7 +678,9 @@ class JoystickEnv(DirectRLEnv):
             ) * cfg.foot_lift_scale,
             "foot_lateral": cost_foot_lateral(
                 self._feet_vel_b(),
-                self._command[:, 1] if cfg.foot_lateral_cmd_relative else None,
+                self._command[:, 1] if (cfg.foot_lateral_cmd_relative
+                                        or cfg.foot_lateral_gate_max > 0.0) else None,
+                cfg.foot_lateral_gate_max, cfg.foot_lateral_gate_floor,
             ) * cfg.foot_lateral_scale,
             # 스윙 중 발을 목표 높이로 유지. 발을 끄는 것과 과하게 드는 것을
             # 한 항으로 잡는다. 기본 계수 0.

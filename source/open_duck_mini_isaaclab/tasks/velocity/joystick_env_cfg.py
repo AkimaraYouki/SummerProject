@@ -396,6 +396,10 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     foot_lateral_scale = 0.0
     #: True 면 명령한 좌우 속도를 뺀 나머지만 벌한다. False 는 v53·v55 재현용.
     foot_lateral_cmd_relative = False
+    #: |cmd_vy| 가 이 값일 때 항이 `foot_lateral_gate_floor` 배로 줄어든다.
+    #: 0 이면 게이트 없음. lin_vel_y_range 상한(0.2)에 맞추는 것이 자연스럽다.
+    foot_lateral_gate_max = 0.0
+    foot_lateral_gate_floor = 0.2
     #: 스윙 중 유지할 발 여유 (m). 실측 roll ±10° 가 발을 12 mm 내리므로
     #: 그보다 커야 끌리지 않는다.
     foot_clearance_target = 0.020
@@ -2708,6 +2712,57 @@ class JoystickEnvCfg_V61(JoystickEnvCfg_V59):
 
     foot_lateral_cmd_relative = True
     foot_lateral_scale = -12.0
+
+
+@configclass
+class JoystickEnvCfg_V62(JoystickEnvCfg_V61):
+    """imitation_v62 — v61 + **옆 명령일 때 발 좌우 억제를 푼다**. 하나만.
+
+    v61 은 실패했지만 **어디서 실패했는지가 하나로 특정된다.**
+
+        항목        v59      v61      판정
+        점수      0.0165   0.0221   (합격선 0.0180)
+        앞뒤      0.0153   0.0155   그대로 지킴
+        회전      0.0106   0.0104   그대로 지킴
+        옆걸음    0.0263   0.0534   << 유일하게 두 배
+        roll RMS   6.66     4.97    합격 (<= 5.50)
+
+    점수를 분해하면 **옆걸음만 v59 수준으로 돌아오면 0.0166 이 되어 양쪽 다
+    합격**이다. 나머지는 이미 다 맞았다.
+
+    ## 왜 명령 상대형만으로 부족했나 — 기하 때문이다
+
+    옆으로 걸으려면 **스윙 발이 몸통보다 더 빨리** 옆으로 가서 다음 디딤
+    자리를 잡아야 한다. 그러니 `v_foot_y - cmd_vy` 에서 명령분을 빼도 남는
+    성분이 크고, 그걸 벌하면 옆걸음이 그만큼 느려진다. 실측이 그대로 보여
+    준다 — 좌 0.3008 -> 0.2456 로 18 % 만 면제됐다.
+
+    빼는 것으로는 안 되고 **옆 명령 구간에서는 항 자체를 낮춰야** 한다.
+
+        foot_lateral_gate_max   = 0.2   (lin_vel_y_range 상한)
+        foot_lateral_gate_floor = 0.2
+
+    |cmd_vy| = 0 에서 1 배, 0.2 에서 0.2 배. 옆 명령이 없는 전진·후진·회전·
+    정지에서는 억제가 그대로라 roll 이득을 지킨다.
+
+    ## 예상
+
+    v61 의 옆걸음 악화분(+0.0271)이 계수에 대략 비례한다고 보면, 0.2 배에서
+    +0.0054 -> 옆걸음 약 0.0317. 그러면
+
+        점수 = (3x0.0236 + 3x0.0074 + 2x0.0104 + 0.0317 + 0.0317) / 10 = 0.0177
+
+    로 합격선 안이다. roll 은 좌/우 두 방향에서 억제가 약해지므로 4.97 에서
+    5.2~5.5 로 오를 것이다 — 합격선 경계다. 넘으면 `torso_ang_vel` 을 작게
+    (-0.3) 얹어 마무리한다. 원인을 이미 줄였으므로 그때 필요한 감쇠는 작다.
+
+    비교 기준: v61 · v59
+    **판정: 점수 <= 0.0180 이면서 roll RMS <= 5.50.** 둘 다면 종료하고 배포한다.
+    """
+
+    foot_lateral_gate_max = 0.2
+    foot_lateral_gate_floor = 0.2
+
 
 
 

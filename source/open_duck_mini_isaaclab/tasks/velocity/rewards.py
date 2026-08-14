@@ -226,7 +226,9 @@ def cost_foot_clearance(feet_pos_w: torch.Tensor, feet_vel_b: torch.Tensor,
 
 
 def cost_foot_lateral(feet_vel_b: torch.Tensor,
-                      cmd_vy: torch.Tensor | None = None) -> torch.Tensor:
+                      cmd_vy: torch.Tensor | None = None,
+                      gate_max: float = 0.0,
+                      gate_floor: float = 0.0) -> torch.Tensor:
     """발의 **좌우(몸통 y) 속도**를 벌한다 — "발을 최소한만 움직여라".
 
     2026-08-14 실측: 한 번 스윙에 발이 위로 23 mm 뜨는 동안 **옆으로 30~41 mm**
@@ -250,8 +252,28 @@ def cost_foot_lateral(feet_vel_b: torch.Tensor,
     막았다 — v55 의 옆걸음이 명령의 56~64 % 로 무너진 원인이다.
 
     `cmd_vy = None` 이면 예전 식 그대로다 (v53·v55 재현용).
+
+    ## 게이트 (2026-08-15 추가)
+
+    v61 에서 명령 상대형만으로는 부족한 것이 드러났다. 앞뒤(0.0155)와
+    회전(0.0104)은 v59 그대로 지켰고 roll RMS 도 6.66 -> 4.97 로 합격선을
+    통과했는데, **옆걸음만 0.0263 -> 0.0534 로 두 배**가 되어 종합 점수를
+    떨어뜨렸다.
+
+    이유는 기하다. 옆으로 걸으려면 **스윙 발이 몸통보다 더 빨리** 옆으로
+    가서 다음 디딤 자리를 잡아야 한다. 그러니 명령 속도를 빼도 남는 성분이
+    크고, 그것을 벌하면 옆걸음 자체가 느려진다.
+
+    `gate_max` 를 주면 |cmd_vy| 에 비례해 항을 **낮춘다** — |cmd_vy| = 0 에서
+    1 배, `gate_max` 에서 `gate_floor` 배. 옆 명령이 없는 구간(전진·후진·
+    회전·정지)에서는 억제가 그대로 남아 roll 이득을 지킨다.
     """
     v_y = feet_vel_b[..., 1]
+    gate = None
+    if gate_max > 0.0 and cmd_vy is not None:
+        # 옆 명령이 셀수록 항을 낮춘다. |cmd_vy| = gate_max 에서 gate_floor.
+        g = 1.0 - (1.0 - gate_floor) * torch.clamp(cmd_vy.abs() / gate_max, max=1.0)
+        gate = g.unsqueeze(-1)
     if cmd_vy is not None:
         # 명령한 좌우 속도만큼은 공짜다. 옆으로 걸으라고 해 놓고 발이 옆으로
         # 움직이는 것을 벌하면 그 명령을 수행할 방법이 없다 — 2026-08-14 에
@@ -259,7 +281,10 @@ def cost_foot_lateral(feet_vel_b: torch.Tensor,
         # cmd_vy = 0 이면 예전 식과 완전히 같아서, 전진·정지에서 얻었던
         # 안정성은 그대로 남는다.
         v_y = v_y - cmd_vy.unsqueeze(-1)
-    return torch.sum(v_y ** 2, dim=-1)
+    c = v_y ** 2
+    if gate is not None:
+        c = c * gate
+    return torch.sum(c, dim=-1)
 
 
 def cost_action_jerk(act: torch.Tensor, last_act: torch.Tensor, last2_act: torch.Tensor) -> torch.Tensor:
