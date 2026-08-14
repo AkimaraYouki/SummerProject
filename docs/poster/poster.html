@@ -392,8 +392,9 @@
 
 <div class="stats">
   <div class="stat"><b>29 일</b><span>CAD 에서 실기 보행까지</span></div>
+  <div class="stat"><b>6.3 ×</b><span>회전 추종 회복</span></div>
   <div class="stat"><b>290</b><span>커밋</span></div>
-  <div class="stat"><b>57</b><span>학습 런 (v1 → v57)</span></div>
+  <div class="stat"><b>59</b><span>학습 런 (v1 → v59)</span></div>
   <div class="stat"><b>14 축</b><span>Dynamixel XM430-W350</span></div>
   <div class="stat"><b>151.8 초</b><span>최장 연속 보행</span></div>
 </div>
@@ -524,21 +525,61 @@
 
       <div class="entry">
         <div class="entry-h"><span class="idx">4</span>
-          <span class="t">"좌우 추종은 리워드로 고친다"</span></div>
+          <span class="t">"좌우와 회전은 리워드로 고친다"</span></div>
         <div class="bmf">
           <div><dt class="k-belief">믿음</dt><dd>측정한 25 개 정책 <em>전부</em>
-            좌/우 오차가 전진의 2~4 배였다. 리워드 계수를 여러 방향으로
-            바꿔 봤지만 안 고쳐졌다.</dd></div>
-          <div><dt class="k-meas">측정</dt><dd>학습의 명령 샘플링을 확인 →
-            vx·vy·wz 를 <strong>축별 독립 균등</strong>으로 뽑는다.</dd></div>
-          <div><dt class="k-truth">사실</dt><dd>세 축이 항상 섞여 나오므로
-            "옆으로만", "제자리 회전만" 같은 <strong>순수 단일축 명령은 학습에서
-            거의 안 나온다.</strong> 그런데 평가와 조이스틱은 순수 단일축이다 —
-            <em>학습에서 안 본 분포로 시험을 봤다.</em> 리워드가 아니라 구조의
-            문제였다.</dd></div>
+            좌/우가 전진보다 2~4 배 나빴고, 회전은 한 시점에 17 배 꺾인 뒤
+            돌아오지 않았다. 리워드 계수를 여러 방향으로 바꿨지만 안 고쳐졌다.</dd></div>
+          <div><dt class="k-meas">측정</dt><dd>학습의 명령 분포를 의심해 순수
+            단일축 명령을 35 % 넣었다 →
+            <strong>회전 0.0672 → 0.0666, 변화 없음.</strong> 가설 기각.
+            그래서 회전이 꺾인 구간의 변경 셋을 <strong>하나씩 되돌리는 대조
+            실험</strong>을 했다.</dd></div>
+          <div><dt class="k-truth">사실</dt><dd><strong>두 개의 독립된 원인이
+            서로를 가리고 있었다.</strong> 액션 지연 범위를 좁힌 것이 회전을,
+            질량 무작위화 범위를 넓힌 것이 앞뒤를 망쳤는데 — 좁은 지연이
+            질량 손해를 <em>가려 주고</em> 있어서 하나만 되돌리면 매번
+            다른 쪽이 나빠졌다. 둘 다 되돌리자 회전이 <strong>6.3 배</strong>
+            회복됐다.</dd></div>
         </div>
       </div>
 
+      <div class="entry">
+        <div class="entry-h"><span class="idx">✓</span>
+          <span class="t">대조 실험 — 한 번에 하나씩 되돌리기</span></div>
+        <div class="tw">
+          <table>
+            <thead><tr>
+              <th>구성</th><th>지연</th><th>질량</th><th>앞뒤</th><th>회전</th><th>점수</th>
+            </tr></thead>
+            <tbody>
+              <tr><td>v42</td><td class="num">0~3</td><td class="num">원래</td>
+                  <td class="num good">0.0098</td><td class="num good">0.0040</td>
+                  <td class="num good">0.0131</td></tr>
+              <tr><td>v47</td><td class="num bad">2~3</td><td class="num bad">확대</td>
+                  <td class="num good">0.0115</td><td class="num bad">0.0672</td>
+                  <td class="num">0.0241</td></tr>
+              <tr><td>v57 <span class="note">+순수축 명령</span></td>
+                  <td class="num bad">2~3</td><td class="num bad">확대</td>
+                  <td class="num">0.0199</td><td class="num bad">0.0666</td>
+                  <td class="num">0.0310</td></tr>
+              <tr><td>v58 <span class="note">지연만 되돌림</span></td>
+                  <td class="num good">0~3</td><td class="num bad">확대</td>
+                  <td class="num bad">0.0377</td><td class="num">0.0342</td>
+                  <td class="num">0.0349</td></tr>
+              <tr><td><strong>v59</strong> <span class="note">둘 다 되돌림</span></td>
+                  <td class="num good">0~3</td><td class="num good">원래</td>
+                  <td class="num good">0.0153</td><td class="num good">0.0106</td>
+                  <td class="num good">0.0165</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">
+          v58 한 줄만 보면 "지연을 넓히면 앞뒤가 6.7 배 나빠진다" 로 읽힌다.
+          실제로는 넓은 지연이 <strong>이미 있던 질량 손해를 드러냈을</strong>
+          뿐이다. 교란된 두 변수는 한쪽만 바꿔서는 정체를 알 수 없다.
+        </p>
+      </div>
     </div>
   </section>
 
@@ -677,6 +718,10 @@
           <tr><td>v55</td><td class="num bad">0.0242</td><td class="num bad">0.0782</td>
               <td class="num bad">0.0806</td><td class="num bad">0.0463</td>
               <td class="note">발 인덱스 버그</td></tr>
+          <tr><td><strong>v59</strong></td><td class="num good">0.0153</td>
+              <td class="num good">0.0106</td><td class="num">0.0263</td>
+              <td class="num good">0.0165</td>
+              <td class="note">지연·질량 둘 다 되돌림</td></tr>
         </tbody>
       </table>
     </div>
@@ -691,8 +736,11 @@
           <tr><td><strong>앞뒤</strong> 붕괴</td><td>v47 → v48</td>
               <td>action_rate −0.25 → −0.5</td>
               <td class="num bad">0.0115 → 0.0211 (1.8×)</td></tr>
+          <tr><td><strong>회전</strong> 회복</td><td>v47 → v59</td>
+              <td>지연 2~3 → 0~3, 질량 확대 → 원래</td>
+              <td class="num good">0.0672 → 0.0106 (6.3×)</td></tr>
           <tr><td><strong>옆걸음</strong></td><td>전 버전</td>
-              <td>명령 분포 (원장 4)</td>
+              <td>원인 미확정</td>
               <td class="num">항상 전진의 2~4 배</td></tr>
         </tbody>
       </table>
@@ -735,24 +783,37 @@
 
   <!-- ───────────────────────────────────────── -->
   <section>
-    <h2><span class="n">09</span>진행 중 · 남은 것</h2>
-    <h3>지금 돌리는 것</h3>
+    <h2><span class="n">09</span>현재 최고 · 남은 것</h2>
+    <h3>실기에 올라간 정책</h3>
     <p>
-      <span class="tag t-sim">학습</span>
-      <strong>v57</strong> — 순수 단일축 명령을 학습 분포에 넣는다
-      (<code>pure_axis_prob = 0.35</code>). 축은 앞뒤 &gt; 회전 &gt; 옆걸음
-      순으로 가중 추첨한다. 원장 4 를 구조로 고치는 첫 시도다.
+      <span class="tag t-real">배포</span>
+      <strong>v59</strong> — 우선순위 점수 <strong>0.0165</strong>. 회전 명령의
+      99 %, 전진의 109 % 를 달성한다. 토크 제곱합(7.91)과 접지 바운스(1.22)도
+      측정한 전 버전 중 가장 낮다.
     </p>
-    <p class="note">
-      판정 기준을 미리 적어 둔다: 우선순위 점수가 v42 의 0.0131 아래로
-      내려가는가. 특히 v47 의 회전 0.0672 가 얼마나 회복되는가.
-    </p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>명령</th><th>달성률</th><th></th><th>명령</th><th>달성률</th></tr></thead>
+        <tbody>
+          <tr><td>전진</td><td class="num good">109 %</td><td></td>
+              <td>좌</td><td class="num">89 %</td></tr>
+          <tr><td>후진</td><td class="num">92 %</td><td></td>
+              <td>우</td><td class="num">89 %</td></tr>
+          <tr><td>회전</td><td class="num good">99 %</td><td></td>
+              <td>정지</td><td class="num good">최대 기울기 16°</td></tr>
+        </tbody>
+      </table>
+    </div>
     <h3>확인되지 않은 것</h3>
     <ul>
-      <li><span class="tag t-open">미확정</span>실제 바닥 마찰계수를 아직
-        측정하지 않았다. 심은 0.5~1.0 을 가정한다.</li>
-      <li><span class="tag t-open">미확정</span>발 인덱스를 고친 뒤의 발
-        리워드 효과. 지금까지의 측정은 전부 무효다.</li>
+      <li><span class="tag t-open">미확정</span><strong>실기 무게를 아직 안
+        쟀다.</strong> 심 모델은 2.6404 kg 인데 문서에는 2.7430 kg 으로 적혀
+        103 g 이 어긋나 있다. 질량 무작위화 범위를 실측 근처로 좁히는 것이
+        다음 개선이다.</li>
+      <li><span class="tag t-open">미확정</span><strong>옆걸음은 여전히
+        전진의 2 배</strong>다. 지연·질량 어느 쪽으로도 설명되지 않았다.</li>
+      <li><span class="tag t-open">미확정</span>실제 바닥 마찰계수. 심은
+        0.5~1.0 을 가정한다.</li>
       <li><span class="tag t-open">미확정</span>오도메트리가 없어 실기에서는
         경로 오차를 정책에 되먹일 수 없다. 요 드리프트의 잔여분이 여기서 온다.</li>
     </ul>
@@ -781,11 +842,13 @@
         </p>
       </div>
       <div>
-        <h3>구조가 계수보다 먼저다</h3>
+        <h3>교란된 원인은 하나씩 되돌려야 보인다</h3>
         <p>
-          좌우 추종은 리워드 계수를 아무리 바꿔도 안 고쳐졌다. 원인은 학습의
-          명령 분포였다. <strong>계수로 안 고쳐지는 문제는 대개 계수의 문제가
-          아니다.</strong>
+          회전과 앞뒤를 망친 원인은 서로 달랐고, 한쪽이 다른 쪽을 가리고
+          있었다. 하나만 되돌릴 때마다 매번 다른 지표가 나빠져서 "이 변경은
+          해롭다" 는 잘못된 결론이 나왔다.
+          <strong>변경 이력을 하나씩 되돌려 격자로 채우기 전에는 어느 것도
+          범인이라 부를 수 없다.</strong>
         </p>
       </div>
       <div>
@@ -803,7 +866,7 @@
 
 <footer>
   <span>Open Duck Mini V2 · Isaac Lab sim-to-real</span>
-  <span>2026-07-17 → 2026-08-14 · 290 commits · v1 → v57</span>
+  <span>2026-07-17 → 2026-08-14 · 300+ commits · v1 → v59</span>
   <span>측정치는 모두 실측이며 재현 절차가 저장소에 있다</span>
 </footer>
 
