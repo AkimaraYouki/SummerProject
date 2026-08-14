@@ -55,6 +55,7 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-V55-v0": "JoystickEnvCfg_V55",
     "Isaac-OpenDuckMini-Joystick-V56-v0": "JoystickEnvCfg_V56",
     "Isaac-OpenDuckMini-Joystick-V57-v0": "JoystickEnvCfg_V57",
+    "Isaac-OpenDuckMini-Joystick-V58-v0": "JoystickEnvCfg_V58",
     "Isaac-OpenDuckMini-Joystick-TallSafe-v0": "JoystickEnvCfg_TallSafe",
     "Isaac-OpenDuckMini-Joystick-HipInwardSafe-v0": "JoystickEnvCfg_HipInwardSafe",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
@@ -101,6 +102,7 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-V55-v0",
     "Isaac-OpenDuckMini-Joystick-V56-v0",
     "Isaac-OpenDuckMini-Joystick-V57-v0",
+    "Isaac-OpenDuckMini-Joystick-V58-v0",
     "Isaac-OpenDuckMini-Joystick-TallSafe-v0",
     "Isaac-OpenDuckMini-Joystick-HipInwardSafe-v0",
 }
