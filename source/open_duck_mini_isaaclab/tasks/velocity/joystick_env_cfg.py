@@ -1677,6 +1677,36 @@ READY_JOINT_POS_G135FS14_ZNECK = dict(READY_JOINT_POS_G135FS14)
 READY_JOINT_POS_G135FS14_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
 # G135FH20 과 같은 방법 (FK 0.1609 + 계통보정 4.4 mm). settle_height 미실측.
 READY_BASE_HEIGHT_G135FS14 = 0.1653
+
+#: ref_g135fs22 (2026-08-17) 기준 홈 자세. calc_home.py 로 뽑았다.
+#: g135sym 에서 feet_spacing 만 0.18 -> 0.22 로 **넓힌** 레퍼런스다.
+#: 부수 효과 하나가 유리하다 — 다리를 벌리면 같은 몸통 높이에서 무릎이 펴진다.
+#: 무릎 -76.7 -> -66.7 도로 10 도 더 펴져 **실기 왼무릎 사각지대(-110 도)에서
+#: 더 멀어진다** (V46 docstring 참고).
+READY_JOINT_POS_G135FS22 = {
+    "left_hip_yaw": 0.0051,
+    "left_hip_roll": 0.1291,
+    "left_hip_pitch": 0.6880,
+    "left_knee": -1.1638,
+    "left_ankle": 0.5469,
+    "neck_pitch": 0.0,
+    "head_pitch": 0.0,
+    "head_yaw": 0.0,
+    "head_roll": 0.0,
+    "right_hip_yaw": -0.0125,
+    "right_hip_roll": 0.1249,
+    "right_hip_pitch": 0.7227,
+    "right_knee": 1.1956,
+    "right_ankle": -0.5439,
+}
+READY_JOINT_POS_G135FS22_ZNECK = dict(READY_JOINT_POS_G135FS22)
+READY_JOINT_POS_G135FS22_ZNECK.update({"neck_pitch": 0.5236, "head_pitch": 0.5236})
+#: ⚠️ settle_height.py 로 아직 재지 않았다. leg_fk 로 보면 발 z 가 g135sym 과
+#: 같으므로(-156.8 mm 동일) 같은 값을 쓴다. GPU 가 나면 실측해서 고칠 것.
+#: 같은 FK 로 보간격은 184.2 -> 224.3 mm (+22 %) 로 의도대로 넓어졌다.
+READY_BASE_HEIGHT_G135FS22 = READY_BASE_HEIGHT_G135SYM
+SPAWN_BASE_HEIGHT_G135FS22 = SPAWN_BASE_HEIGHT_G135SYM
+
 SPAWN_BASE_HEIGHT_G135FS14 = 0.1728
 
 
@@ -2793,7 +2823,7 @@ class JoystickEnvCfg_V62(JoystickEnvCfg_V61):
 
 
 @configclass
-class JoystickEnvCfg_V63(JoystickEnvCfg_V62):
+class JoystickEnvCfg_V63(JoystickEnvCfg_V59):
     """imitation_v63 — v62 + **미끄러운 바닥도 겪게 한다**. 하나만 바뀐다.
 
     2026-08-15, 사용자: "실기에서 발이 밀린다, 슬라이딩하는 것 같다."
@@ -2819,12 +2849,81 @@ class JoystickEnvCfg_V63(JoystickEnvCfg_V62):
     5 % 계수 -135.2 로 실측해 뒀다. 여기 같이 걸지 않는 이유는 마찰 범위만으로
     충분한지 먼저 보기 위해서다 — 부족하면 v64 에서 얹는다.
 
-    비교 기준: v62
+    ## 기반은 v62 가 아니라 v59 다
+
+    v61(-12)과 v62(+게이트) 가 둘 다 실패했다 — 점수 0.0221 / 0.0223 으로
+    합격선(0.0180)을 못 넘겼다. `foot_lateral -12` 는 전반적으로 과했다.
+    실패한 기반 위에 마찰을 쌓으면 무엇 때문인지 못 가리므로, 측정된 최고
+    배포본인 v59 에서 분기한다.
+
+    비교 기준: v59 (점수 0.0165 · roll 6.66)
     **판정: 점수와 roll 이 유지되는가.** 유지되면 실기 미끄러짐에 대한 대비를
     공짜로 얻은 것이다. 나빠지면 0.4 로 덜 넓힌다.
     """
 
     events: EventCfg = _LowFrictionEventCfg()
+
+
+@configclass
+class JoystickEnvCfg_V64(JoystickEnvCfg_V59):
+    """imitation_v64 — **보간격을 넓힌다** (0.18 -> 0.22). 레퍼런스만 바뀐다.
+
+    ## 왜 리워드가 아니라 기하인가
+
+    2 순위(흔들림)를 리워드로 세 번 시도했고 세 번 다 1 순위를 깎았다:
+
+        구성                        점수     roll RMS
+        v59  (기준)               0.0165     6.66
+        v60  torso_ang_vel -1.2   0.0304     3.73
+        v61  foot_lateral -12     0.0221     4.97
+        v62  v61 + 옆명령 게이트   0.0223     5.39
+
+    v59↔v60 두 점의 기울기로 보면 **어떤 계수를 써도 두 합격선을 동시에 만족
+    할 수 없다** (roll 5.50 이 되려면 c~0.57, 점수 0.0180 을 넘는 c~0.13).
+    벌점은 흔들림을 줄이는 만큼 정책의 자유도를 묶고, 그 대가가 추종이다.
+
+    **기하는 세금을 물리지 않는다.** 스탠스를 넓히면 좌우 지지 기반이 커져
+    같은 무게 이동에도 몸통이 덜 기운다. 리워드 항이 하나도 안 늘어나므로
+    추종에 낼 대가가 없다.
+
+    ## 방향이 맞다는 근거
+
+    v52 가 반대로 **좁혔다** (0.18 -> 0.14). 결과는 roll 진폭 20.7 -> 25.1 도로
+    **나빠졌다.** 같은 축을 반대로 밀면 반대 결과가 나올 것이다.
+
+    ## 부수 효과 하나가 유리하다
+
+    다리를 벌리면 같은 몸통 높이에서 무릎이 펴진다. calc_home 으로 뽑은 READY
+    무릎이 -76.7 -> **-66.7 도**로 10 도 더 펴졌다. 실기 왼무릎이 -110 도
+    아래에서 힘을 못 내는 문제(V46 참고)에서 **여유가 10 도 더 생긴다.**
+
+    leg_fk 검증: 보간격 184.2 -> 224.3 mm (+22 %), 발 z 는 -156.8 mm 로 동일
+    하므로 몸통 높이는 그대로다.
+
+    ## 예상되는 대가
+
+    스탠스가 넓으면 옆으로 걸을 때 발을 더 멀리 옮겨야 하고, 좌우 명령 추종이
+    나빠질 수 있다. 옆걸음은 사용자 순위에서 가장 낮으므로(가중 1) 그 정도는
+    감수한다. 앞뒤·회전이 나빠지면 0.20 으로 덜 넓힌다.
+
+    비교 기준 (v59 @3000): 점수 0.0165 · roll RMS 6.66 · 넘어짐 0.8 %
+    **판정: roll RMS <= 5.50 이면서 점수 <= 0.0180.** 둘 다면 종료·배포한다.
+
+    ⚠️ `READY_BASE_HEIGHT_G135FS22` 는 아직 `settle_height.py` 실측이 아니라
+    FK 근거의 승계값이다. GPU 가 나면 재서 고칠 것.
+    """
+
+    reference_motion_pkl = "source/open_duck_mini_isaaclab/reference_motion/data/ref_g135fs22.pkl"
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G135FS22),
+            joint_pos=dict(READY_JOINT_POS_G135FS22_ZNECK),
+        ),
+    )
+    ready_base_height = READY_BASE_HEIGHT_G135FS22
+
 
 
 

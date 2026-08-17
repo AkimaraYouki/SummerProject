@@ -468,6 +468,17 @@ try:
         },
     )
 
+    # v59 + 보간격 0.18 -> 0.22 (2순위를 기하로)
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-V64-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V64",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-V34C20-v0",
         entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
