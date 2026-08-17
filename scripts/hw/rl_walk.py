@@ -160,6 +160,29 @@ NUM_COMMANDS = 7             # vx, vy, wz, neck_pitch, head_pitch, head_yaw, hea
 # path_error 고정값 (2026-08-08 결정, docstring 참고): [lateral=0, cos(yaw_err)=1, sin(yaw_err)=0]
 PATH_ERROR_FIXED = np.array([0.0, 1.0, 0.0], dtype=np.float32)
 
+# --path-imu: 방향 오차만 자이로로 복원한다 (2026-08-18).
+#
+# 사용자 증상: "회전이 잘 안 되고, 게걸음을 시키면 애가 회전을 한다. 그냥
+# 앞으로 갈 때도 양옆으로 드리프팅한다."  셋 다 **방향** 문제다.
+#
+# path_error 는 [횡방향오차, cos(방향오차), sin(방향오차)] 인데 실기에서는
+# [0,1,0] 상수 — 정책에게 "완벽히 잘 가고 있다" 고 계속 거짓말을 해 왔다.
+# 그러니 틀어져도 관측으로 안 들어가서 보정할 방법이 없다.
+#
+# 횡방향 오차는 오도메트리가 필요해 못 만든다. 그러나 **방향 오차 두 성분은
+# 자이로 z 적분으로 만들 수 있다.** 실기 로그로 부호도 확인했다 —
+# cmd_wz > 0 일 때 gyro_z 평균 +0.186, cmd_wz < 0 일 때 -0.262 로 부호가
+# 일치하므로 그대로 적분하면 된다.
+#
+# 무명령 구간 gyro_z 평균이 +0.0048 rad/s (0.27 도/s) 라 바이어스 보정이
+# 필요하다. arm 직후 정지 상태에서 평균을 내어 뺀다.
+GYRO_BIAS_SAMPLES = 50        # 1 초 (50 Hz)
+
+
+def _wrap(a: float) -> float:
+    """(-pi, pi] 로 감는다."""
+    return math.atan2(math.sin(a), math.cos(a))
+
 # 2026-08-09: 오른다리(특히 hip_roll/yaw)가 실기에서 왼다리와 다르게 움직이는
 # 문제를 사후분석하려고 매 스텝을 CSV로 남긴다. 매번 덮어쓴다 — 직전 실행만 본다.
 LOG_PATH = os.path.expanduser("~/rl_walk_log.csv")
@@ -265,6 +288,9 @@ def main():
                      help=f"다리 10축 Position P Gain. 기본 {LEG_P_MATCHED} = 심의 "
                           f"stiffness 37.65 N·m/rad 와 같은 강성. 0 을 주면 펌웨어 "
                           f"기본값 800(=21.5 N·m/rad, 심의 57%%)을 그대로 둔다")
+    ap.add_argument("--path-imu", action="store_true",
+                    help="방향 오차를 자이로 z 적분으로 복원해 path_error 에 넣는다 "
+                         "(기본은 [0,1,0] 상수). 회전·드리프트 보정용.")
     ap.add_argument("--dgain", type=int, default=0,
                      help="다리 10축 Position D Gain. 0 = 펌웨어 기본값 4700 유지. "
                           "머리 3축은 2026-08-09 계단응답으로 2000 이 최적이었다")
@@ -645,6 +671,12 @@ def main():
         t_window0 = time.time()
         nonfatal_seen = set()
         fatal_pending = None
+        # --path-imu 상태. 로봇 방향은 자이로 z 적분, 경로 방향은 명령 적분.
+        robot_yaw = 0.0
+        path_yaw = 0.0
+        gyro_bias = 0.0
+        gyro_bias_acc = []
+        path_err_arr = PATH_ERROR_FIXED
         tqen = [1] * len(LEG_NAMES)
         leg_err = [0] * len(LEG_NAMES)
         # 전압/온도는 초 단위로만 변하니 느린 주기로 읽고 사이에는 직전 값을 쓴다.
@@ -687,6 +719,22 @@ def main():
 
             _ta = time.time()
             gyro, accel, grav = imu.read()
+            if args.path_imu:
+                gz = float(gyro[2])
+                if len(gyro_bias_acc) < GYRO_BIAS_SAMPLES:
+                    # arm 직후 정지 상태에서 바이어스를 잰다. 그동안은 상수를 쓴다.
+                    gyro_bias_acc.append(gz)
+                    if len(gyro_bias_acc) == GYRO_BIAS_SAMPLES:
+                        gyro_bias = sum(gyro_bias_acc) / len(gyro_bias_acc)
+                        print(f"[rl_walk] 자이로 z 바이어스 {gyro_bias:+.4f} rad/s "
+                              f"({math.degrees(gyro_bias):+.2f} 도/s) 보정", flush=True)
+                else:
+                    robot_yaw = _wrap(robot_yaw + (gz - gyro_bias) * DT)
+                    # 경로 방향은 **명령**을 적분한다 — 심의 path frame 과 같다.
+                    path_yaw = _wrap(path_yaw + float(command[2]) * DT)
+                    ye = _wrap(robot_yaw - path_yaw)
+                    path_err_arr = np.array(
+                        [0.0, math.cos(ye), math.sin(ye)], dtype=np.float32)
             _tb = time.time()
             leg_pos, leg_vel, leg_cur, leg_pwm = hwi.get_leg_pos_vel()
             _tc = time.time()
@@ -798,7 +846,7 @@ def main():
                 motor_targets,
                 contact,
                 imitation_phase,
-                PATH_ERROR_FIXED,
+                path_err_arr,
                 projected_gravity,
             ]).astype(np.float32)
             assert obs.shape[0] == 107, f"obs 차원 {obs.shape[0]} != 107"
