@@ -1681,6 +1681,34 @@ SPAWN_BASE_HEIGHT_G135FS14 = 0.1728
 
 
 @configclass
+class _LowFrictionEventCfg(EventCfg):
+    """마찰 무작위화를 **아래로** 넓힌다. 0.5~1.0 -> 0.3~1.0.
+
+    2026-08-15, 사용자가 실기에서 "발이 밀린다, 슬라이딩하는 것 같다" 고 했다.
+    지면은 1.0 고정이고 결합이 multiply 이므로 실효 마찰이 곧 이 범위다 —
+    지금은 0.5 아래를 한 번도 겪지 않는다. 실기 바닥이 그보다 미끄러우면
+    정책은 있지도 않은 접지력을 믿고 걷는다.
+
+    아래로만 넓히는 이유: 위쪽(1.0)은 이미 덮고 있고, 미끄러운 쪽만 미지수다.
+    바닥 마찰을 실제로 잰 적이 없으므로(경사 시험 미실시) 범위로 학습한다 —
+    v44 의 질량과 같은 방침이되, 그때 배운 대로 **필요 이상으로 넓히지
+    않는다** (0.85~1.25 로 넓힌 질량이 앞뒤 추종을 망쳤다).
+    """
+
+    physics_material = EventTerm(
+        func=mdp.randomize_rigid_body_material,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            "static_friction_range": (0.3, 1.0),
+            "dynamic_friction_range": (0.3, 1.0),
+            "restitution_range": (0.0, 0.0),
+            "num_buckets": 64,
+        },
+    )
+
+
+@configclass
 class _WideMassEventCfg(EventCfg):
     """EventCfg 에서 **질량 배율 범위만** 넓힌 것. 나머지 무작위화는 그대로."""
 
@@ -2762,6 +2790,42 @@ class JoystickEnvCfg_V62(JoystickEnvCfg_V61):
 
     foot_lateral_gate_max = 0.2
     foot_lateral_gate_floor = 0.2
+
+
+@configclass
+class JoystickEnvCfg_V63(JoystickEnvCfg_V62):
+    """imitation_v63 — v62 + **미끄러운 바닥도 겪게 한다**. 하나만 바뀐다.
+
+    2026-08-15, 사용자: "실기에서 발이 밀린다, 슬라이딩하는 것 같다."
+
+    지금 마찰 무작위화는 로봇 바디 0.5~1.0 이고 지면은 1.0 고정이다. 결합이
+    multiply 라 **실효 마찰이 0.5~1.0** — 0.5 아래를 한 번도 겪지 않는다.
+    실기 바닥이 그보다 미끄러우면 정책은 있지도 않은 접지력을 믿고 걷는다.
+
+        static/dynamic_friction_range  (0.5, 1.0) -> (0.3, 1.0)
+
+    아래로만 넓힌다. 위쪽은 이미 덮고 있고 미지수는 미끄러운 쪽뿐이다.
+    바닥 마찰을 실제로 잰 적이 없어서(경사 시험 미실시) 범위로 학습하되,
+    v44 에서 배운 대로 **필요 이상으로 넓히지 않는다** — 질량을 0.85~1.25 로
+    넓혔다가 앞뒤 추종을 망쳤다.
+
+    ## 이미 있는 대비책
+
+    발에 3 mm 고무패드를 붙여 이중지지 요 각속도가 0.672 -> 0.167 rad/s,
+    드리프트 24 -> 약 1 도/s 로 줄었다. 물리적 접지력은 그때 확보했고, 이번은
+    **정책이 접지력에 덜 의존하게** 만드는 쪽이다.
+
+    `cost_foot_slip`(접지 중 발의 월드 수평 속도 벌점)도 준비돼 있고 v59 에서
+    5 % 계수 -135.2 로 실측해 뒀다. 여기 같이 걸지 않는 이유는 마찰 범위만으로
+    충분한지 먼저 보기 위해서다 — 부족하면 v64 에서 얹는다.
+
+    비교 기준: v62
+    **판정: 점수와 roll 이 유지되는가.** 유지되면 실기 미끄러짐에 대한 대비를
+    공짜로 얻은 것이다. 나빠지면 0.4 로 덜 넓힌다.
+    """
+
+    events: EventCfg = _LowFrictionEventCfg()
+
 
 
 

@@ -1,0 +1,13 @@
+{
+    "configuration": "default",
+    "documentId": "74b3f52a36a998f803570eb7",
+    "documentMicroversion": "f3cd5de45b302522aea0d879",
+    "elementId": "dd648e19ce952f1f34947115",
+    "fullConfiguration": "default",
+    "id": "IssvYZiCPoHSAwPHg",
+    "isStandardContent": false,
+    "name": "SS_10_ACTUATOR__NONE <1>",
+    "partId": "JFD",
+    "suppressed": false,
+    "type": "Part"
+}
