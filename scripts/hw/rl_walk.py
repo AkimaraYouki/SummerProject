@@ -728,6 +728,18 @@ def main():
                         gyro_bias = sum(gyro_bias_acc) / len(gyro_bias_acc)
                         print(f"[rl_walk] 자이로 z 바이어스 {gyro_bias:+.4f} rad/s "
                               f"({math.degrees(gyro_bias):+.2f} 도/s) 보정", flush=True)
+                elif np.linalg.norm(command[:3]) <= STANDSTILL_HOLD_THRESH:
+                    # 정지는 정지다 (2026-08-18, 사용자 요청).
+                    #
+                    # 적분 오차가 남아 있으면 정책은 "틀어졌다" 고 보고 서 있는
+                    # 채로 계속 되돌리려 한다 — 실제로 한쪽으로 기울었다.
+                    # 명령이 없으면 따라갈 경로도 없으므로 오차를 0 으로 둔다.
+                    robot_yaw = path_yaw = 0.0
+                    path_err_arr = PATH_ERROR_FIXED
+                    # 정지 중에는 자이로가 0 이어야 하므로 바이어스를 다시
+                    # 추정한다. 이렇게 해야 긴 주행에서도 적분 오차가 안 쌓인다.
+                    # 시정수 약 10 초 (50 Hz x 0.002).
+                    gyro_bias += 0.002 * (gz - gyro_bias)
                 else:
                     robot_yaw = _wrap(robot_yaw + (gz - gyro_bias) * DT)
                     # 경로 방향은 **명령**을 적분한다 — 심의 path frame 과 같다.
