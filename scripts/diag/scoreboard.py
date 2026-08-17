@@ -41,6 +41,9 @@ import numpy as np
 
 #: 6 방향 가중치. 사용자 순위: 앞뒤 > 회전 > 완전 옆걸음.
 PRIO_W = {"forward": 3.0, "backward": 3.0, "turn": 2.0, "left": 1.0, "right": 1.0}
+#: 실사용 속도(사용자가 실제로 쓰는 명령 크기). 2026-08-18 추가.
+#: 옛 npz 에는 없으므로 있을 때만 별도 열로 보여 준다.
+HALF = ("fwd_half", "turn_half")
 #: 합격선.
 PASS_SCORE = 0.0180
 PASS_ROLL_RMS = 5.50
@@ -70,6 +73,7 @@ def analyse(path):
             fall.append(float(100.0 * (np.abs(r) > FALL_DEG).mean()))
     if not all(k in e for k in PRIO_W):
         return None
+    half = [e[k] for k in HALF if k in e]
     o = {
         "score": sum(PRIO_W[k] * e[k] for k in PRIO_W) / sum(PRIO_W.values()),
         "fb": (e["forward"] + e["backward"]) / 2,
@@ -77,6 +81,8 @@ def analyse(path):
         "lr": (e["left"] + e["right"]) / 2,
         "stop": e.get("stop", float("nan")),
     }
+    if half:
+        o["half"] = float(np.mean(half))
     if roll_rms:
         o["roll"] = float(np.mean(roll_rms))
     if fall:
@@ -117,7 +123,7 @@ def main():
           f"2순위 roll RMS <= {PASS_ROLL_RMS:.2f}도, 넘어짐 <= {PASS_FALL_PCT:.1f}%")
     print("  " + "=" * 92)
     print(f"  {'버전':<10}{'iter':>6}{'점수':>9}{'앞뒤':>9}{'회전':>9}{'옆':>9}"
-          f"{'rollRMS':>9}{'넘어짐':>8}   판정")
+          f"{'실사용':>9}{'rollRMS':>9}{'넘어짐':>8}   판정")
     print("  " + "-" * 92)
     winner = None
     for v, a in rows:
@@ -137,8 +143,9 @@ def main():
             mark = "—"
         r = f"{a['roll']:>9.2f}" if "roll" in a else f"{'—':>9}"
         f = f"{a['fall']:>8.1f}" if "fall" in a else f"{'—':>8}"
+        h = f"{a['half']:>9.4f}" if "half" in a else f"{'—':>9}"
         print(f"  {v:<10}{a['iter']:>6}{a['score']:>9.4f}{a['fb']:>9.4f}"
-              f"{a['turn']:>9.4f}{a['lr']:>9.4f}{r}{f}   {mark}")
+              f"{a['turn']:>9.4f}{a['lr']:>9.4f}{h}{r}{f}   {mark}")
     print("  " + "=" * 92)
     if winner:
         print(f"  → 합격: {winner}")

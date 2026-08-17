@@ -67,6 +67,13 @@ CONDS = [
     ("left",     0.0,   0.2,  0.0),
     ("right",    0.0,  -0.2,  0.0),
     ("turn",     0.0,   0.0,  1.0),
+    # 실사용 속도. 2026-08-18 에 사용자가 "끝까지 밀면 잘못하면 넘어져서
+    # 살살 민다" 고 했고, 실기 로그에서도 |cmd_vx| 최대가 0.07 이었다.
+    # 그동안 우리는 **쓰지도 못하는 0.15 에서** 최적화하고 판정해 왔다.
+    # 심 자체도 0.15 에서 v59 가 0.8 % 확률로 넘어진다 — 실기 지연과 노이즈가
+    # 얹히면 그게 실제 낙상이 된다.
+    ("fwd_half", 0.07,  0.0,  0.0),
+    ("turn_half", 0.0,  0.0,  0.5),
 ]
 leg_names = [ACTUATOR_JOINT_NAMES[i] for i in ACT_LEG_JOINT_IDX]
 print(f"[info] gait_period_steps={u._gait_period_steps} dt={u.step_dt}", flush=True)
