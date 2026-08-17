@@ -738,6 +738,16 @@ class JoystickEnv(DirectRLEnv):
                       * (joint_pos[:, self._hip_in_act]
                          - self._current_reference_motion[:, 0:14][:, self._hip_in_ref]))
             over = torch.clamp(inward - cfg.hip_inward_thresh, min=0.0).sum(dim=-1)
+            # 바깥으로 벌어지는 쪽도 막는다 (2026-08-18).
+            # 위 항은 **안쪽**만 본다 — 자가충돌 방지용이다. 그래서 벌어지는 데는
+            # 아무 제동이 없었고, 넓은 지지 기반이 안 넘어지는 데 유리하니 정책이
+            # 계속 벌렸다. 실측 결과 v59 가 레퍼런스보다 고관절을 **좌 7.8 / 우
+            # 6.0 도 바깥**으로 벌리고 걷는다 (스탠스 약 38 mm 초과). 사용자가
+            # "쩍벌" 이라고 한 것이 이것이다.
+            if cfg.hip_outward_thresh is not None:
+                over = over + torch.clamp(
+                    -inward - cfg.hip_outward_thresh, min=0.0
+                ).sum(dim=-1) * cfg.hip_outward_rel
             if getattr(cfg, "hip_inward_walking_only", False):
                 # 정지에서는 끈다. 이 항은 **레퍼런스를 기준**으로 삼는데, 정지에서는
                 # standstill_hold 가 위상을 0 에 묶으므로 그 기준이 "걷는 중 한쪽 발을
