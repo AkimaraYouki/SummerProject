@@ -2979,7 +2979,7 @@ class JoystickEnvCfg_V65(JoystickEnvCfg_V59):
 
 
 @configclass
-class JoystickEnvCfg_V66(JoystickEnvCfg_V61):
+class JoystickEnvCfg_V66(JoystickEnvCfg_V65):
     """imitation_v66 — **딛는 발은 정지해 있어라**. 미끄러짐의 진짜 처방.
 
     ## 마찰은 문제가 아니었다 (2026-08-18 실측)
@@ -3026,6 +3026,17 @@ class JoystickEnvCfg_V66(JoystickEnvCfg_V61):
     (roll RMS 6.66 -> 4.97). 실기에서는 **넘어지지 않는 것이 추종보다 먼저**라
     그 차이가 뒤집힌다.
 
+    ## 기반을 v65 로 바꾼다 (2026-08-18)
+
+    v65(모방 `ang_vel_xy` 0.1 -> 1.0)가 측정에서 **추종과 흔들림 둘 다 1 등**을
+    했다 — 처음이다:
+
+        점수 0.0138 (v59 0.0165) · 앞뒤 0.0054 (v59 0.0153, 3 배) ·
+        roll RMS 4.89 (v61 4.97) · 실사용 속도 0.0073
+
+    실패한 것은 **낙상률 1.9 %** 하나다 (v59 0.8 · v61 0.7). 그러니 v61 이
+    아니라 v65 위에 쌓는 것이 맞다.
+
     비교 기준 (v59 @3000): 점수 0.0165 · roll 6.66 · 접지 바운스 1.22
     **판정: 점수 <= 0.0180 을 지키면서 접지 바운스와 착지 하강속도가 내려가는가.**
     실기 미끄러짐은 심 지표로 직접 못 보므로, 그 둘을 대리 지표로 삼고
@@ -3036,7 +3047,7 @@ class JoystickEnvCfg_V66(JoystickEnvCfg_V61):
 
 
 @configclass
-class JoystickEnvCfg_V67(JoystickEnvCfg_V61):
+class JoystickEnvCfg_V67(JoystickEnvCfg_V65):
     """imitation_v67 — **쩍벌을 막는다.** 벌어지는 쪽엔 제동이 없었다.
 
     2026-08-18, 사용자: "다리가 쩍벌인데 이게 맞아?" v64(보간격 0.22)를 보고
@@ -3097,6 +3108,17 @@ class JoystickEnvCfg_V67(JoystickEnvCfg_V61):
     (roll RMS 6.66 -> 4.97). 실기에서는 **넘어지지 않는 것이 추종보다 먼저**라
     그 차이가 뒤집힌다.
 
+    ## 기반을 v65 로 바꾼다 (2026-08-18)
+
+    v65(모방 `ang_vel_xy` 0.1 -> 1.0)가 측정에서 **추종과 흔들림 둘 다 1 등**을
+    했다 — 처음이다:
+
+        점수 0.0138 (v59 0.0165) · 앞뒤 0.0054 (v59 0.0153, 3 배) ·
+        roll RMS 4.89 (v61 4.97) · 실사용 속도 0.0073
+
+    실패한 것은 **낙상률 1.9 %** 하나다 (v59 0.8 · v61 0.7). 그러니 v61 이
+    아니라 v65 위에 쌓는 것이 맞다.
+
     비교 기준 (v59 @3000): 점수 0.0165 · roll 6.66 · hip_roll 편차 +6~9 도
     **판정: hip_roll 바깥 편차가 3 도 아래로 내려가면서 점수 <= 0.0180.**
     흔들림이 크게 늘면 `hip_outward_rel` 을 0.14 로 반감한다.
@@ -3107,7 +3129,7 @@ class JoystickEnvCfg_V67(JoystickEnvCfg_V61):
 
 
 @configclass
-class JoystickEnvCfg_V68(JoystickEnvCfg_V61):
+class JoystickEnvCfg_V68(JoystickEnvCfg_V65):
     """imitation_v68 — **낙상은 보수적으로, 토크는 세게.** 탐색은 넓혀서 벌충.
 
     2026-08-18, 사용자: "낙상은 매우 보수적으로 잡아야 하고 토크 패널티도 많이
@@ -3151,6 +3173,17 @@ class JoystickEnvCfg_V68(JoystickEnvCfg_V61):
 
     종료를 조이고 벌점을 키우면 초기 정책이 살아남기 어려워 탐색이 일찍
     죽는다. `init_noise_std` 를 1.3 으로 올려 반대 힘을 준다.
+
+    ## 기반을 v65 로 바꾼다 (2026-08-18)
+
+    v65(모방 `ang_vel_xy` 0.1 -> 1.0)가 측정에서 **추종과 흔들림 둘 다 1 등**을
+    했다 — 처음이다:
+
+        점수 0.0138 (v59 0.0165) · 앞뒤 0.0054 (v59 0.0153, 3 배) ·
+        roll RMS 4.89 (v61 4.97) · 실사용 속도 0.0073
+
+    실패한 것은 **낙상률 1.9 %** 하나다 (v59 0.8 · v61 0.7). 그러니 v61 이
+    아니라 v65 위에 쌓는 것이 맞다.
 
     비교 기준 (v61 @3000): 점수 0.0221 · roll 4.97 · 낙상 0.7 %% · τ² 7.70
     **판정: 낙상률이 0.5 %% 아래로 내려가고 τ² 이 유의하게 줄면서, 점수가
