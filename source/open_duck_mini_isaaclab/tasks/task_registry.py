@@ -66,6 +66,7 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-V66-v0": "JoystickEnvCfg_V66",
     "Isaac-OpenDuckMini-Joystick-V67-v0": "JoystickEnvCfg_V67",
     "Isaac-OpenDuckMini-Joystick-V68-v0": "JoystickEnvCfg_V68",
+    "Isaac-OpenDuckMini-Joystick-V69-v0": "JoystickEnvCfg_V69",
     "Isaac-OpenDuckMini-Joystick-TallSafe-v0": "JoystickEnvCfg_TallSafe",
     "Isaac-OpenDuckMini-Joystick-HipInwardSafe-v0": "JoystickEnvCfg_HipInwardSafe",
     "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
@@ -123,6 +124,7 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-V66-v0",
     "Isaac-OpenDuckMini-Joystick-V67-v0",
     "Isaac-OpenDuckMini-Joystick-V68-v0",
+    "Isaac-OpenDuckMini-Joystick-V69-v0",
     "Isaac-OpenDuckMini-Joystick-TallSafe-v0",
     "Isaac-OpenDuckMini-Joystick-HipInwardSafe-v0",
 }
@@ -215,7 +217,8 @@ def runner_cfg_for(task: str):
     # v29 만 러너가 다르다(미러 손실). 환경은 v28 과 같아 ENV_CFG_CLASS 로는
     # 구분되지 않으므로 여기서 따로 잡는다.
     # v68 만 탐색 시그마가 다르다 (1.3). 환경 클래스로는 구분되지 않는다.
-    if task == "Isaac-OpenDuckMini-Joystick-V68-v0":
+    if task in ("Isaac-OpenDuckMini-Joystick-V68-v0",
+                "Isaac-OpenDuckMini-Joystick-V69-v0"):
         from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import JoystickPPORunnerCfg_Explore13
         return JoystickPPORunnerCfg_Explore13()
     if task == "Isaac-OpenDuckMini-Joystick-Sym-v0":
