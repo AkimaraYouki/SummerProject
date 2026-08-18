@@ -201,3 +201,23 @@ class JoystickPPORunnerCfg_Symmetry(JoystickPPORunnerCfg_Gamma097):
             data_augmentation_func="open_duck_mini_isaaclab.symmetry:compute_symmetric_states",
         ),
     )
+
+
+@configclass
+class JoystickPPORunnerCfg_Explore13(JoystickPPORunnerCfg_Gamma097):
+    """Gamma097 에서 **탐색 시그마만** 올린다 (1.0 -> 1.3).
+
+    2026-08-18, 사용자: "낙상은 매우 보수적으로 잡아야 하고 토크 패널티도 많이
+    줘야 할 것 같다. 이를 위해 탐색 시그마를 조금 올려 달라."
+
+    종료 조건을 조이고 토크 벌점을 크게 걸면 초기 정책이 살아남기 어려워져
+    탐색이 일찍 죽는다. 시그마를 올려 그 반대 힘을 준다. 과거 N2 가 2.0 을
+    시도했다가 미사용으로 남았으므로 그보다 훨씬 보수적으로 간다.
+    """
+
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.3,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
