@@ -177,6 +177,9 @@ PATH_ERROR_FIXED = np.array([0.0, 1.0, 0.0], dtype=np.float32)
 # 무명령 구간 gyro_z 평균이 +0.0048 rad/s (0.27 도/s) 라 바이어스 보정이
 # 필요하다. arm 직후 정지 상태에서 평균을 내어 뺀다.
 GYRO_BIAS_SAMPLES = 50        # 1 초 (50 Hz)
+# 정지 중 바이어스 재추정은 **하지 않는다.** 이 로봇은 정지 명령에서도 실제로
+# 도는데(실측 3.2 도/s), 그걸 센서 바이어스로 학습하면 주행 중 방향 추정까지
+# 망가진다. 시작 시 1 회 측정만 쓴다.
 
 
 def _wrap(a: float) -> float:
@@ -606,7 +609,9 @@ def main():
         #          -> mtgt(속도제한 클립) -> goal(tick_of URDF 클램프, 실제 전송값)
         log_w.writerow(
             ["t", "step", "dt", "imitation_i",
-             "ms_imu", "ms_read", "ms_infer", "ms_write", "ms_total"]
+             "ms_imu", "ms_read", "ms_infer", "ms_write", "ms_total",
+             # --path-imu 상태. 켰는지조차 로그로 확인할 수 없었다 (2026-08-18).
+             "path_yaw_err", "gyro_bias"]
             + [f"pos_{n}" for n in NAMES] + [f"vel_{n}" for n in NAMES]
             + [f"action_{n}" for n in NAMES] + [f"actf_{n}" for n in NAMES]
             + [f"tgt_{n}" for n in NAMES] + [f"mtgt_{n}" for n in NAMES]
@@ -677,6 +682,8 @@ def main():
         gyro_bias = 0.0
         gyro_bias_acc = []
         path_err_arr = PATH_ERROR_FIXED
+        path_yaw_err = 0.0
+        was_still = True
         tqen = [1] * len(LEG_NAMES)
         leg_err = [0] * len(LEG_NAMES)
         # 전압/온도는 초 단위로만 변하니 느린 주기로 읽고 사이에는 직전 값을 쓴다.
@@ -728,25 +735,32 @@ def main():
                         gyro_bias = sum(gyro_bias_acc) / len(gyro_bias_acc)
                         print(f"[rl_walk] 자이로 z 바이어스 {gyro_bias:+.4f} rad/s "
                               f"({math.degrees(gyro_bias):+.2f} 도/s) 보정", flush=True)
-                elif np.linalg.norm(command[:3]) <= STANDSTILL_HOLD_THRESH:
-                    # 정지는 정지다 (2026-08-18, 사용자 요청).
-                    #
-                    # 적분 오차가 남아 있으면 정책은 "틀어졌다" 고 보고 서 있는
-                    # 채로 계속 되돌리려 한다 — 실제로 한쪽으로 기울었다.
-                    # 명령이 없으면 따라갈 경로도 없으므로 오차를 0 으로 둔다.
-                    robot_yaw = path_yaw = 0.0
-                    path_err_arr = PATH_ERROR_FIXED
-                    # 정지 중에는 자이로가 0 이어야 하므로 바이어스를 다시
-                    # 추정한다. 이렇게 해야 긴 주행에서도 적분 오차가 안 쌓인다.
-                    # 시정수 약 10 초 (50 Hz x 0.002).
-                    gyro_bias += 0.002 * (gz - gyro_bias)
                 else:
+                    # 로봇 방향은 언제나 적분한다.
                     robot_yaw = _wrap(robot_yaw + (gz - gyro_bias) * DT)
-                    # 경로 방향은 **명령**을 적분한다 — 심의 path frame 과 같다.
-                    path_yaw = _wrap(path_yaw + float(command[2]) * DT)
+                    still = np.linalg.norm(command[:3]) <= STANDSTILL_HOLD_THRESH
+                    if still:
+                        # 정지는 정지다 (2026-08-18).
+                        #
+                        # 1 차 시도는 정지에서 오차를 0 으로 **리셋**했다. 틀렸다.
+                        # 정책이 "완벽하다" 고 보고 아무 보정도 안 하니, 눈을
+                        # 가려 놓고 안 돌기를 바란 셈이었다. 실측 결과 정지 중
+                        # 3.2 도/s 로 계속 한 방향으로 돌았다 (10.5 s 에 32 도).
+                        #
+                        # 정지는 **피드백**으로 지켜야 한다. 멈추는 순간 목표
+                        # 방향을 현재 방향으로 한 번 고정하고, 그 뒤로는 틀어진
+                        # 만큼을 그대로 보여 준다.
+                        if not was_still:
+                            path_yaw = robot_yaw
+                            was_still = True
+                    else:
+                        was_still = False
+                        # 경로 방향은 **명령**을 적분한다 — 심의 path frame 과 같다.
+                        path_yaw = _wrap(path_yaw + float(command[2]) * DT)
                     ye = _wrap(robot_yaw - path_yaw)
                     path_err_arr = np.array(
                         [0.0, math.cos(ye), math.sin(ye)], dtype=np.float32)
+                    path_yaw_err = ye
             _tb = time.time()
             leg_pos, leg_vel, leg_cur, leg_pwm = hwi.get_leg_pos_vel()
             _tc = time.time()
@@ -892,7 +906,8 @@ def main():
             log_w.writerow(
                 [f"{_now-t_start:.4f}", step, f"{_dt:.4f}", imitation_i,
                  f"{ms['imu']:.2f}", f"{ms['read']:.2f}", f"{ms['infer']:.2f}",
-                 f"{ms['write']:.2f}", f"{(_now-t0)*1e3:.2f}"]
+                 f"{ms['write']:.2f}", f"{(_now-t0)*1e3:.2f}",
+                 f"{path_yaw_err:.5f}", f"{gyro_bias:.5f}"]
                 + list(pos) + list(vel)
                 + list(action) + list(action_filt) + list(target) + list(motor_targets)
                 + list(goal_sent)
