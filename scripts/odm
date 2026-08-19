@@ -215,6 +215,14 @@ play)
   # 전부 안고 있었다. 원격에서 띄워도 창은 로컬 X 세션(:0)에 뜬다.
   mode=native
   if [ "${1:-}" = "--stream" ]; then mode=stream; shift; fi
+  # --key: 키보드 조종. WebRTC 로 화면만 보내면 조향을 할 수 없어서 만들었다
+  # (2026-08-20). 명령을 UDP 로 받고 상태를 UDP 로 되돌린다 — 노트북에서
+  # scripts/console.py 를 띄우면 조향과 계측을 한 화면에서 한다.
+  keyargs=()
+  if [ "${1:-}" = "--key" ]; then
+    shift
+    keyargs=(--cmd-listen 9997 --telem "${ODM_CONSOLE_HOST:-127.0.0.1}:9998")
+  fi
 
   if [ "$mode" = native ]; then
     render=(); export DISPLAY="$(desktop_display)"
@@ -226,9 +234,15 @@ play)
   cd "$PROJ"
   setsid nohup "$IL" -p scripts/_isaaclab_launch.py scripts/play_fixed_cmd.py \
     --task "$task" --checkpoint "$ck" --num_envs 1 \
-    --cycle --hold 8 --overlay --hud "${render[@]}" "$@" \
+    --cycle --hold 8 --overlay --hud "${render[@]}" "${keyargs[@]}" "$@" \
     > "$RUNLOG/play_$ver.log" 2>&1 < /dev/null &
   echo "재생 시작: $ver  $(basename "$ck")"
+  if [ ${#keyargs[@]} -gt 0 ]; then
+    echo "  키보드 조종: 다른 터미널(또는 노트북 SSH)에서"
+    echo "    python3 scripts/console.py --host ${ODM_CONSOLE_HOST:-127.0.0.1}"
+    echo "  노트북에서 몰려면 ODM_CONSOLE_HOST 에 **노트북** IP 를 주고 띄울 것 —"
+    echo "  상태 패킷이 그리로 간다. 명령은 노트북 -> 이 PC 로 온다."
+  fi
   if [ "$mode" = native ]; then
     echo "  이 PC 모니터에 창이 뜹니다 (부팅 1~2분)."
   else

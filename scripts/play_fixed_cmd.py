@@ -47,6 +47,13 @@ parser.add_argument("--cmd-udp", type=str, default=None, metavar="HOST:PORT",
                          "같은 입력으로 나란히 보려는 것. 잿슨 쪽은 rl_walk.py 의 "
                          "--cmd-udp-port 로 받는다. 패킷이 끊기면 실기는 자동으로 "
                          "정지 명령으로 떨어진다(잿슨 쪽 워치독).")
+parser.add_argument("--cmd-listen", type=int, default=None, metavar="PORT",
+                    help="UDP 로 명령(vx,vy,yaw)을 **받는다**. scripts/console.py 가 "
+                         "키보드(WASD/QE)로 보낸다. --joystick / --cycle 보다 우선순위가 "
+                         "낮아 셋 중 하나만 쓰는 것이 맞다. 0.5 초 안 오면 정지로 떨어진다.")
+parser.add_argument("--telem", type=str, default=None, metavar="HOST:PORT",
+                    help="로봇 상태를 JSON 으로 UDP 송신한다 (약 20 Hz). console.py 의 "
+                         "대시보드가 받는다. 예: --telem 127.0.0.1:9998")
 parser.add_argument("--record", type=str, default=None, metavar="DIR",
                     help="6방향 순환을 mp4 로 녹화한다. 이 디렉터리에 저장한다. "
                          "헤드리스에서도 되며 --enable_cameras 를 자동으로 켠다. "
@@ -67,6 +74,7 @@ if args_cli.record:
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
+import math  # noqa: E402
 import time  # noqa: E402
 import torch  # noqa: E402
 import gymnasium as gym  # noqa: E402
@@ -617,6 +625,94 @@ if args_cli.joystick:
 # 왜 UDP 인가: 명령은 **상태가 아니라 최신값**이다. 한 패킷을 놓쳐도 다음 것이
 # 20 ms 뒤에 오므로 재전송할 이유가 없고, TCP 로 하면 끊겼을 때 재연결을 기다리며
 # 오래된 명령을 붙들고 있게 된다. 실기 쪽은 워치독으로 끊김을 정지로 처리한다.
+# ── 키보드 조종 수신 · 상태 송신 (2026-08-20) ───────────────────────────
+#
+# WebRTC 로 화면만 보내면 조향을 할 수 없다. 노트북에서 SSH 로 붙어 터미널
+# 대시보드(scripts/console.py)를 띄우고, 그쪽에서 키를 눌러 여기로 UDP 명령을
+# 보낸다. 상태는 JSON 으로 되돌려 대시보드에 그린다.
+#
+# 로컬호스트 UDP 라 지연은 무시할 수준이고, 끊기면 자동으로 정지로 떨어진다
+# (실기 워치독과 같은 방식).
+_listen_sock = None
+_listen_cmd = [0.0, 0.0, 0.0]
+_listen_at = 0.0
+if args_cli.cmd_listen:
+    import socket as _socket
+    _listen_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    _listen_sock.setblocking(False)
+    _listen_sock.bind(("0.0.0.0", args_cli.cmd_listen))
+    print(f"[play] 키보드 명령 수신 :{args_cli.cmd_listen} (UDP)", flush=True)
+
+_telem_sock = None
+_telem_addr = None
+if args_cli.telem:
+    import socket as _socket
+    try:
+        _th, _tp = args_cli.telem.rsplit(":", 1)
+        _telem_addr = (_th, int(_tp))
+    except ValueError:
+        raise SystemExit(f"--telem 형식은 HOST:PORT 다: {args_cli.telem!r}")
+    _telem_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    _telem_sock.setblocking(False)
+    print(f"[play] 상태 송신 -> {_telem_addr[0]}:{_telem_addr[1]}", flush=True)
+
+
+def _poll_listen():
+    """밀린 패킷을 모두 읽고 **가장 최근** 것만 쓴다. 0.5 초 끊기면 정지."""
+    global _listen_at
+    if _listen_sock is None:
+        return None
+    got = False
+    while True:
+        try:
+            data, _ = _listen_sock.recvfrom(64)
+        except BlockingIOError:
+            break
+        except OSError:
+            break
+        parts = data.decode("ascii", "ignore").strip().split(",")
+        if len(parts) >= 3:
+            try:
+                _listen_cmd[:] = [float(x) for x in parts[:3]]
+                got = True
+            except ValueError:
+                pass
+    now = time.time()
+    if got:
+        _listen_at = now
+    if now - _listen_at > 0.5:
+        return (0.0, 0.0, 0.0)
+    return tuple(_listen_cmd)
+
+
+def _send_telem(cx, cy, cw):
+    """로봇 상태를 JSON 한 줄로. 실패는 무시한다 (대시보드가 없을 수 있다)."""
+    if _telem_sock is None:
+        return
+    import json as _json
+    g = u._robot.data.projected_gravity_b[0]
+    v = u._robot.data.root_lin_vel_b[0]
+    w = u._robot.data.root_ang_vel_b[0]
+    c = u._get_foot_contact()[0]
+    jp = u._robot.data.joint_pos[0, u._joint_ids]
+    tg = u._motor_targets[0]
+    d = {
+        "t": round(time.time(), 3),
+        "cmd": [round(cx, 4), round(cy, 4), round(cw, 4)],
+        "vel": [round(float(v[0]), 4), round(float(v[1]), 4), round(float(w[2]), 4)],
+        "roll": round(math.degrees(math.atan2(-float(g[1]), -float(g[2]))), 2),
+        "pitch": round(math.degrees(math.atan2(float(g[0]), -float(g[2]))), 2),
+        "h": round(float(u._robot.data.root_pos_w[0, 2] - u._terrain.env_origins[0, 2]), 4),
+        "contact": [int(bool(c[0])), int(bool(c[1]))],
+        "jerr": round(float((jp - tg).abs().max()) * 57.2958, 2),
+        "task": args_cli.task.replace("Isaac-OpenDuckMini-Joystick-", "").replace("-v0", ""),
+    }
+    try:
+        _telem_sock.sendto(_json.dumps(d).encode(), _telem_addr)
+    except OSError:
+        pass
+
+
 _cmd_sock = None
 _cmd_addr = None
 _cmd_seq = 0
@@ -715,6 +811,8 @@ while simulation_app.is_running() and time.time() < t_end:
         cx, cy, cw = command_from_gamepad(
             _pad, env_cfg.lin_vel_x_range, env_cfg.lin_vel_y_range, env_cfg.ang_vel_yaw_range
         )
+    elif _listen_sock is not None:
+        cx, cy, cw = _poll_listen()
     elif args_cli.cycle:
         idx = (step // hold_steps) % len(CYCLE)
         if idx != cur_idx:
@@ -734,6 +832,8 @@ while simulation_app.is_running() and time.time() < t_end:
         _send_cmd(cx, cy, cw, bool(_pad is not None and _pad.button(_BTN_A)))
     with torch.inference_mode():
         obs, _, _, _ = env.step(policy(obs))
+    if _telem_sock is not None and step % 3 == 0:
+        _send_telem(cx, cy, cw)
     _track_row(step * dt, cx, cy, cw)
     _draw_overlay()
     _update_ghost()
