@@ -35,7 +35,6 @@ try:
     for _variant_suffix, _variant_cfg_cls in [
         ("Walk3", "JoystickEnvCfg_Walk3"),
         ("Walk6", "JoystickEnvCfg_Walk6"),
-        ("Upstream", "JoystickEnvCfg_Upstream"),
     ]:
         gym.register(
             id=f"Isaac-OpenDuckMini-Joystick-{_variant_suffix}-v0",
@@ -359,16 +358,6 @@ try:
     )
 
     # v53 + 토크 벌점 실효화 (-1e-3 -> -1e-2)
-    gym.register(
-        id="Isaac-OpenDuckMini-Joystick-V54-v0",
-        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
-        disable_env_checker=True,
-        kwargs={
-            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V54",
-            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
-        },
-    )
-
     # v48 + 부드러움 패키지 (발 목표높이·미끄럼·몸통각속도·관절가속도)
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-V55-v0",
@@ -599,26 +588,6 @@ try:
     )
 
     # 안전 필터를 켠 변형 (학습용이 아니라 평가용).
-    gym.register(
-        id="Isaac-OpenDuckMini-Joystick-TallSafe-v0",
-        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
-        disable_env_checker=True,
-        kwargs={
-            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_TallSafe",
-            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
-        },
-    )
-
-    gym.register(
-        id="Isaac-OpenDuckMini-Joystick-HipInwardSafe-v0",
-        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
-        disable_env_checker=True,
-        kwargs={
-            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_HipInwardSafe",
-            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
-        },
-    )
-
     # imitation_v29 — v28 과 환경은 같고 러너에 좌우 미러 손실만 더한다.
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-Sym-v0",

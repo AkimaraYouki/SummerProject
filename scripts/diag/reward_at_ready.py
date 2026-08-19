@@ -26,15 +26,10 @@ from open_duck_mini_isaaclab.tasks.velocity.rewards import (  # noqa: E402
     reward_tracking_lin_vel, reward_tracking_ang_vel, cost_torques,
     cost_action_rate, reward_alive, cost_stand_still, reward_imitation)
 
-_MAP = {
-    "Isaac-OpenDuckMini-Joystick-v0": "JoystickEnvCfg",
-    "Isaac-OpenDuckMini-Joystick-Walk3-v0": "JoystickEnvCfg_Walk3",
-    "Isaac-OpenDuckMini-Joystick-Walk6-v0": "JoystickEnvCfg_Walk6",
-    "Isaac-OpenDuckMini-Joystick-Walk9-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Path-v0": "JoystickEnvCfg_Path",
-    "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
-}
+# task -> cfg 클래스 표는 `task_registry.ENV_CFG_CLASS` 하나만 쓴다.
+# 여기 복제해 두면 새 버전이 늘 때마다 어긋난다 — 2026-08-20 에 죽은 cfg
+# 7 개를 지우면서 이 복제본들이 정합성 테스트의 사각지대임이 드러났다.
+from open_duck_mini_isaaclab.tasks.task_registry import ENV_CFG_CLASS as _MAP  # noqa: E402
 cfg = getattr(_cm, _MAP[args_cli.task])()
 cfg.scene.num_envs = args_cli.num_envs
 env = gym.make(args_cli.task, cfg=cfg)

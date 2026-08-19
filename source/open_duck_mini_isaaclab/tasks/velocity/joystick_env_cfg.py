@@ -644,21 +644,6 @@ class JoystickEnvCfg_Walk9(JoystickEnvCfg_Walk6):
 
 
 @configclass
-class JoystickEnvCfg_Upstream(JoystickEnvCfg_LegsOnly):
-    """imitation_v14 — Open_Duck_Playground의 리워드 계수 그대로 (기준선).
-
-    베이스 클래스의 값이 이미 upstream과 동일하므로 여기서는 RSI만 끈다
-    (upstream은 RSI를 쓰지 않는다). 이 조합은 iter ~900에서 중단했다 —
-    reward_at_ready 실측으로 imitation이 스텝당 +0.004, alive(+0.400)의 1%밖에
-    안 됐기 때문이다. 상한 없는 관절각 페널티(−0.2023 × 15 = −3.03)가 양의
-    추종 항들(~+3.2)을 거의 정확히 상쇄해 imitation이 0으로 붕괴한다.
-    사실상 alive 하나로 학습되는 상태라 구조적으로 리워드 해킹이다.
-    """
-
-    use_rsi = False
-
-
-@configclass
 class JoystickEnvCfg_Path(JoystickEnvCfg_Walk9):
     """imitation_v25 — Disney BD-X의 path frame 도입. v24 설정 + 경로 추종.
 
@@ -983,30 +968,6 @@ class JoystickEnvCfg_HipInward(JoystickEnvCfg_Tall):
 
     hip_inward_thresh = 0.0524   # 3°
     hip_inward_scale = -25.0
-
-
-@configclass
-class JoystickEnvCfg_TallSafe(JoystickEnvCfg_Tall):
-    """v28 + 런타임 안전 필터. 정책은 그대로 두고 안전만 얹는 경로의 검증용."""
-
-    safety_filter_ckpt = "source/open_duck_mini_isaaclab/barrier_h5d.pt"
-
-
-@configclass
-class JoystickEnvCfg_HipInwardSafe(JoystickEnvCfg_HipInward):
-    """v32 + 런타임 안전 필터. 실기 후보 조합이다.
-
-    v32 는 이미 5 mm 위반 1.0% 라 필터가 개입할 일이 드물고, 그만큼 추종을 덜
-    해친다. 필터 단독(v28 위에)과 비교하면 "정책을 안전하게 학습시킨 것" 과
-    "필터로 막은 것" 이 각각 얼마를 기여하는지 갈린다.
-    """
-
-    safety_filter_ckpt = "source/open_duck_mini_isaaclab/barrier_h5d.pt"
-
-
-# Z 자 목으로 학습할 때 쓰는 READY 자세. 다리 값은 H175 그대로이고 머리만 세운다.
-READY_JOINT_POS_H175_ZNECK = dict(READY_JOINT_POS_H175)
-READY_JOINT_POS_H175_ZNECK.update({"neck_pitch": 0.785, "head_pitch": 0.785})
 
 
 @configclass
@@ -2377,27 +2338,6 @@ class JoystickEnvCfg_V53(JoystickEnvCfg_V48):
     foot_clearance = 0.010
     foot_lift_scale = -3000.0
     foot_lateral_scale = -10.0
-
-
-@configclass
-class JoystickEnvCfg_V54(JoystickEnvCfg_V53):
-    """imitation_v54 — v53 + **토크 벌점을 실효화한다** (목표 3: 효율).
-
-    `torques_scale` 이 -1.0e-3 인데 실측 기여가 **-0.0002** 다 — 사실상 규제가
-    없다. 2026-08-09 에 `scripts/diag/torque_load.py` 로 재 보니 보행 중
-    6 축(knee L/R, hip_roll L/R, ankle L)이 스톨 한계 4.1 N·m 를 친다.
-
-    한 자리 올려 -1.0e-2 로 둔다. 실측 토크 제곱합이 정지 2.25 / 전진 7.84
-    이므로 기여가 -0.022~-0.078 이 되어 action_rate 와 같은 무게가 된다.
-
-    v53 과 나눠 거는 이유는 어느 쪽이 들었는지 가리기 위해서다.
-
-    비교 기준: v53
-    **판정: 토크 제곱합이 줄면서 걸음 품질(수직성·roll)이 유지되는가.**
-    효율만 오르고 걸음이 나빠지면 되돌린다.
-    """
-
-    torques_scale = -1.0e-2
 
 
 @configclass

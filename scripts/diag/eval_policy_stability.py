@@ -96,19 +96,15 @@ from open_duck_mini_isaaclab.tasks.velocity.joystick_env import FOOT_CONTACT_FOR
 from open_duck_mini_isaaclab.tasks.velocity import joystick_env_cfg as _cfg_module  # noqa: E402
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
 
-# Explicit task -> cfg-class table rather than isaaclab's parse_env_cfg: an
-# earlier attempt to use parse_env_cfg here made this script die silently on
-# every run (no traceback, no OOM, no signal), six times in a row, and the
-# explicit-dict version worked first try. Keep it explicit.
-_TASK_TO_CFG_CLASS = {
-    "Isaac-OpenDuckMini-Joystick-v0": "JoystickEnvCfg",
-    "Isaac-OpenDuckMini-Joystick-Walk3-v0": "JoystickEnvCfg_Walk3",
-    "Isaac-OpenDuckMini-Joystick-Walk6-v0": "JoystickEnvCfg_Walk6",
-    "Isaac-OpenDuckMini-Joystick-Walk9-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Walk9G97-v0": "JoystickEnvCfg_Walk9",
-    "Isaac-OpenDuckMini-Joystick-Path-v0": "JoystickEnvCfg_Path",
-    "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
-}
+# task -> cfg 클래스 표는 `task_registry.ENV_CFG_CLASS` 하나만 쓴다.
+#
+# 예전에는 여기에 표를 복제해 뒀다. isaaclab 의 parse_env_cfg 를 쓰려다 이
+# 스크립트가 여섯 번 연속 조용히 죽어서(트레이스백도 OOM 도 시그널도 없이)
+# 명시적 표로 되돌린 것이고, 그 판단 자체는 옳았다 — 다만 **복제**가 문제였다.
+# task_registry 의 표도 똑같이 명시적이므로 성질을 잃지 않고 중복만 없앤다.
+# 2026-08-20 에 죽은 cfg 클래스 7 개를 지우면서 이 복제본들이 정합성 테스트의
+# 사각지대라는 것이 드러났다.
+from open_duck_mini_isaaclab.tasks.task_registry import ENV_CFG_CLASS as _TASK_TO_CFG_CLASS  # noqa: E402
 if args_cli.task not in _TASK_TO_CFG_CLASS:
     raise SystemExit(
         f"unknown --task {args_cli.task!r}; add it to _TASK_TO_CFG_CLASS. known: {sorted(_TASK_TO_CFG_CLASS)}"

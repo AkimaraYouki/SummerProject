@@ -50,7 +50,6 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-V50-v0": "JoystickEnvCfg_V50",
     "Isaac-OpenDuckMini-Joystick-V51-v0": "JoystickEnvCfg_V51",
     "Isaac-OpenDuckMini-Joystick-V52-v0": "JoystickEnvCfg_V52",
-    "Isaac-OpenDuckMini-Joystick-V54-v0": "JoystickEnvCfg_V54",
     "Isaac-OpenDuckMini-Joystick-V53-v0": "JoystickEnvCfg_V53",
     "Isaac-OpenDuckMini-Joystick-V55-v0": "JoystickEnvCfg_V55",
     "Isaac-OpenDuckMini-Joystick-V56-v0": "JoystickEnvCfg_V56",
@@ -71,9 +70,6 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-V71-v0": "JoystickEnvCfg_V71",
     "Isaac-OpenDuckMini-Joystick-V72-v0": "JoystickEnvCfg_V72",
     "Isaac-OpenDuckMini-Joystick-V73-v0": "JoystickEnvCfg_V73",
-    "Isaac-OpenDuckMini-Joystick-TallSafe-v0": "JoystickEnvCfg_TallSafe",
-    "Isaac-OpenDuckMini-Joystick-HipInwardSafe-v0": "JoystickEnvCfg_HipInwardSafe",
-    "Isaac-OpenDuckMini-Joystick-Upstream-v0": "JoystickEnvCfg_Upstream",
 }
 
 #: 큰 네트워크(512,256,128) + gamma 0.97 을 쓰는 태스크들.
@@ -112,7 +108,6 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-V50-v0",
     "Isaac-OpenDuckMini-Joystick-V51-v0",
     "Isaac-OpenDuckMini-Joystick-V52-v0",
-    "Isaac-OpenDuckMini-Joystick-V54-v0",
     "Isaac-OpenDuckMini-Joystick-V53-v0",
     "Isaac-OpenDuckMini-Joystick-V55-v0",
     "Isaac-OpenDuckMini-Joystick-V56-v0",
@@ -133,8 +128,6 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-V71-v0",
     "Isaac-OpenDuckMini-Joystick-V72-v0",
     "Isaac-OpenDuckMini-Joystick-V73-v0",
-    "Isaac-OpenDuckMini-Joystick-TallSafe-v0",
-    "Isaac-OpenDuckMini-Joystick-HipInwardSafe-v0",
 }
 
 
