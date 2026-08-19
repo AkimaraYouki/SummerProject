@@ -1745,6 +1745,36 @@ class _LowFrictionEventCfg(EventCfg):
 
 
 @configclass
+class _ComBackEventCfg(EventCfg):
+    """몸통 CoM 을 **뒤로** 밀어 놓고 학습한다. 오프셋은 하위 클래스가 정한다.
+
+    2026-08-18, 교수님 지적: "무게중심을 못 잡는다." 사용자가 뒤로 10/15/20 mm
+    를 시험해 보라고 했다.
+
+    근거는 v44 때 이미 측정돼 있다 — 심 모델의 CoM 은 발 중심보다 **16.7 mm
+    뒤**인데 **실기는 앞으로 넘어진다.** 두 사실이 같이 서려면 실기의 실제
+    CoM 이 심 모델보다 앞에 있어야 한다. 그러면 정책은 있지도 않은 뒤쪽
+    여유를 믿고 걷는 셈이다.
+
+    `randomize_rigid_body_com` 은 오프셋을 **더한다.** 범위의 상하한을 같은
+    값으로 주면 무작위가 아니라 고정 이동이 된다. -x 가 뒤다 (cmd_vx > 0 이
+    전진이고 `root_lin_vel_b[:,0]` 이 그것과 부호가 맞는 것을 실기 로그로
+    확인했다).
+
+    ⚠️ 이 함수는 CPU 텐서로 CoM 을 쓴다. 그래서 mode="startup" 으로만 건다.
+    """
+
+    com_back = EventTerm(
+        func=mdp.randomize_rigid_body_com,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="trunk_assembly"),
+            "com_range": {"x": (0.0, 0.0)},   # 하위 클래스가 덮어쓴다
+        },
+    )
+
+
+@configclass
 class _WideMassEventCfg(EventCfg):
     """EventCfg 에서 **질량 배율 범위만** 넓힌 것. 나머지 무작위화는 그대로."""
 
@@ -3229,6 +3259,118 @@ class JoystickEnvCfg_V69(JoystickEnvCfg_V68):
     """
 
     torques_scale = -0.1
+
+
+@configclass
+class _ComBack10EventCfg(_ComBackEventCfg):
+    """몸통 CoM 을 뒤로 10 mm."""
+
+    com_back = EventTerm(
+        func=mdp.randomize_rigid_body_com,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="trunk_assembly"),
+            "com_range": {"x": (-0.010, -0.010)},
+        },
+    )
+
+
+@configclass
+class JoystickEnvCfg_V70(JoystickEnvCfg_V65):
+    """imitation_v70 — **몸통 CoM 을 뒤로 10 mm.**
+
+    2026-08-18, 교수님: "무게중심을 못 잡는다." 사용자가 뒤로 10/15/20 mm 를
+    시험해 보라고 해서 v70/v71/v72 로 나눠 돌린다. 세 개가 같은 축의 서로 다른
+    값이므로 한 번에 걸어도 무엇이 들었는지 가릴 수 있다.
+
+    근거 (v44 때 실측): 심 모델의 CoM 은 발 중심보다 **16.7 mm 뒤**인데
+    **실기는 앞으로 넘어진다.** 둘이 같이 서려면 실기의 실제 CoM 이 심보다
+    앞에 있어야 하고, 그러면 정책은 있지도 않은 뒤쪽 여유를 믿고 걷는다.
+
+    기반은 v65 다 — 점수(0.0138)와 흔들림(4.89) 둘 다 1 등인데 **낙상만
+    1.9 %%로 최악**이라, 낙상을 겨냥한 이 실험의 기준선으로 맞다.
+
+    비교 기준 (v65 @3000): 점수 0.0138 · roll 4.89 · **낙상 1.9 %%**
+    **판정: 낙상률이 내려가는가.** 세 값 중 최소를 고르고, 20 mm 에서도 계속
+    내려가면 더 뒤까지 시험한다. 점수가 0.0200 을 넘으면 그만큼은 대가다.
+    """
+
+    events: EventCfg = _ComBack10EventCfg()
+
+
+@configclass
+class _ComBack15EventCfg(_ComBackEventCfg):
+    """몸통 CoM 을 뒤로 15 mm."""
+
+    com_back = EventTerm(
+        func=mdp.randomize_rigid_body_com,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="trunk_assembly"),
+            "com_range": {"x": (-0.015, -0.015)},
+        },
+    )
+
+
+@configclass
+class JoystickEnvCfg_V71(JoystickEnvCfg_V65):
+    """imitation_v71 — **몸통 CoM 을 뒤로 15 mm.**
+
+    2026-08-18, 교수님: "무게중심을 못 잡는다." 사용자가 뒤로 10/15/20 mm 를
+    시험해 보라고 해서 v70/v71/v72 로 나눠 돌린다. 세 개가 같은 축의 서로 다른
+    값이므로 한 번에 걸어도 무엇이 들었는지 가릴 수 있다.
+
+    근거 (v44 때 실측): 심 모델의 CoM 은 발 중심보다 **16.7 mm 뒤**인데
+    **실기는 앞으로 넘어진다.** 둘이 같이 서려면 실기의 실제 CoM 이 심보다
+    앞에 있어야 하고, 그러면 정책은 있지도 않은 뒤쪽 여유를 믿고 걷는다.
+
+    기반은 v65 다 — 점수(0.0138)와 흔들림(4.89) 둘 다 1 등인데 **낙상만
+    1.9 %%로 최악**이라, 낙상을 겨냥한 이 실험의 기준선으로 맞다.
+
+    비교 기준 (v65 @3000): 점수 0.0138 · roll 4.89 · **낙상 1.9 %%**
+    **판정: 낙상률이 내려가는가.** 세 값 중 최소를 고르고, 20 mm 에서도 계속
+    내려가면 더 뒤까지 시험한다. 점수가 0.0200 을 넘으면 그만큼은 대가다.
+    """
+
+    events: EventCfg = _ComBack15EventCfg()
+
+
+@configclass
+class _ComBack20EventCfg(_ComBackEventCfg):
+    """몸통 CoM 을 뒤로 20 mm."""
+
+    com_back = EventTerm(
+        func=mdp.randomize_rigid_body_com,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="trunk_assembly"),
+            "com_range": {"x": (-0.020, -0.020)},
+        },
+    )
+
+
+@configclass
+class JoystickEnvCfg_V72(JoystickEnvCfg_V65):
+    """imitation_v72 — **몸통 CoM 을 뒤로 20 mm.**
+
+    2026-08-18, 교수님: "무게중심을 못 잡는다." 사용자가 뒤로 10/15/20 mm 를
+    시험해 보라고 해서 v70/v71/v72 로 나눠 돌린다. 세 개가 같은 축의 서로 다른
+    값이므로 한 번에 걸어도 무엇이 들었는지 가릴 수 있다.
+
+    근거 (v44 때 실측): 심 모델의 CoM 은 발 중심보다 **16.7 mm 뒤**인데
+    **실기는 앞으로 넘어진다.** 둘이 같이 서려면 실기의 실제 CoM 이 심보다
+    앞에 있어야 하고, 그러면 정책은 있지도 않은 뒤쪽 여유를 믿고 걷는다.
+
+    기반은 v65 다 — 점수(0.0138)와 흔들림(4.89) 둘 다 1 등인데 **낙상만
+    1.9 %%로 최악**이라, 낙상을 겨냥한 이 실험의 기준선으로 맞다.
+
+    비교 기준 (v65 @3000): 점수 0.0138 · roll 4.89 · **낙상 1.9 %%**
+    **판정: 낙상률이 내려가는가.** 세 값 중 최소를 고르고, 20 mm 에서도 계속
+    내려가면 더 뒤까지 시험한다. 점수가 0.0200 을 넘으면 그만큼은 대가다.
+    """
+
+    events: EventCfg = _ComBack20EventCfg()
+
 
 
 
