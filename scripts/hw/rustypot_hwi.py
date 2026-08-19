@@ -79,22 +79,30 @@ LEG_IDS = [BY_NAME[n][1] for n in LEG_NAMES]
 # neck_pitch(ID2)는 요청 범위 밖이라 기본값 그대로 둔다.
 HEAD_GAIN_IDS = (12, 13, 14)
 #
-# 2026-08-19: 200 -> 800 으로 올린다 (사용자 요청).
+# 2026-08-19: **축마다 다르게** 건다.
 #
-# 사용자가 "머리가 몸과 평행하지 않다" 고 했다. READY 는 neck_pitch +30 도와
-# head_pitch +30 도인데, URDF FK 로 계산하면 그 둘은 **정확히 상쇄되어 머리
-# 피치가 0.00 도**가 된다 — 설계상 평행이 맞다. 그런데 실기에서 안 평행하면
-# 명령대로 안 간 것이고, head_pitch(ID12)만 P=200 이라 머리 무게에 눌려 처지는
-# 것이 가장 그럴듯하다. 머리는 캔틸레버라 모멘트가 크다.
+# 세 축을 다 800/4700 으로 올렸더니 실측 잔여 진동이 이렇게 나왔다
+# (토크 ON, 자세 유지 중 10 초, p-p tick):
 #
-# 위 계단응답 표를 보면 800/4700 도 잔여 진동이 1/1/3 tick 으로 200/2000
-# (1/0/1) 과 큰 차이가 없다. 강성이 4 배이므로 처짐에는 훨씬 유리하다.
-# 대가는 전류인데, 머리 3 축은 정책이 안 움직이고 READY 로 고정만 하므로
-# 다리와 달리 전류 예산에 부담이 적다.
+#     head_pitch(12)  1 tick  (0.09 도)   <- 4 축 중 가장 조용하다
+#     head_yaw(13)    5 tick  (0.44 도)
+#     head_roll(14)   6 tick  (0.53 도)
 #
-# ODM_HEAD_P / ODM_HEAD_D 로 덮어쓸 수 있다 (되돌리려면 200 / 2000).
-HEAD_P = int(os.environ.get("ODM_HEAD_P", 800))
-HEAD_D = int(os.environ.get("ODM_HEAD_D", 4700))
+# 처짐이 문제인 축은 **중력 모멘트를 받는 head_pitch 하나뿐**이다. yaw 와
+# roll 은 축이 중력과 나란해서 눌릴 일이 없으므로 강성을 올릴 이유가 없고,
+# 올린 만큼 떨림만 늘었다. 그래서 12 만 높게 두고 13/14 는 되돌린다.
+HEAD_P_PITCH = int(os.environ.get("ODM_HEAD_P", 800))
+HEAD_D_PITCH = int(os.environ.get("ODM_HEAD_D", 4700))
+HEAD_P_YAWROLL = int(os.environ.get("ODM_HEAD_P_YR", 200))
+HEAD_D_YAWROLL = int(os.environ.get("ODM_HEAD_D_YR", 2000))
+#: 옛 이름 호환 (다른 스크립트가 참조할 수 있다).
+HEAD_P, HEAD_D = HEAD_P_PITCH, HEAD_D_PITCH
+
+
+def head_gain(i: int) -> tuple[int, int]:
+    """머리 축 ID -> (P, D). 12 만 높고 13/14 는 낮다 — 위 주석 참고."""
+    return ((HEAD_P_PITCH, HEAD_D_PITCH) if i == 12
+            else (HEAD_P_YAWROLL, HEAD_D_YAWROLL))
 
 # ── 위치 PID 게인이 어디서 오는가 ─────────────────────────────────────────
 #
@@ -302,8 +310,9 @@ class HWI:
         """
         for i in (ids if ids is not None else HEAD_GAIN_IDS):
             if i in HEAD_GAIN_IDS:
-                self.io.write_position_p_gain(i, HEAD_P)
-                self.io.write_position_d_gain(i, HEAD_D)
+                gp, gd = head_gain(i)
+                self.io.write_position_p_gain(i, gp)
+                self.io.write_position_d_gain(i, gd)
 
     def disarm(self):
         self.io.sync_write_torque_enable(IDS, [0] * 14)
