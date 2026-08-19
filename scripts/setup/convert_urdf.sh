@@ -33,8 +33,10 @@ if [ -z "${ISAACLAB_PATH:-}" ]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-URDF_PATH="$REPO_ROOT/robot/robot.urdf"
-OUTPUT_USD="$REPO_ROOT/robot/usd/open_duck_mini_v2.usd"
+# 2026-08-20: 경로를 환경변수로 열어 둔다. 발 형상 변형(big_foot) 같은 변종을
+# 기존 robot/ 을 건드리지 않고 따로 변환하기 위해서다. 기본값은 종전과 같다.
+URDF_PATH="${ODM_URDF:-$REPO_ROOT/robot/robot.urdf}"
+OUTPUT_USD="${ODM_USD_OUT:-$REPO_ROOT/robot/usd/open_duck_mini_v2.usd}"
 
 mkdir -p "$(dirname "$OUTPUT_USD")"
 

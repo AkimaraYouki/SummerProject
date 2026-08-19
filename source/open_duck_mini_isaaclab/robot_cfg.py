@@ -89,6 +89,14 @@ from .joint_order import (
 # where the repo is checked out on the training machine.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OPEN_DUCK_MINI_USD_PATH = os.path.join(_REPO_ROOT, "robot", "usd", "open_duck_mini_v2.usd")
+#: 발바닥 접지면을 키운 변형 (2026-08-20). 운동학은 기존과 **완전 동일**하고
+#: 발 형상·질량만 다르다 (편측 +10.4 g). 접지 패치 실측:
+#:     기존      1252 mm^2   전후 85.1 mm   좌우 16.3 mm
+#:     big_foot  4226 mm^2   전후 108.0 mm  좌우 40.0 mm
+#: 좌우 지지가 2.5 배다 — roll 흔들림은 제어로 여섯 번 실패했고, 좌우 접지폭
+#: 16 mm 라는 기구 한계가 그 원인일 가능성이 크다.
+OPEN_DUCK_MINI_BIGFOOT_USD_PATH = os.path.join(
+    _REPO_ROOT, "robot_bigfoot", "usd", "open_duck_mini_v2_bigfoot.usd")
 
 # Leg joints (10): position-servo XM430, this exact set drives locomotion.
 _LEG_JOINT_NAMES = [n for n in ACTUATOR_JOINT_NAMES if "hip" in n or "knee" in n or "ankle" in n]

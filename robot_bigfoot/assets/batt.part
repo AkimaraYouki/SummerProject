@@ -1,0 +1,13 @@
+{
+    "configuration": "default",
+    "documentId": "74b3f52a36a998f803570eb7",
+    "documentMicroversion": "41cb25cca984f90c475c7ce2",
+    "elementId": "91447850a157a0c87b6d0e3e",
+    "fullConfiguration": "default",
+    "id": "M3rZAfhqIpVbJn+3x",
+    "isStandardContent": false,
+    "name": "batt <1>",
+    "partId": "JHD",
+    "suppressed": false,
+    "type": "Part"
+}

@@ -35,7 +35,11 @@ from open_duck_mini_isaaclab.joint_order import (
     ROOT_BODY_NAME,
 )
 from open_duck_mini_isaaclab.imu_map import MOUNT_POS as IMU_MOUNT_POS
-from open_duck_mini_isaaclab.robot_cfg import OPEN_DUCK_MINI_V2_CFG, OPEN_DUCK_MINI_V2_DC_CFG
+from open_duck_mini_isaaclab.robot_cfg import (
+    OPEN_DUCK_MINI_BIGFOOT_USD_PATH,
+    OPEN_DUCK_MINI_V2_CFG,
+    OPEN_DUCK_MINI_V2_DC_CFG,
+)
 
 from .events import randomize_default_joint_pos as randomize_default_joint_pos_event
 
@@ -3370,6 +3374,59 @@ class JoystickEnvCfg_V72(JoystickEnvCfg_V65):
     """
 
     events: EventCfg = _ComBack20EventCfg()
+
+
+@configclass
+class JoystickEnvCfg_V73(JoystickEnvCfg_V70):
+    """imitation_v73 — v70 + **발바닥 접지면을 키운다**. 발 하나만 바뀐다.
+
+    2026-08-20. roll 흔들림을 제어로 여섯 번 시도해 전부 실패한 뒤 발 형상을
+    실측했다. `foot_bottom_tpu.stl` 의 **실제 접지 패치**(최저면 ±0.05 mm):
+
+        기존      1252 mm^2   전후  85.1 mm   **좌우 16.3 mm**
+        big_foot  4226 mm^2   전후 108.0 mm   **좌우 40.0 mm**
+
+    **좌우 지지폭이 16 mm 다.** 거의 칼날 위에 서 있는 셈이고, CoM 이 조금만
+    옆으로 가도 발 모서리를 넘는다. 앞서 계산한 "roll ±10 도면 반스탠스
+    70 mm 에서 발 모서리가 12 mm 내려간다" 와 맞물리면 16 mm 폭의 절반 넘게
+    먹는다. **제어로 못 고치는 기구 한계였을 가능성이 크다.**
+
+    전후는 85 mm 로 이미 과잉이라 (CoM 이 -32 mm 뒤여도 여유롭게 들어온다)
+    문제는 좌우뿐이었다.
+
+    ## 기반이 v70 인 이유
+
+    v70(CoM 뒤로 10 mm)이 낙상을 1.9 -> 0.9 %% 로 절반으로 줄였다. 그 위에
+    발만 바꾸면 **발 효과만 분리**해서 볼 수 있다 — v70 이 같은 CoM 으로
+    이미 측정돼 있으므로 직접 비교가 된다.
+
+    ## 바뀌는 것과 안 바뀌는 것
+
+    운동학이 **완전 동일**하다 (14 축 부모·자식·축·rpy·xyz·한계 전부 일치).
+    캘리브·영점·READY·정책 관절 규약이 그대로 유효하다. 바뀌는 것은 발
+    형상과 질량뿐이다 (편측 69.5 -> 79.9 g).
+
+    ## 예상되는 대가
+
+    발 질량이 늘어 스윙 관성이 커지고, 발이 넓어져 기울었을 때 모서리가 먼저
+    닿는다. 지금 스윙 여유가 9~14 mm 라 접지 바운스가 늘 수 있다.
+
+    비교 기준 (v70 @3000): 점수 0.0307 · roll RMS 4.32 · **낙상 0.9 %%**
+    **판정: 낙상률과 roll RMS 가 내려가는가.** 좌우 지지가 2.5 배인데도 안
+    내려가면 흔들림의 원인은 발이 아니다.
+    """
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        spawn=OPEN_DUCK_MINI_V2_DC_CFG.spawn.replace(
+            usd_path=OPEN_DUCK_MINI_BIGFOOT_USD_PATH,
+        ),
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G135SYM),
+            joint_pos=dict(READY_JOINT_POS_G135SYM_ZNECK),
+        ),
+    )
+
 
 
 
