@@ -2864,7 +2864,7 @@ class JoystickEnvCfg_V62(JoystickEnvCfg_V61):
 
 @configclass
 class JoystickEnvCfg_V63(JoystickEnvCfg_V59):
-    """imitation_v63 — v62 + **미끄러운 바닥도 겪게 한다**. 하나만 바뀐다.
+    """imitation_v63 — v59 + **미끄러운 바닥도 겪게 한다**. 하나만 바뀐다.
 
     2026-08-15, 사용자: "실기에서 발이 밀린다, 슬라이딩하는 것 같다."
 
