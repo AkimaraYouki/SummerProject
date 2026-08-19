@@ -970,6 +970,13 @@ class JoystickEnvCfg_HipInward(JoystickEnvCfg_Tall):
     hip_inward_scale = -25.0
 
 
+# Z 자 목으로 학습할 때 쓰는 READY 자세. 다리 값은 H175 그대로이고 머리만 세운다.
+# (2026-08-20 복구: 죽은 cfg 를 지우면서 이 표까지 같이 날아가 모듈 import 가
+#  깨져 있었다. 아래 ZNeck 이 쓴다.)
+READY_JOINT_POS_H175_ZNECK = dict(READY_JOINT_POS_H175)
+READY_JOINT_POS_H175_ZNECK.update({"neck_pitch": 0.785, "head_pitch": 0.785})
+
+
 @configclass
 class JoystickEnvCfg_ZNeck(JoystickEnvCfg_HipInward):
     """imitation_v33 — v32 + BD-X 특유의 Z 자 목 자세로 **처음부터 학습**.

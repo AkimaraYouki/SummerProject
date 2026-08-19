@@ -228,7 +228,24 @@ play)
     render=(); export DISPLAY="$(desktop_display)"
   else
     ip="$(host_ip)"
-    render=(--livestream 2 --kit_args "--/app/livestream/publicEndpointAddress=$ip")
+    # 포트를 기본값에 맡기지 않고 못 박는다 (2026-08-20). 두 개가 서로 다른
+    # 물건이라 방화벽/포워딩에서 늘 헷갈렸다:
+    #   app/livestream/port        시그널링(websocket). 브라우저가 먼저 붙는다.
+    #   app/livestream/{min,max}HostPort   미디어(WebRTC 실데이터). min=max 로
+    #                              고정하지 않으면 47998~48020 중 아무거나 잡는다.
+    # 값 출처는 확장 기본값이다 (omni.kit.livestream.webrtc/config/extension.toml
+    # 의 app.livestream.port=49100, omni.services.livestream.nvcf 의
+    # minHostPort=47998) — 추측이 아니라 읽어서 맞췄다.
+    sig="${ODM_STREAM_SIG_PORT:-49100}"
+    med="${ODM_STREAM_PORT:-47998}"
+    # `--kit_args <값>` 으로 띄어 쓰면 argparse 가 `--` 로 시작하는 값을 옵션으로
+    # 오인해 "expected one argument" 로 죽는다 (2026-08-20, 이것 때문에 스트림이
+    # 뜬 적이 한 번도 없었다). 반드시 `--kit_args=` 로 붙여 한 덩어리로 넘긴다.
+    render=(--livestream 2
+            "--kit_args=--/app/livestream/publicEndpointAddress=$ip \
+                        --/app/livestream/port=$sig \
+                        --/app/livestream/minHostPort=$med \
+                        --/app/livestream/maxHostPort=$med")
   fi
 
   cd "$PROJ"
@@ -247,6 +264,7 @@ play)
     echo "  이 PC 모니터에 창이 뜹니다 (부팅 1~2분)."
   else
     echo "  http://$ip:8011/streaming/webrtc-client"
+    echo "  포트: 시그널링 $sig · 미디어 $med (UDP) · 페이지 8011"
   fi
   echo "  (정지/전진/후진/좌/우/회전 8초씩 순환, 외란 없음)"
   ;;
