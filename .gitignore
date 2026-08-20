@@ -21,3 +21,6 @@ reference_motion_generator/recordings/
 reference_motion_generator/**/placo_presets/tmp/
 filtered_v28.npz
 .venv-tools/
+
+# 중복 export 의 변환 산출물
+robot_bigfoot/usd/
