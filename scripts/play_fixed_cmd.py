@@ -20,7 +20,8 @@ parser.add_argument("--cam", type=float, nargs=3, default=None,
 parser.add_argument("--cmd_x", type=float, default=0.15)
 parser.add_argument("--cmd_y", type=float, default=0.0)
 parser.add_argument("--cmd_yaw", type=float, default=0.0)
-parser.add_argument("--seconds", type=float, default=1e9)
+parser.add_argument("--seconds", type=float, default=1e9,
+                    help="재생 길이 [**시뮬 시간** 초]. --hold 와 같은 단위다")
 parser.add_argument("--cycle", action="store_true",
                     help="정지/전진/후진/좌/우/회전을 --hold 초씩 순환한다")
 parser.add_argument("--hold", type=float, default=8.0, help="--cycle에서 명령 하나를 유지할 초")
@@ -190,8 +191,27 @@ if args_cli.ghost:
         )
     env_cfg.scene.ref_ghost = _g
 
+CYCLE = [
+    ("STOP",  0.00,  0.00, 0.0),
+    ("FWD ",  0.15,  0.00, 0.0),
+    ("BACK", -0.15,  0.00, 0.0),
+    ("LEFT",    0.00,  0.20, 0.0),
+    ("RIGHT",    0.00, -0.20, 0.0),
+    ("TURN",  0.00,  0.00, 1.0),
+]
+
 env = gym.make(args_cli.task, cfg=env_cfg,
                render_mode="rgb_array" if args_cli.record else None)
+
+# --cycle 은 **시뮬 시간** 기준(--hold 초씩)인데 --seconds 가 짧으면 뒷 방향이
+# 통째로 잘린다. 2026-08-20 에 실제로 그랬다 — 50 초를 줬는데 녹화가 21 초에서
+# 끊겨 STOP/전진/후진 일부만 담겼다. 필요한 길이를 여기서 계산해 늘린다.
+if args_cli.cycle:
+    _need = len(CYCLE) * args_cli.hold
+    if args_cli.seconds < _need:
+        print(f"[play] --seconds {args_cli.seconds:.0f} 로는 {len(CYCLE)} 방향을 "
+              f"다 담지 못한다 -> {_need:.0f} 초로 늘린다", flush=True)
+        args_cli.seconds = _need
 
 if args_cli.record:
     import os as _os
@@ -215,14 +235,6 @@ print(f"[play] cmd pinned to ({args_cli.cmd_x:+.2f}, {args_cli.cmd_y:+.2f}, {arg
 
 # 순환 모드용 명령 목록. gait_compare.py의 조건과 같은 값이라 영상과 측정치를
 # 직접 대응시켜 볼 수 있다.
-CYCLE = [
-    ("STOP",  0.00,  0.00, 0.0),
-    ("FWD ",  0.15,  0.00, 0.0),
-    ("BACK", -0.15,  0.00, 0.0),
-    ("LEFT",    0.00,  0.20, 0.0),
-    ("RIGHT",    0.00, -0.20, 0.0),
-    ("TURN",  0.00,  0.00, 1.0),
-]
 
 # ── 오버레이 마커 ────────────────────────────────────────────────────────
 # path frame은 명령 속도를 적분한 "가야 할 곳"이라 숫자로만 보면 감이 안 온다.
@@ -798,11 +810,15 @@ def _track_row(t, cx, cy, cw):
 
 obs = env.get_observations()
 _rt_t0 = time.time()          # 실시간 배속 측정 기준
-t_end = time.time() + args_cli.seconds
+# 종료는 **시뮬 스텝**으로 센다. 벽시계로 재면 --hold(시뮬 시간)와 단위가 달라
+# 진다: 이 루프는 dt 에서 남는 시간만 재우므로 렌더링이 무거우면 조용히
+# 슬로모션이 되고, 그때 벽시계 --seconds 는 내용을 잘라 버린다 (2026-08-20,
+# 녹화가 실시간 0.42 배로 돌아 6 방향 중 2.6 개만 담겼다).
+max_steps = max(1, int(args_cli.seconds / dt))
 step = 0
 hold_steps = max(1, int(args_cli.hold / dt))
 cur_idx = -1
-while simulation_app.is_running() and time.time() < t_end:
+while simulation_app.is_running() and step < max_steps:
     t0 = time.time()
     if _pad is not None:
         # 조이스틱이 최우선. poll()은 밀린 이벤트만 훑고 즉시 돌아오므로
