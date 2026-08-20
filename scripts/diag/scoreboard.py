@@ -51,8 +51,13 @@ import argparse
 import glob
 import os
 import re
+import sys
 
 import numpy as np
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "source"))
+from open_duck_mini_isaaclab.joint_order import ACT_LEG_JOINT_IDX   # noqa: E402
 
 #: 6 방향 가중치. 사용자 순위: 앞뒤 > 회전 > 완전 옆걸음.
 PRIO_W = {"forward": 3.0, "backward": 3.0, "turn": 2.0, "left": 1.0, "right": 1.0}
@@ -63,6 +68,8 @@ HALF = ("fwd_half", "turn_half")
 PASS_SCORE = 0.0180
 PASS_ROLL_RMS = 5.50
 PASS_FALL_PCT = 0.5
+#: 토크 실효 한계 [N·m]. effort_limit 4.1 이 아니라 토크-속도 모델이 여기서 자른다.
+TAU_SAT = 3.16
 #: 넘어졌다고 볼 몸통 기울기 (도).
 FALL_DEG = 40.0
 SKIP = 100
@@ -102,6 +109,43 @@ def analyse(path):
         o["roll"] = float(np.mean(roll_rms))
     if fall:
         o["fall"] = float(max(fall))
+    # 2026-08-20, 목표가 바뀌었다: 피크 토크 최소화 · 보행 효율 최대화 ·
+    # 토르소 좌우 흔들림 최소화. 재지 않으면 달성 여부를 알 수 없어 세 열을 더한다.
+    dt = float(z["ctrl_dt"]) if "ctrl_dt" in z else 0.02
+    peaks, sats, works, rrates = [], [], [], []
+    for c in conds:
+        if c == "stop":
+            continue
+        tk, dk = f"{c}__tau", f"{c}__dq"
+        if tk in z:
+            t = z[tk][SKIP:][..., ACT_LEG_JOINT_IDX]
+            # 피크 |tau| 의 p99, 그리고 **포화율**. 실효 한계는 3.16 N·m 다
+            # (effort_limit 4.1 이 아니라 토크-속도 모델이 먼저 자른다). 모든
+            # 정책이 p99 에서 한계에 물리는 일이 흔해 값만으로는 안 갈린다 —
+            # 얼마나 자주 한계에 붙어 있는지가 실제 차이다 (v68 0.35 % vs
+            # v73 1.26 %).
+            aa = np.abs(t)
+            peaks.append(float(np.percentile(aa.max(axis=-1), 99)))
+            sats.append(float(100.0 * (aa > TAU_SAT * 0.995).mean()))
+            if dk in z:
+                w = z[dk][SKIP:]
+                n = min(t.shape[0], w.shape[0])
+                # 기계적 일률 |tau . omega| [W]. 회생을 인정하지 않는 절대값 합 --
+                # 서보는 역구동으로 에너지를 되돌려받지 못한다.
+                works.append(float(np.abs(t[:n] * w[:n]).sum(-1).mean()))
+        gk = f"{c}__grav"
+        if gk in z:
+            g = z[gk][SKIP:]
+            rr = np.degrees(np.arctan2(-g[..., 1], -g[..., 2]))
+            rrates.append(float(np.diff(rr, axis=0).std() / dt))
+    if peaks:
+        o["peak"] = float(np.mean(peaks))
+    if sats:
+        o["sat"] = float(np.mean(sats))
+    if works:
+        o["watt"] = float(np.mean(works))
+    if rrates:
+        o["rrate"] = float(np.mean(rrates))
     m = re.search(r"model_(\d+)\.pt", str(z["checkpoint"]))
     o["iter"] = int(m.group(1)) + 1 if m else 0
     return o
@@ -136,10 +180,10 @@ def main():
     print()
     print(f"  합격선   1순위 점수 <= {PASS_SCORE:.4f}   ·   "
           f"2순위 roll RMS <= {PASS_ROLL_RMS:.2f}도, 넘어짐 <= {PASS_FALL_PCT:.1f}%")
-    print("  " + "=" * 92)
+    print("  " + "=" * 110)
     print(f"  {'버전':<10}{'iter':>6}{'점수':>9}{'앞뒤':>9}{'회전':>9}{'옆':>9}"
-          f"{'실사용':>9}{'rollRMS':>9}{'넘어짐':>8}   판정")
-    print("  " + "-" * 92)
+          f"{'rollRMS':>9}{'넘어짐':>8}{'p99t':>7}{'포화%':>7}{'일률W':>7}{'roll속':>8}   판정")
+    print("  " + "-" * 110)
     winner = None
     for v, a in rows:
         p1 = a["score"] <= PASS_SCORE
@@ -158,10 +202,13 @@ def main():
             mark = "—"
         r = f"{a['roll']:>9.2f}" if "roll" in a else f"{'—':>9}"
         f = f"{a['fall']:>8.1f}" if "fall" in a else f"{'—':>8}"
-        h = f"{a['half']:>9.4f}" if "half" in a else f"{'—':>9}"
+        pk = f"{a['peak']:>7.2f}" if "peak" in a else f"{'—':>7}"
+        st = f"{a['sat']:>7.2f}" if "sat" in a else f"{'—':>7}"
+        wt = f"{a['watt']:>7.1f}" if "watt" in a else f"{'—':>7}"
+        rt = f"{a['rrate']:>8.1f}" if "rrate" in a else f"{'—':>8}"
         print(f"  {v:<10}{a['iter']:>6}{a['score']:>9.4f}{a['fb']:>9.4f}"
-              f"{a['turn']:>9.4f}{a['lr']:>9.4f}{h}{r}{f}   {mark}")
-    print("  " + "=" * 92)
+              f"{a['turn']:>9.4f}{a['lr']:>9.4f}{r}{f}{pk}{st}{wt}{rt}   {mark}")
+    print("  " + "=" * 110)
     if winner:
         print(f"  → 합격: {winner}")
     else:
@@ -173,6 +220,9 @@ def main():
             print(f" · 2순위 최고 {best2[0]} ({best2[1]['roll']:.2f}도)")
         else:
             print()
+    print(f"  p99t/포화% = 다리 |tau| 의 p99 [N·m] 와 한계 {TAU_SAT} 에 붙어 있는 비율")
+    print("  일률W = |tau·omega| 합의 평균 [W] — 낮을수록 효율적")
+    print("  roll속 = roll 각속도 RMS [deg/s] — 좌우 휘청거림")
     print("  0.002 이하 점수 차이는 측정 잡음이다 — 읽지 말 것.\n")
 
 

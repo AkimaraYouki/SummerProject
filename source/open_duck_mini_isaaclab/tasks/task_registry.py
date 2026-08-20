@@ -70,6 +70,8 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-V71-v0": "JoystickEnvCfg_V71",
     "Isaac-OpenDuckMini-Joystick-V72-v0": "JoystickEnvCfg_V72",
     "Isaac-OpenDuckMini-Joystick-V73-v0": "JoystickEnvCfg_V73",
+    "Isaac-OpenDuckMini-Joystick-V74-v0": "JoystickEnvCfg_V74",
+    "Isaac-OpenDuckMini-Joystick-V75-v0": "JoystickEnvCfg_V75",
 }
 
 #: 큰 네트워크(512,256,128) + gamma 0.97 을 쓰는 태스크들.
@@ -128,6 +130,8 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-V71-v0",
     "Isaac-OpenDuckMini-Joystick-V72-v0",
     "Isaac-OpenDuckMini-Joystick-V73-v0",
+    "Isaac-OpenDuckMini-Joystick-V74-v0",
+    "Isaac-OpenDuckMini-Joystick-V75-v0",
 }
 
 
@@ -218,8 +222,11 @@ def runner_cfg_for(task: str):
     # v29 만 러너가 다르다(미러 손실). 환경은 v28 과 같아 ENV_CFG_CLASS 로는
     # 구분되지 않으므로 여기서 따로 잡는다.
     # v68 만 탐색 시그마가 다르다 (1.3). 환경 클래스로는 구분되지 않는다.
+    # v74/v75 도 같은 묶음(토크 벌점 + 보수적 낙상)이라 탐색을 같이 넓힌다.
     if task in ("Isaac-OpenDuckMini-Joystick-V68-v0",
-                "Isaac-OpenDuckMini-Joystick-V69-v0"):
+                "Isaac-OpenDuckMini-Joystick-V69-v0",
+                "Isaac-OpenDuckMini-Joystick-V74-v0",
+                "Isaac-OpenDuckMini-Joystick-V75-v0"):
         from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import JoystickPPORunnerCfg_Explore13
         return JoystickPPORunnerCfg_Explore13()
     if task == "Isaac-OpenDuckMini-Joystick-Sym-v0":

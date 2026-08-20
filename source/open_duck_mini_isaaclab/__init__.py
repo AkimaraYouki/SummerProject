@@ -556,7 +556,8 @@ try:
         },
     )
 
-    # v70 + 발바닥 접지면 확대 (1252 -> 4226 mm^2, 좌우 16 -> 40 mm)
+    # v70 + big_foot USD. 심의 접지면은 1907 -> 2365 mm^2, 좌우 38.7 -> 42.9 mm
+    # (심이 딛는 면은 TPU 밑창이 아니라 l_foot_side 다 — robot_cfg.py 주석 참조).
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-V73-v0",
         entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
@@ -564,6 +565,29 @@ try:
         kwargs={
             "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V73",
             "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Gamma097",
+        },
+    )
+
+    # v73 + 토크 벌점 -0.2 · 낙상 종료 0.85 · 탐색 시그마 1.3 (v68 묶음).
+    # 목표가 추종 정확도에서 토크·효율·흔들림으로 바뀌었다 (2026-08-20).
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-V74-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V74",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Explore13",
+        },
+    )
+
+    # v74 + 토르소 각속도 벌점 -0.7 (v55 에서 roll RMS 2.64 · 낙상 0.0 %% 를 낸 값).
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-V75-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V75",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Explore13",
         },
     )
 
