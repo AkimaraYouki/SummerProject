@@ -89,14 +89,21 @@ from .joint_order import (
 # where the repo is checked out on the training machine.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OPEN_DUCK_MINI_USD_PATH = os.path.join(_REPO_ROOT, "robot", "usd", "open_duck_mini_v2.usd")
-#: 발바닥 접지면을 키운 변형 (2026-08-20). 운동학은 기존과 **완전 동일**하고
-#: 발 형상·질량만 다르다 (편측 +10.4 g). 접지 패치 실측:
-#:     기존      1252 mm^2   전후 85.1 mm   좌우 16.3 mm
-#:     big_foot  4226 mm^2   전후 108.0 mm  좌우 40.0 mm
-#: 좌우 지지가 2.5 배다 — roll 흔들림은 제어로 여섯 번 실패했고, 좌우 접지폭
-#: 16 mm 라는 기구 한계가 그 원인일 가능성이 크다.
+#: 발바닥 접지면을 키운 변형 (2026-08-20). 운동학은 기존과 **완전 동일**하다
+#: (14 축 부모·자식·축·rpy·xyz·한계 전부 일치, -0/0 표기 차이만 있음).
+#: 질량 차이: 발 편측 69.5 -> 79.9 g, 그리고 몸통 1165.0 -> 1153.0 g
+#: (릴레이를 실기에서 뺀 것이 반영됐다). 총 2743.0 -> 2751.8 g.
+#:
+#: **심이 실제로 딛는 면**은 TPU 밑창이 아니라 `l_foot_side` 다 — TPU 는 그보다
+#: 2.70 mm 위라 지면에 닿지 않는다. 링크 좌표계 실측(지면 ±0.2 mm 삼각형):
+#:     기존      1907 mm^2   전후  99.3 mm   좌우 38.7 mm
+#:     big_foot  2365 mm^2   전후 108.6 mm   좌우 42.9 mm
+#: 즉 심의 좌우 지지는 +11 % 만 는다. STL 만 보고 적었던 "16.3 -> 40.0 mm,
+#: 2.5 배" 는 TPU 단독 치수였고 심에는 해당하지 않는다.
+#: onshape-to-robot 산출물은 big_foot/ 에 그대로 두고 USD 도 그 안에 만든다 —
+#: 한 번의 import 에서 나온 것(URDF·메시·USD)을 한 디렉터리에 모으는 규칙.
 OPEN_DUCK_MINI_BIGFOOT_USD_PATH = os.path.join(
-    _REPO_ROOT, "robot_bigfoot", "usd", "open_duck_mini_v2_bigfoot.usd")
+    _REPO_ROOT, "big_foot", "usd", "open_duck_mini_v2_bigfoot.usd")
 
 # Leg joints (10): position-servo XM430, this exact set drives locomotion.
 _LEG_JOINT_NAMES = [n for n in ACTUATOR_JOINT_NAMES if "hip" in n or "knee" in n or "ankle" in n]

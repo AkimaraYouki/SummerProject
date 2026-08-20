@@ -1,5 +1,7 @@
 # build artifacts — regenerate via scripts/, do not hand-edit or diff
 robot/usd/
+# URDF->USD 변환 산출물. 소스(URDF·STL)만 버전 관리한다.
+big_foot/usd/
 outputs/
 logs/
 checkpoints/
