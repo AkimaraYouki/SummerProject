@@ -72,6 +72,7 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-V73-v0": "JoystickEnvCfg_V73",
     "Isaac-OpenDuckMini-Joystick-V74-v0": "JoystickEnvCfg_V74",
     "Isaac-OpenDuckMini-Joystick-V75-v0": "JoystickEnvCfg_V75",
+    "Isaac-OpenDuckMini-Joystick-V76-v0": "JoystickEnvCfg_V76",
 }
 
 #: 큰 네트워크(512,256,128) + gamma 0.97 을 쓰는 태스크들.
@@ -132,6 +133,7 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-V73-v0",
     "Isaac-OpenDuckMini-Joystick-V74-v0",
     "Isaac-OpenDuckMini-Joystick-V75-v0",
+    "Isaac-OpenDuckMini-Joystick-V76-v0",
 }
 
 
@@ -226,7 +228,8 @@ def runner_cfg_for(task: str):
     if task in ("Isaac-OpenDuckMini-Joystick-V68-v0",
                 "Isaac-OpenDuckMini-Joystick-V69-v0",
                 "Isaac-OpenDuckMini-Joystick-V74-v0",
-                "Isaac-OpenDuckMini-Joystick-V75-v0"):
+                "Isaac-OpenDuckMini-Joystick-V75-v0",
+                "Isaac-OpenDuckMini-Joystick-V76-v0"):
         from open_duck_mini_isaaclab.agents.rsl_rl_ppo_cfg import JoystickPPORunnerCfg_Explore13
         return JoystickPPORunnerCfg_Explore13()
     if task == "Isaac-OpenDuckMini-Joystick-Sym-v0":

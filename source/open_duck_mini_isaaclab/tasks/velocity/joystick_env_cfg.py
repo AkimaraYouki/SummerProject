@@ -3494,6 +3494,90 @@ class JoystickEnvCfg_V75(JoystickEnvCfg_V74):
 
 
 @configclass
+class _RobustEventCfg(_ComBack10EventCfg):
+    """v76 용. CoM -10 mm 는 그대로 두고 **랜덤화 폭만** 넓힌다.
+
+    바꾸는 것과 근거:
+
+        마찰      0.5~1.0  -> 0.4~1.3   실기 바닥 실측이 mu > 0.38 이었고,
+                                        장판·매트·타일이 다 다르다. 지금 범위는
+                                        미끄러운 쪽을 아예 안 겪는다.
+        액추에이터 강성 0.9~1.1 -> 0.8~1.2   서보 개체차와 발열에 따른 변화.
+        외란 크기 +-1.0 -> +-1.5 m/s      더 세게 민다.
+        외란 간격 5~10 s -> 3~8 s         더 자주 민다.
+
+    질량 범위(0.9~1.1)는 **건드리지 않는다.** v58/v59 에서 질량 랜덤화를
+    넓혔다가(0.85~1.25) 전진 추종이 무너진 전례가 있다. 실기 질량을 아직 안
+    쟀으므로 좁히지도 넓히지도 않는다.
+    """
+
+    physics_material = EventTerm(
+        func=mdp.randomize_rigid_body_material,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            "static_friction_range": (0.4, 1.3),
+            "dynamic_friction_range": (0.4, 1.3),
+            "restitution_range": (0.0, 0.0),
+            "num_buckets": 64,
+        },
+    )
+    randomize_actuator_gains = EventTerm(
+        func=mdp.randomize_actuator_gains,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+            "stiffness_distribution_params": (0.8, 1.2),
+            "operation": "scale",
+        },
+    )
+    push_robot = EventTerm(
+        func=mdp.push_by_setting_velocity,
+        mode="interval",
+        interval_range_s=(3.0, 8.0),
+        params={"velocity_range": {"x": (-1.5, 1.5), "y": (-1.5, 1.5)}},
+    )
+
+
+@configclass
+class JoystickEnvCfg_V76(JoystickEnvCfg_V75):
+    """imitation_v76 — v75 + **robustness**. 도메인 랜덤화 폭만 넓힌다.
+
+    2026-08-20. v75 가 사용자 목표 1~4 번을 전부 최고로 잡았다 (model_2800,
+    93 %% 지점 측정):
+
+        토크 포화  0.20 %%   <- 역대 최저. p99 3.12 로 **한계에 닿지도 않는다**
+        일률       6.6 W    <- 역대 최저
+        roll 속    46.2     <- 역대 최저 (v55 53.4 를 넘었다)
+        roll RMS   2.85 · 낙상 0.2 %%
+        6 방향 부호 전부 OK  (전진 0.111/0.15 · 후진 0.145/0.15 · 회전 0.968/1.0)
+
+    추종 점수는 0.0275 로 v74(0.0140)보다 나쁘지만, 사용자 기준은 "천천히라도
+    명령대로 가면 된다" 이고 부호와 크기가 모두 살아 있다.
+
+    ## 그래서 남은 것은 robustness 하나다
+
+    지금까지 목표 5 개 중 4 개를 잡았고, 명시적으로 남은 것은 robustness 다.
+    이 판은 **정책도 리워드도 안 건드리고 환경만 험하게** 한다. v75 와 같은
+    설정으로 학습해서, 넓힌 랜덤화를 견디는지만 본다.
+
+    ## 판정
+
+    비교 기준 (v75 @2800): 포화 0.20 %% · 일률 6.6 W · roll속 46.2 ·
+    낙상 0.2 %% · 점수 0.0275
+
+    **넓힌 랜덤화 아래에서 위 값이 얼마나 무너지는가**를 본다. 조금 나빠지는
+    것은 정상이다 — 더 어려운 문제를 푼 것이므로. 크게 무너지면 랜덤화 폭이
+    과했다는 뜻이니 마찰부터 되돌린다.
+
+    **6 방향 부호는 여전히 실패 조건이다.** 외란을 세게 주면 정책이 "안 움직이는
+    것" 으로 도망갈 수 있다.
+    """
+
+    events: EventCfg = _RobustEventCfg()
+
+
+@configclass
 class JoystickEnvCfg_V34C20(JoystickEnvCfg_V34C):
     """imitation_v34c20 — v34c(정지 위상 고정) + 레퍼런스 높이 +20 mm (ref_g135)."""
 

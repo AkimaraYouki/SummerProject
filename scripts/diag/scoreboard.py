@@ -64,10 +64,20 @@ PRIO_W = {"forward": 3.0, "backward": 3.0, "turn": 2.0, "left": 1.0, "right": 1.
 #: 실사용 속도(사용자가 실제로 쓰는 명령 크기). 2026-08-18 추가.
 #: 옛 npz 에는 없으므로 있을 때만 별도 열로 보여 준다.
 HALF = ("fwd_half", "turn_half")
-#: 합격선.
+#: 합격선. 2026-08-20 에 목표가 바뀌면서 통째로 다시 세웠다 — 예전 기준은
+#: 추종 점수가 1 순위였고, 그 기준으로는 지금 목표를 가장 잘 달성한 정책이
+#: 떨어진다. 값은 v75 가 실제로 낸 수치 근처로 잡았다 (달성 가능함을 확인한
+#: 선이어야 목표로 쓸모가 있다).
+PASS_SAT_PCT = 0.30      # 토크 포화율 [%]   v75 0.20 · v74 0.31 · v73 1.18
+PASS_WATT = 7.0          # 일률 [W]          v75 6.6  · v74 7.3  · v73 10.2
+PASS_ROLL_RATE = 50.0    # roll 각속도 [deg/s] v75 46.2 · v55 53.4 · v73 79.6
+PASS_ROLL_RMS = 3.50     # roll RMS [도]     v75 2.85 · v55 2.64
+PASS_FALL_PCT = 0.5      # 낙상률 [%]        v75 0.2  · v55 0.0
+#: 추종은 정확도가 아니라 **방향이 맞는지**만 본다 (사용자: 천천히라도 명령대로).
+#: 명령 대비 이 비율 미만이면 "명령을 안 따른 것" 으로 본다.
+PASS_TRACK_FRAC = 0.5
+#: 참고용으로 남기는 옛 추종 합격선. 판정에는 더 이상 쓰지 않는다.
 PASS_SCORE = 0.0180
-PASS_ROLL_RMS = 5.50
-PASS_FALL_PCT = 0.5
 #: 토크 실효 한계 [N·m]. effort_limit 4.1 이 아니라 토크-속도 모델이 여기서 자른다.
 TAU_SAT = 3.16
 #: 넘어졌다고 볼 몸통 기울기 (도).
@@ -138,6 +148,21 @@ def analyse(path):
             g = z[gk][SKIP:]
             rr = np.degrees(np.arctan2(-g[..., 1], -g[..., 2]))
             rrates.append(float(np.diff(rr, axis=0).std() / dt))
+    # 방향 준수: 6 방향 각각 부호가 맞고 크기가 명령의 PASS_TRACK_FRAC 이상인가.
+    # "덜 움직이는 쪽" 으로 도망가는 정책을 잡는 유일한 문턱이다.
+    obey = True
+    for c in conds:
+        if c == "stop":
+            continue
+        cmd = z[f"{c}__cmd"]
+        v = z[f"{c}__v_base"][SKIP:].mean(axis=(0, 1))
+        wz = float(z[f"{c}__w_base"][SKIP:].mean())
+        for tgt, act in ((cmd[0], v[0]), (cmd[1], v[1]), (cmd[2], wz)):
+            if abs(tgt) < 1e-6:
+                continue
+            if np.sign(tgt) != np.sign(act) or abs(act) < PASS_TRACK_FRAC * abs(tgt):
+                obey = False
+    o["obey"] = obey
     if peaks:
         o["peak"] = float(np.mean(peaks))
     if sats:
@@ -178,28 +203,32 @@ def main():
         rows = rows[:args.top]
 
     print()
-    print(f"  합격선   1순위 점수 <= {PASS_SCORE:.4f}   ·   "
-          f"2순위 roll RMS <= {PASS_ROLL_RMS:.2f}도, 넘어짐 <= {PASS_FALL_PCT:.1f}%")
+    print(f"  합격선   포화 <= {PASS_SAT_PCT:.2f}% · 일률 <= {PASS_WATT:.1f}W · "
+          f"roll속 <= {PASS_ROLL_RATE:.0f} · rollRMS <= {PASS_ROLL_RMS:.2f}도 · "
+          f"넘어짐 <= {PASS_FALL_PCT:.1f}% · 6방향 부호 OK")
     print("  " + "=" * 110)
     print(f"  {'버전':<10}{'iter':>6}{'점수':>9}{'앞뒤':>9}{'회전':>9}{'옆':>9}"
           f"{'rollRMS':>9}{'넘어짐':>8}{'p99t':>7}{'포화%':>7}{'일률W':>7}{'roll속':>8}   판정")
     print("  " + "-" * 110)
     winner = None
     for v, a in rows:
-        p1 = a["score"] <= PASS_SCORE
-        p2 = (a.get("roll", 99) <= PASS_ROLL_RMS
-              and a.get("fall", 99) <= PASS_FALL_PCT)
-        if "roll" not in a:
-            mark = "2순위 미측정"
-        elif p1 and p2:
-            mark = "★ 합격 (1·2순위)"
+        checks = {
+            "포화": a.get("sat", 99) <= PASS_SAT_PCT,
+            "일률": a.get("watt", 99) <= PASS_WATT,
+            "roll속": a.get("rrate", 999) <= PASS_ROLL_RATE,
+            "rollRMS": a.get("roll", 99) <= PASS_ROLL_RMS,
+            "낙상": a.get("fall", 99) <= PASS_FALL_PCT,
+            "방향": a.get("obey", False),
+        }
+        if "sat" not in a or "roll" not in a:
+            mark = "미측정"
+        elif all(checks.values()):
+            mark = "★ 합격"
             winner = winner or v
-        elif p1:
-            mark = "1순위만"
-        elif p2:
-            mark = "2순위만"
+        elif not checks["방향"]:
+            mark = "방향 실패"
         else:
-            mark = "—"
+            mark = "미달: " + ",".join(k for k, ok in checks.items() if not ok)
         r = f"{a['roll']:>9.2f}" if "roll" in a else f"{'—':>9}"
         f = f"{a['fall']:>8.1f}" if "fall" in a else f"{'—':>8}"
         pk = f"{a['peak']:>7.2f}" if "peak" in a else f"{'—':>7}"
@@ -212,17 +241,19 @@ def main():
     if winner:
         print(f"  → 합격: {winner}")
     else:
-        best1 = min(rows, key=lambda r: r[1]["score"])
-        cand = [r for r in rows if "roll" in r[1]]
-        best2 = min(cand, key=lambda r: r[1]["roll"]) if cand else None
-        print(f"  → 아직 없음. 1순위 최고 {best1[0]} ({best1[1]['score']:.4f})", end="")
-        if best2:
-            print(f" · 2순위 최고 {best2[0]} ({best2[1]['roll']:.2f}도)")
-        else:
-            print()
+        print("  → 합격 없음. 항목별 최고:", end="")
+        for key, lbl, fmt in (("sat", "포화", "{:.2f}%"), ("watt", "일률", "{:.1f}W"),
+                              ("rrate", "roll속", "{:.1f}"), ("fall", "낙상", "{:.1f}%")):
+            cand = [r for r in rows if key in r[1]]
+            if cand:
+                b = min(cand, key=lambda r: r[1][key])
+                print(f"  {lbl} {b[0]} " + fmt.format(b[1][key]), end="")
+        print()
     print(f"  p99t/포화% = 다리 |tau| 의 p99 [N·m] 와 한계 {TAU_SAT} 에 붙어 있는 비율")
     print("  일률W = |tau·omega| 합의 평균 [W] — 낮을수록 효율적")
     print("  roll속 = roll 각속도 RMS [deg/s] — 좌우 휘청거림")
+    print("  판정은 목표(토크·효율·토르소·안정성) 기준이다. 점수 열은 참고용 —")
+    print("  추종은 '천천히라도 명령대로' 이므로 방향 준수만 문턱으로 쓴다.")
     print("  0.002 이하 점수 차이는 측정 잡음이다 — 읽지 말 것.\n")
 
 

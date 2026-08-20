@@ -591,6 +591,17 @@ try:
         },
     )
 
+    # v75 + 도메인 랜덤화 확대 (마찰 0.4~1.3 · 강성 0.8~1.2 · 외란 +-1.5 m/s / 3~8 s).
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-V76-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V76",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Explore13",
+        },
+    )
+
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-V34C20-v0",
         entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
