@@ -3578,6 +3578,88 @@ class JoystickEnvCfg_V76(JoystickEnvCfg_V75):
 
 
 @configclass
+class _FloorVarEventCfg(_ComBack10EventCfg):
+    """v77 용. **바닥과 서보의 개체차만** 넓힌다. 외란(push)은 v75 그대로 둔다.
+
+        마찰            0.5~1.0 -> 0.4~1.3
+        액추에이터 강성   0.9~1.1 -> 0.8~1.2
+        외란            v75 와 동일 (+-1.0 m/s, 5~10 s) — 상속받아 안 건드림
+    """
+
+    physics_material = EventTerm(
+        func=mdp.randomize_rigid_body_material,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            "static_friction_range": (0.4, 1.3),
+            "dynamic_friction_range": (0.4, 1.3),
+            "restitution_range": (0.0, 0.0),
+            "num_buckets": 64,
+        },
+    )
+    randomize_actuator_gains = EventTerm(
+        func=mdp.randomize_actuator_gains,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+            "stiffness_distribution_params": (0.8, 1.2),
+            "operation": "scale",
+        },
+    )
+
+
+@configclass
+class JoystickEnvCfg_V77(JoystickEnvCfg_V75):
+    """imitation_v77 — v76 의 재시도. **외란은 그대로 두고 바닥·서보만** 넓힌다.
+
+    2026-08-20. v76 은 robustness 를 노리고 셋을 한꺼번에 넓혔다가 실패했다.
+    사용자가 곡선을 보고 "수렴이 잘 안 된다" 고 지적했고, 재보니 맞았다.
+
+    ## v76 이 왜 안 됐나 -- 리워드가 아니라 에피소드 길이였다
+
+    iter 330 에서 항목별 리워드는 v75 의 85 %% 수준으로 멀쩡했다. 그런데 총
+    리워드는 54 %% 였다. 차이는 전부 **에피소드 길이**에서 났다:
+
+        iter 100~150   v75 525   v76 301
+        iter 300~350   v75 597   v76 351   <- 여기서 천장
+
+    에피소드 351 스텝 = **7.0 초**이고, v76 의 외란 간격이 3~8 초다. 즉
+    **첫 번째 밀침에서 그대로 넘어진다.** 걸음이 나빠진 게 아니라 일어설
+    기회를 못 얻은 것이다.
+
+    ## 왜 +-1.5 m/s 가 무리인가
+
+    이 로봇의 명령 속도는 0.15 m/s 다. 1.5 m/s 는 그 **10 배**이고, 2.75 kg
+    에 3.1 J 이 실린다. 작은 이족보행이 회복할 수 있는 크기가 아니다. 배울 수
+    없는 상태에 샘플을 쓰면 정책은 그냥 보수적으로만 되고 아무것도 못 배운다.
+    v75 가 쓰던 +-1.0 도 이미 걷는 속도의 6.7 배이고, 그건 견뎠다 (최종 에피
+    797).
+
+    ## 그래서 무엇을 남기나
+
+    실기와 심이 실제로 어긋나는 축만 남긴다. **바닥 재질과 서보 개체차**다.
+    외란 크기는 sim2real 갭이 아니라 그냥 난이도라서 뺀다.
+
+        마찰            0.5~1.0 -> 0.4~1.3   실기 실측 mu > 0.38. 장판·매트·타일
+        액추에이터 강성   0.9~1.1 -> 0.8~1.2   개체차·발열
+        외란            v75 그대로 (+-1.0 m/s, 5~10 s)
+
+    질량(0.9~1.1)은 여전히 안 건드린다 -- v58/v59 전례, 실기 질량 미실측.
+
+    ## 판정
+
+    비교 기준 (v75 @2800): 포화 0.20 %% · 일률 6.6 W · roll속 46.2 ·
+    rollRMS 2.85 · 낙상 0.2 %% · 점수 0.0275
+
+    **학습 중에는 iter 300 부근 에피소드 길이를 먼저 본다.** v75 의 597 에서
+    크게 안 떨어지면(>= 500) 계속 가고, 또 350 대에 머무르면 마찰부터 되돌린다.
+    이번엔 곡선을 조기에 보고 판단한다.
+    """
+
+    events: EventCfg = _FloorVarEventCfg()
+
+
+@configclass
 class JoystickEnvCfg_V34C20(JoystickEnvCfg_V34C):
     """imitation_v34c20 — v34c(정지 위상 고정) + 레퍼런스 높이 +20 mm (ref_g135)."""
 
