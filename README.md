@@ -66,19 +66,60 @@ is the real difference.
 
 | ver | score | sat% | W | roll rate | roll RMS | falls% | what it is |
 |---|---|---|---|---|---|---|---|
-| v55 | 0.0463 | 1.46 | 10.8 | 53.4 | 2.64 | 0.0 | `torso_ang_vel -0.7` |
-| v60 | 0.0304 | 0.93 | 10.0 | 55.4 | 3.73 | 0.6 | `torso_ang_vel -1.2` |
-| v68 | 0.0204 | 0.36 | 7.7 | 64.3 | 4.05 | 1.1 | torque −0.2, fall term 0.85, σ 1.3 |
 | v61 | 0.0221 | 1.21 | 9.6 | 75.8 | 4.97 | 0.7 | best one on hardware |
-| v65 | 0.0138 | 1.05 | 9.9 | 87.5 | 4.89 | 1.9 | best sim score |
+| v65 | 0.0138 | 1.05 | 9.9 | 87.5 | 4.89 | 1.9 | best sim score, July |
 | v73 | 0.0269 | 1.18 | 10.2 | 79.6 | 4.71 | 1.2 | big foot + CoM −10 mm |
+| v74 | 0.0140 | 0.31 | 7.3 | 80.0 | 5.05 | 1.1 | v73 + torque −0.2, fall term 0.85, σ 1.3 |
+| v75 @2800 | 0.0275 | 0.20 | 6.6 | 46.2 | 2.85 | 0.2 | v74 + `torso_ang_vel -0.7` |
+| **v75 @11800** | **0.0170** | **0.20** | **6.4** | **31.0** | **2.25** | **0.0** | same thing, trained 4× longer |
+| v77 @3000 | 0.0265 | 0.29 | 7.1 | 53.0 | 3.11 | 0.3 | v75 + wider friction/stiffness |
 
-v55 is the only policy that has ever hit 0.0% falls. I binned it in July for having
-the worst tracking on the board. v68 saturates 3.3× less often and uses 24% less power
-than anything else.
+Two things did the work, and they don't overlap. The torque penalty bundle (v74) took
+saturation from 1.18% to 0.31% and power from 10.2 W to 7.3 W without touching the
+rocking. The torso angular velocity penalty (v75) took the rocking from 80.0 to 46.2
+and falls from 1.1% to 0.2%.
 
-Currently training: v74 (v73 plus the v68 bundle), then v75 (v74 plus
-`torso_ang_vel -0.7`). One change at a time so I can tell which one did what.
+### Training longer mattered, and the reward curve hid it
+
+Then I ran v75 out to 11,800 iterations instead of 3,000. Reward had been flat since
+about 3,700 (+1 to +7 per thousand iterations, down from +44 early), so I called it
+converged and was wrong:
+
+    roll rate   46.2 → 31.0    (−33%)
+    roll RMS    2.85 → 2.25    (−21%)
+    falls       0.2% → 0.0%
+    forward     0.0228 → 0.0092  (−60%)
+    turning     0.0320 → 0.0148  (−54%)
+    sideways    0.0370 → 0.0429  (+16%, the only regression)
+
+Reward missed all of it. The two biggest terms (`imitation` at 23%, `path_tracking` at
+32%) had already saturated, and the remaining gains were coming from small penalty
+terms worth 0.01–0.03 each against a total of 450. **Judge convergence on the target
+metrics, not on reward.** Torque and power don't improve with longer training; those
+came entirely from the reward design in v74/v75.
+
+### Low-pass filtering the actions: useful, until it isn't
+
+`ODM_LPF` filters the action with `filt = α·filt + (1−α)·new`, so higher α is heavier
+smoothing. On the 2,800-iteration policy, α=0.3 looked free — saturation, power, roll
+rate and falls all improved at once, costing only a little tracking. α=0.5 and 0.7 made
+things worse, and the boundary lines up with physics: the gait runs at 1.85 Hz, and
+α=0.3 cuts at 9.6 Hz (shaves jitter) while α=0.7 cuts at 2.8 Hz (shaves the gait
+itself). The torque savings at 0.7 came from the robot moving less, which is also why
+its tracking collapsed and its falls quadrupled.
+
+But re-measuring on the long-trained policy, the filter is now a net loss:
+
+| v75 @11800 | no filter | α=0.3 |
+|---|---|---|
+| roll rate | **31.0** | 35.7 |
+| turning | **0.0148** | 0.0352 |
+| saturation | 0.20% | 0.14% |
+| power | 6.4 W | 5.9 W |
+
+The undertrained policy was shaking and the filter cleaned it up. The trained one
+isn't, so the filter only removes signal. Hardware default is no filter; α=0.3 stays
+in the pocket in case the real robot shakes in ways the sim doesn't.
 
 ### Sim rank is not hardware rank
 
