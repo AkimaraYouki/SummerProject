@@ -512,6 +512,11 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     # 정책 관측에 중력 방향을 넣을지. 크리틱은 use_gravity_obs 와 무관하게
     # 항상 갖고 있다(비대칭 크리틱).
     use_gravity_obs = False
+    # heading 명령 (2026-08-22). 0 이면 종전대로 yaw rate 를 직접 뽑는다.
+    # 자세한 근거는 joystick_env._apply_heading_command 의 독스트링.
+    heading_command_prob = 0.0
+    heading_stiffness = 0.5    # rad/s per rad. BDX-R 값
+    heading_range = (-3.14159, 3.14159)
     path_error_clip = 0.5      # m, 횡방향 오차 클리핑 (초기 발산 방지)
     path_tracking_scale = 0.0  # 리워드 가중치
     path_k_lateral = 20.0      # exp 예민도: 0.22 m 벗어나면 exp(-1)
@@ -3657,6 +3662,62 @@ class JoystickEnvCfg_V77(JoystickEnvCfg_V75):
     """
 
     events: EventCfg = _FloorVarEventCfg()
+
+
+@configclass
+class JoystickEnvCfg_V78(JoystickEnvCfg_V75):
+    """imitation_v78 — path frame 을 버리고 **heading 명령**으로 방향을 닫는다.
+
+    2026-08-22. BDX-R (https://github.com/BDX-R/BDX-R-IsaacLab) 를 보고 나온
+    설계다. 저쪽은 IsaacLab 기본 `UniformVelocityCommand` 의 `heading_command`
+    를 쓰고, 우리가 직접 만든 path frame 은 안 쓴다.
+
+    ## 우리 path_tracking 은 실기에서 죽어 있었다
+
+    `_path_error()` 는 [횡방향 오차, cos(방위오차), sin(방위오차)] 를 관측에
+    넣고 `reward_path_tracking` 이 그걸 보상한다. 리워드의 **32 %** 다.
+
+    그런데 횡방향 오차는 **오도메트리가 있어야** 나온다. 실기에는 없다. 실기
+    로그에서 이 관측은 상수 `[0, 1, 0]` 이었다 — 리워드의 3 분의 1 이 실기에
+    존재하지 않는 정보로 학습됐다. 2026-08-18 에 방위 성분만 자이로 적분으로
+    복원했지만(`rl_walk --path-imu`) 횡방향은 여전히 0 이다.
+
+    ## 그래서 방위만 남기되, 관측이 아니라 **명령**에 넣는다
+
+        yaw 명령 = clip(heading_stiffness x wrap(목표방위 - 현재방위))
+
+    정책은 그냥 yaw rate 를 따라가면 되고, 방위를 닫는 일은 호스트가 한다.
+    실기에서도 자이로 z 적분으로 같은 계산을 할 수 있으니 **심과 실기가 같은
+    구조**가 된다. 관측에 없는 것을 보상하지 않는다.
+
+    ## 바뀌는 것
+
+        use_path_frame        True -> False   (path_tracking 리워드 자동 해제,
+                                               관측 -3 차원: 107 -> 104)
+        heading_command_prob  0.0 -> 0.5      절반의 환경에서 yaw 를 방위로 닫는다
+        heading_stiffness     0.5             BDX-R 값
+
+    절반만 켜는 이유: 나머지 절반은 종전대로 yaw rate 를 직접 뽑아야
+    **순수축 명령**(v57 에서 옆·회전 추종을 크게 고친 장치)이 살아 있다.
+    heading 모드에서는 yaw 가 항상 방위 오차에서 나오므로 "제자리 회전만" 같은
+    순수 명령이 사라진다.
+
+    ## 예상되는 대가
+
+    리워드의 32 % 가 사라지므로 **총 리워드가 크게 떨어진다.** 그것 자체는
+    실패가 아니다 — 판정은 늘 하던 목표 지표로 한다. 진짜 위험은 방향 유지
+    신호가 약해져 **직진 중 옆으로 새는 것**이다.
+
+    비교 기준 (v75 @11800): 포화 0.20 % · 일률 6.4 W · roll속 31.0 ·
+    rollRMS 2.25 · 낙상 0.0 % · 앞뒤 0.0092 · 회전 0.0148 · 옆 0.0429
+
+    **판정: 목표 지표를 유지하면서 6 방향 부호가 살아 있는가.** 유지되면
+    실기에서 리워드의 32 % 를 되찾은 것이므로 sim2real 갭이 그만큼 줄어든다.
+    """
+
+    use_path_frame = False
+    observation_space = OBS_STATE_DIM + GRAVITY_OBS_DIM   # 104
+    heading_command_prob = 0.5
 
 
 @configclass

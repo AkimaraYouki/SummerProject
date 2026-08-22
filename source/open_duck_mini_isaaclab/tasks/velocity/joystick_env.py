@@ -228,6 +228,9 @@ class JoystickEnv(DirectRLEnv):
         # while averaging near zero.
         self._path_pos = torch.zeros(n, 2, device=dev)   # world xy
         self._path_yaw = torch.zeros(n, device=dev)      # world heading
+        # heading 명령 (2026-08-22). 목표 방위와, 그 모드를 쓰는 환경 표시.
+        self._heading_tgt = torch.zeros(n, device=dev)
+        self._heading_on = torch.zeros(n, dtype=torch.bool, device=dev)
 
         # Per-joint position-noise scale (hip/knee/ankle/head), built once
         # from cfg — see joystick_env_cfg.py's noise_scale_* fields.
@@ -310,6 +313,33 @@ class JoystickEnv(DirectRLEnv):
 
     # ── command sampling ────────────────────────────────────────────────
 
+    def _robot_yaw(self) -> torch.Tensor:
+        return math_utils.euler_xyz_from_quat(self._robot.data.root_quat_w)[2]
+
+    def _apply_heading_command(self) -> None:
+        """목표 **방위**에서 yaw 명령을 만든다. BDX-R / IsaacLab 기본 명령기 방식.
+
+        왜 이걸 쓰는가: 우리 `path_tracking` 은 경로 기준 **횡방향 오차**를
+        관측에 넣고 보상했는데, 그 값은 오도메트리가 있어야 나온다. 실기에는
+        없어서 상수 0 이었다 — 리워드의 32 %가 실기에 없는 정보로 학습됐다.
+
+        방위 오차는 다르다. IMU 자이로 z 를 적분하면 실기에서도 나온다
+        (`rl_walk --path-imu` 가 이미 그렇게 한다). 그래서 방위만 남기되,
+        **관측·리워드가 아니라 명령 자체에** 넣는다. 정책은 그냥 yaw rate 를
+        따라가면 되고, 방위를 닫는 일은 호스트가 한다. 실기와 심이 같은 구조가
+        된다.
+        """
+        if not self.cfg.heading_command_prob:
+            return
+        m = self._heading_on
+        if not bool(m.any()):
+            return
+        err = math_utils.wrap_to_pi(self._heading_tgt - self._robot_yaw())
+        lo, hi = self.cfg.ang_vel_yaw_range
+        self._command[m, 2] = torch.clamp(
+            self.cfg.heading_stiffness * err[m], min=lo, max=hi
+        )
+
     def _sample_command(self, env_ids: torch.Tensor) -> torch.Tensor:
         n = len(env_ids)
         dev = self.device
@@ -347,6 +377,15 @@ class JoystickEnv(DirectRLEnv):
                         cmd[keep, j] = 0.0
         zero_mask = torch.rand(n, device=dev) < cfg.zero_command_prob
         cmd[zero_mask] = 0.0
+        # heading 모드: 이 환경들의 yaw 명령은 매 스텝 방위 오차에서 다시 만든다.
+        # 나머지는 종전대로 yaw rate 를 직접 뽑는다 (순수축 추첨도 그대로).
+        if cfg.heading_command_prob > 0.0:
+            on = torch.rand(n, device=dev) < cfg.heading_command_prob
+            self._heading_on[env_ids] = on
+            yaw = self._robot_yaw()[env_ids]
+            self._heading_tgt[env_ids] = math_utils.wrap_to_pi(
+                yaw + math_utils.sample_uniform(*cfg.heading_range, (n,), dev)
+            )
         return cmd
 
     # ── physics step ─────────────────────────────────────────────────────
@@ -425,6 +464,10 @@ class JoystickEnv(DirectRLEnv):
         prev = self._motor_targets
         max_delta = self.cfg.max_motor_velocity * self.step_dt
         self._motor_targets = torch.clamp(target, prev - max_delta, prev + max_delta)
+
+        # 방위 오차에서 yaw 명령을 만든다. path frame 적분보다 **앞에** 둔다 —
+        # 둘 다 self._command[:, 2] 를 쓰므로 순서가 뒤집히면 한 스텝 어긋난다.
+        self._apply_heading_command()
 
         # integrate the commanded velocity into the path frame
         if self.cfg.use_path_frame:
