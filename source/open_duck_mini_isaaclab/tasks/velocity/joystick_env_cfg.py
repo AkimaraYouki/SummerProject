@@ -3721,6 +3721,77 @@ class JoystickEnvCfg_V78(JoystickEnvCfg_V75):
 
 
 @configclass
+class JoystickEnvCfg_V79(JoystickEnvCfg_V75):
+    """imitation_v79 — **대조군**. path frame 만 뺀다. heading 은 안 쓴다.
+
+    2026-08-22. v78 이 두 가지를 한꺼번에 바꿔서(path frame 제거 + heading 명령
+    추가) 실패했는데 **어느 쪽이 원인인지 가릴 수 없었다.** 회전 오차가 33 배
+    (0.0148 -> 0.4961) 났고 turn_half 는 명령의 17 %밖에 못 냈다.
+
+    이 판은 v78 을 하기 **전에 했어야 할 대조군**이다. 묻는 것은 하나:
+
+        실기에서 죽어 있는 path_tracking(리워드의 32 %)을 그냥 빼면
+        심 성능이 유지되는가?
+
+    유지되면 그것만으로 이득이다 — 관측 3 차원과 리워드 항 하나가 사라지고,
+    남는 것은 전부 실기에서도 관측되는 값이다. sim2real 갭이 그만큼 준다.
+
+    무너지면 path frame 이 심에서 실제로 일을 하고 있었다는 뜻이고, 그때는
+    빼는 대신 **실기에서 얻을 수 있는 형태로** 바꿔야 한다.
+
+    v78 의 단서: 학습 중 에피소드 길이가 860 으로 v75(803)보다 **길었다.**
+    무너진 것은 회전 하나였으므로, 원인은 path frame 제거가 아니라 heading
+    명령이 yaw 분포를 왜곡한 쪽일 가능성이 크다. 이 판이 그것을 확인한다.
+
+    비교 기준 (v75 @11800): 포화 0.20 % · 일률 6.4 W · roll속 31.0 ·
+    rollRMS 2.25 · 낙상 0.0 % · 앞뒤 0.0092 · 회전 0.0148 · 옆 0.0429
+    """
+
+    use_path_frame = False
+    observation_space = OBS_STATE_DIM + GRAVITY_OBS_DIM   # 104
+
+
+@configclass
+class JoystickEnvCfg_V80(JoystickEnvCfg_V79):
+    """imitation_v80 — v79 + heading 명령을 **약하게** (0.5 -> 0.2).
+
+    v79 가 통과했을 때만 의미가 있는 후속이다. v78 에서 heading 을 절반의
+    환경에 걸었더니 회전이 무너졌다. 원인 가설:
+
+    heading 모드의 yaw 명령은 `clip(0.5 x 방위오차)` 라 목표에 가까워지면
+    **0 으로 수렴한다.** 그래서 정책이 본 yaw 명령이 작은 값에 몰리고,
+    "±1.0 rad/s 를 꾸준히 유지" 하는 명령을 거의 못 배운다. 그런데 시험은
+    정확히 그것으로 본다 — **학습 분포와 시험 분포가 어긋난 것**이고,
+    v57 에서 이미 한 번 겪은 실패 양식이다.
+
+    0.2 로 낮추면 80 %의 환경이 종전대로 yaw rate 를 직접 뽑으므로 순수축
+    회전 명령이 충분히 남는다. 그러고도 직진 유지 효과가 나오는지 본다.
+
+    **판정: 회전 추종이 v79 수준을 유지하면서 옆으로 새는 것이 줄어드는가.**
+    회전이 또 무너지면 heading 명령은 이 로봇의 평가 방식과 맞지 않는 것이니
+    접는다.
+    """
+
+    heading_command_prob = 0.2
+
+
+@configclass
+class JoystickEnvCfg_V81(JoystickEnvCfg_V75):
+    """imitation_v81 — path frame 은 두고 heading 만 약하게 얹는다 (0.2).
+
+    v79 가 **실패했을 때** 쓰는 갈래다. path frame 이 심에서 실제로 일을 하고
+    있다면 뺄 수 없으므로, 그대로 두고 heading 명령만 더해 직진 유지가
+    나아지는지 본다. 관측은 v75 와 같은 107 차원이라 비교가 깨끗하다.
+
+    v79 가 통과하면 이 판은 돌리지 않는다 — path_tracking 을 남기는 것은
+    실기에서 리워드의 32 %가 죽어 있는 상태를 유지한다는 뜻이라, 같은 성능이면
+    v79 쪽이 낫다.
+    """
+
+    heading_command_prob = 0.2
+
+
+@configclass
 class JoystickEnvCfg_V34C20(JoystickEnvCfg_V34C):
     """imitation_v34c20 — v34c(정지 위상 고정) + 레퍼런스 높이 +20 mm (ref_g135)."""
 

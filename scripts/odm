@@ -75,6 +75,9 @@ task_of() {
     v76) echo "Isaac-OpenDuckMini-Joystick-V76-v0" ;;
     v77) echo "Isaac-OpenDuckMini-Joystick-V77-v0" ;;
     v78) echo "Isaac-OpenDuckMini-Joystick-V78-v0" ;;
+    v79) echo "Isaac-OpenDuckMini-Joystick-V79-v0" ;;
+    v80) echo "Isaac-OpenDuckMini-Joystick-V80-v0" ;;
+    v81) echo "Isaac-OpenDuckMini-Joystick-V81-v0" ;;
     # 안전 필터를 켠 변형. 정책은 같고 환경만 다르므로 체크포인트는 원본 것을 쓴다
     # (아래 ckpt_ver 참조). 실기 후보 조합이 v32s 다.
     *) echo "" ;;
