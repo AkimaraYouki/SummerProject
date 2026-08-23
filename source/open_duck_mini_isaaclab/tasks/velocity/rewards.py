@@ -522,6 +522,7 @@ def reward_path_tracking(
     k_lateral: float,
     k_yaw: float,
     w_yaw: float,
+    use_lateral: bool = True,
 ) -> torch.Tensor:
     """경로에서 벗어난 정도를 벌한다 (Disney BD-X의 path frame).
 
@@ -530,6 +531,12 @@ def reward_path_tracking(
     이유도 없다. 적분된 경로 기준의 횡방향·방향 오차를 관측에 넣고 여기서
     보상해야 비로소 "일자로 걷기"가 학습 목표가 된다.
     """
-    lateral = path_err[:, 0]
     yaw_err = torch.atan2(path_err[:, 2], path_err[:, 1])
-    return torch.exp(-k_lateral * lateral**2) + torch.exp(-k_yaw * yaw_err**2) * w_yaw
+    yaw_term = torch.exp(-k_yaw * yaw_err**2) * w_yaw
+    if not use_lateral:
+        # 횡방향 오차는 **오도메트리가 있어야** 나온다. 실기에는 없어서 상수 0
+        # 이었다 — 관측에 없는 것을 보상하면 그만큼이 sim2real 갭이 된다.
+        # 방위 오차는 자이로 z 적분으로 실기에서도 나오므로 그것만 남긴다.
+        return yaw_term
+    lateral = path_err[:, 0]
+    return torch.exp(-k_lateral * lateral**2) + yaw_term

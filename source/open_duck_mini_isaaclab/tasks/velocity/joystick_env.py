@@ -551,7 +551,8 @@ class JoystickEnv(DirectRLEnv):
                 contact,
                 imitation_phase,
             ]
-            + ([self._path_error()] if self.cfg.use_path_frame else [])
+            + ([self._path_error()[:, (0 if self.cfg.path_use_lateral else 1):]]
+               if self.cfg.use_path_frame else [])
             # 중력 방향 (2026-07-30, imitation_v27). **상류에서 의도적으로 이탈한다.**
             # 위 모듈 docstring이 적어둔 대로 Playground도 gravity를 계산만 하고
             # state에는 안 넣는다 -- 빠뜨린 게 아니라 원래 그렇다. 그런데 v26을
@@ -811,7 +812,8 @@ class JoystickEnv(DirectRLEnv):
         if cfg.use_path_frame and cfg.path_tracking_scale != 0.0:
             terms["path_tracking"] = (
                 reward_path_tracking(
-                    self._path_error(), cfg.path_k_lateral, cfg.path_k_yaw, cfg.path_w_yaw
+                    self._path_error(), cfg.path_k_lateral, cfg.path_k_yaw,
+                    cfg.path_w_yaw, cfg.path_use_lateral,
                 )
                 * cfg.path_tracking_scale
             )

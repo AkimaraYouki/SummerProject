@@ -517,6 +517,9 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     heading_command_prob = 0.0
     heading_stiffness = 0.5    # rad/s per rad. BDX-R 값
     heading_range = (-3.14159, 3.14159)
+    #: False 면 path frame 에서 **방위 오차만** 쓴다 (관측·리워드 둘 다).
+    #: 횡방향은 오도메트리가 필요해 실기에서 상수 0 이었다 — v82 참조.
+    path_use_lateral = True
     path_error_clip = 0.5      # m, 횡방향 오차 클리핑 (초기 발산 방지)
     path_tracking_scale = 0.0  # 리워드 가중치
     path_k_lateral = 20.0      # exp 예민도: 0.22 m 벗어나면 exp(-1)
@@ -3789,6 +3792,53 @@ class JoystickEnvCfg_V81(JoystickEnvCfg_V75):
     """
 
     heading_command_prob = 0.2
+
+
+@configclass
+class JoystickEnvCfg_V82(JoystickEnvCfg_V75):
+    """imitation_v82 — path frame 에서 **횡방향만** 뺀다. 방위는 남긴다.
+
+    2026-08-23. v78/v79 가 답을 줬다. 회전 추종:
+
+        v75  path frame 있음                  0.0148
+        v79  path frame 제거 (heading 없음)    0.2341   <- 16 배 악화
+        v78  path frame 제거 + heading 0.5     0.4961   <- 33 배 악화
+
+    **원인은 heading 이 아니라 path frame 제거였다.** v79 가 대조군으로 그것을
+    갈랐다 (heading 은 거기에 2 배를 더했을 뿐이다).
+
+    ## 왜 path frame 이 회전에 그렇게 중요한가
+
+    `reward_path_tracking` 의 방위 항은 `path_yaw` 대비 오차인데, `path_yaw` 는
+    **yaw 명령을 적분한 값**이다. 즉 이 항은 회전 속도 오차의 **적분**을 벌한다.
+    `tracking_ang_vel` 은 순시값만 본다.
+
+    지속적으로 덜 도는 것을 벌하는 항이 이것 하나뿐이었고, 빼니까 정확히 그
+    증상이 나왔다 — v78 은 명령 1.00 에 실제 0.504, v79 도 비슷하다.
+
+    ## 그래서 반만 뺀다
+
+    실기에서 죽어 있던 것은 **횡방향 성분**이다 (오도메트리가 필요하다).
+    방위 성분은 자이로 z 적분으로 실기에서도 나온다 — `rl_walk --path-imu` 가
+    이미 그렇게 한다. 그러니 방위는 남기고 횡방향만 뺀다:
+
+        path_use_lateral  True -> False
+        관측  107 -> 106   (횡방향 1 차원 제외)
+        리워드  exp(-k_lat x lat^2) 항 제거, 방위 항만
+
+    이러면 관측·리워드에 남는 것이 **전부 실기에서 얻을 수 있는 값**이 되면서
+    회전을 지키는 적분 항도 살아 있다.
+
+    비교 기준 (v75 @11800): 회전 0.0148 · 앞뒤 0.0092 · 옆 0.0429 ·
+    포화 0.20 % · 일률 6.4 W · roll속 31.0 · 낙상 0.0 %
+
+    **판정: 회전이 v75 수준(<= 0.03)을 지키는가.** 지키면 실기에서 죽어 있던
+    리워드를 걷어내고도 성능을 유지한 것이다. 옆으로 새는 것이 늘 수 있으니
+    (횡방향 벌점이 사라지므로) 옆 추종도 같이 본다.
+    """
+
+    path_use_lateral = False
+    observation_space = OBS_STATE_DIM + PATH_ERR_DIM - 1 + GRAVITY_OBS_DIM  # 106
 
 
 @configclass
