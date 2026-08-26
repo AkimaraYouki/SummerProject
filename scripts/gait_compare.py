@@ -52,7 +52,10 @@ runner = build_runner(env, agent_cfg)
 load_checkpoint(runner, args_cli.checkpoint)
 policy = runner.get_inference_policy(device=env.unwrapped.device)
 u = env.unwrapped
-
+# 이 스크립트는 명령을 직접 고정한다. heading 명령이 그것을 덮어쓰지
+# 않도록 끈다 (2026-08-25, 이것 때문에 v78/v81 측정이 오염됐다).
+if hasattr(u, "pin_commands"):
+    u.pin_commands()
 # Commands pinned inside the ranges the reference polynomial was actually fit
 # over (lin_vel_x +-0.15, lin_vel_y +-0.2, ang_vel_yaw +-1.0) — outside them
 # PolyReferenceMotion falls back to a nearest grid point and the "reference"

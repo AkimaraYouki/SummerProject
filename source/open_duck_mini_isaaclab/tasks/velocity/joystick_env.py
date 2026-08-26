@@ -231,6 +231,8 @@ class JoystickEnv(DirectRLEnv):
         # heading 명령 (2026-08-22). 목표 방위와, 그 모드를 쓰는 환경 표시.
         self._heading_tgt = torch.zeros(n, device=dev)
         self._heading_on = torch.zeros(n, dtype=torch.bool, device=dev)
+        #: 바깥에서 명령을 고정했는가. True 면 heading 이 명령을 덮어쓰지 않는다.
+        self._cmd_pinned = False
 
         # Per-joint position-noise scale (hip/knee/ankle/head), built once
         # from cfg — see joystick_env_cfg.py's noise_scale_* fields.
@@ -329,7 +331,7 @@ class JoystickEnv(DirectRLEnv):
         따라가면 되고, 방위를 닫는 일은 호스트가 한다. 실기와 심이 같은 구조가
         된다.
         """
-        if not self.cfg.heading_command_prob:
+        if self._cmd_pinned or not self.cfg.heading_command_prob:
             return
         m = self._heading_on
         if not bool(m.any()):
@@ -339,6 +341,21 @@ class JoystickEnv(DirectRLEnv):
         self._command[m, 2] = torch.clamp(
             self.cfg.heading_stiffness * err[m], min=lo, max=hi
         )
+
+    def pin_commands(self, on: bool = True) -> None:
+        """바깥에서 `_command` 를 직접 쓸 때 호출한다 (측정·재생·조이스틱).
+
+        2026-08-25 에 이걸 안 해서 **측정이 오염됐다.** `gait_compare` 가
+        `u._command[:, 2] = 1.0` 으로 회전을 고정해도, 그 뒤 스텝 안에서
+        `_apply_heading_command()` 가 heading 모드 환경의 yaw 를 방위 오차에서
+        다시 계산해 덮어썼다. v81(20 %)·v78(50 %)의 환경 일부가 명령한 회전을
+        아예 안 받았고, 회전 오차가 정책 탓인지 이것 탓인지 못 가리게 됐다.
+
+        학습에서는 명령을 내부에서 뽑으므로 이 플래그가 꺼진 채로 둔다.
+        """
+        self._cmd_pinned = bool(on)
+        if on:
+            self._heading_on[:] = False
 
     def _sample_command(self, env_ids: torch.Tensor) -> torch.Tensor:
         n = len(env_ids)
@@ -379,7 +396,7 @@ class JoystickEnv(DirectRLEnv):
         cmd[zero_mask] = 0.0
         # heading 모드: 이 환경들의 yaw 명령은 매 스텝 방위 오차에서 다시 만든다.
         # 나머지는 종전대로 yaw rate 를 직접 뽑는다 (순수축 추첨도 그대로).
-        if cfg.heading_command_prob > 0.0:
+        if cfg.heading_command_prob > 0.0 and not self._cmd_pinned:
             on = torch.rand(n, device=dev) < cfg.heading_command_prob
             self._heading_on[env_ids] = on
             yaw = self._robot_yaw()[env_ids]

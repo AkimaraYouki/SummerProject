@@ -315,6 +315,13 @@ measure)
   # 두 번째 인자로 iteration 을 주면 그 체크포인트를 잰다: odm measure v27 1500
   # 왜 필요한가: v26 이 v25@1500 보다 두 배 학습하고도 추종이 나빠졌다. 학습량이
   # 다르면 비교가 성립하지 않으므로, 같은 iteration 끼리 재야 한다.
+  # --repeat N: 같은 체크포인트를 N 회 재고 평균낸다. 2026-08-24 에 잡음을
+  # 실측하니 1 회 측정으로는 추종을 비교할 수 없다는 게 드러났다 — 같은
+  # 체크포인트에서 회전 오차가 0.0038~0.0414 로 11 배 흔들린다(폭/평균 223 %).
+  # 믿을 수 있는 것은 일률(3 %)뿐이었다.
+  rep=1
+  for a in "$@"; do case "$a" in --repeat=*) rep="${a#--repeat=}";; esac; done
+  set -- $(printf '%s\n' "$@" | grep -v '^--repeat=')
   ver="${1:-v25}"; iter="${2:-}"; task="$(task_of "$ver")"
   [ -z "$task" ] && { echo "알 수 없는 버전 $ver" >&2; exit 1; }
   if [ -n "$iter" ]; then
@@ -327,10 +334,22 @@ measure)
   fi
   require_free_gpu
   cd "$PROJ"
-  echo "측정: $ver  $(basename "$ck")  (약 7분)"
+  echo "측정: $ver  $(basename "$ck")  x${rep}회  (회당 약 3분)"
+  if [ "$rep" -gt 1 ]; then
+    mkdir -p "$HOME/odm_out/rep"
+    for i in $(seq 1 "$rep"); do
+      "$IL" -p scripts/_isaaclab_launch.py scripts/gait_compare.py --task "$task" \
+        --checkpoint "$ck" --num_envs 4 --num_steps 500 \
+        --out "$HOME/odm_out/rep/${ver}_$i.npz" --headless 2>/dev/null | grep -E '^\[ok\]'
+    done
+    # 마지막 회차를 대표 npz 로 둔다 (기존 도구들이 이 경로를 본다).
+    cp "$HOME/odm_out/rep/${ver}_${rep}.npz" "$HOME/odm_out/gait_$ver.npz"
+    python3 scripts/diag/noise_spread.py "$HOME/odm_out/rep/${ver}"_*.npz
+  else
   "$IL" -p scripts/_isaaclab_launch.py scripts/gait_compare.py --task "$task" \
     --checkpoint "$ck" --num_envs 4 --num_steps 500 \
     --out "$HOME/odm_out/gait_$ver.npz" --headless 2>/dev/null | grep -E '^\[ok\]'
+  fi
   "$IL" -p scripts/_isaaclab_launch.py scripts/joint_periodicity.py --task "$task" \
     --checkpoint "$ck" --num_envs 4 --num_steps 600 \
     --out "$HOME/odm_out/joint_$ver.npz" --headless 2>/dev/null | grep -E '^\[ok\]'
