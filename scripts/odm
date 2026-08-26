@@ -182,6 +182,8 @@ set -- ${_args+"${_args[@]}"}
 cmd="${1:-help}"; shift || true
 
 case "$cmd" in
+_task)  # 내부용: 버전 -> gym 태스크 이름. 스크립트가 매핑을 복제하지 않게 한다.
+  task_of "${1:-}" ;;
 train)
   # odm train v34c 3000 4096              처음부터
   # odm train v34c 1500 4096 --resume     최신 체크포인트에서 이어서
