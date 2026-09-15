@@ -3842,6 +3842,49 @@ class JoystickEnvCfg_V82(JoystickEnvCfg_V75):
 
 
 @configclass
+class JoystickEnvCfg_V83(JoystickEnvCfg_V75):
+    """imitation_v83 — v75 레시피를 **실물과 같은 원래 발**로 다시 학습한다.
+
+    2026-09-15. v75 를 실기에 올렸더니 v65 보다 못했다. 원인을 찾다 사용자
+    확인으로 드러났다: **실물에는 big_foot 을 달지 않았다.**
+
+    v73 이 심 실험용으로 big_foot USD 를 도입했고, v74~v82 가 전부 그 위에
+    쌓였다. 각 런의 params/env.yaml 로 확인한 결과:
+
+        v60~v71   원래 발    <- 실물과 일치
+        v73~v82   big_foot   <- 실물에 없는 로봇 (9 개 전부)
+
+    v70 과 v75 의 로봇 설정을 대조하니 **USD 하나만** 다르다 (초기자세·
+    레퍼런스 궤적·액추에이터 동일). 그래서 이 판은 v75 에서 발만 원래대로
+    되돌린 **깨끗한 한 변수 비교**다.
+
+    ## 왜 심 측정이 이걸 못 잡았나
+
+    심에서 v75 는 모든 목표 지표가 v65 보다 좋았다. 그런데 심과 big_foot
+    모델은 **서로 일관돼 있으니** 불일치가 보일 수가 없다. 실기에서만
+    드러나는 종류의 오류다.
+
+    ## 판정 (실기)
+
+      · 이 판이 v65 이상으로 걸으면 -> 원인은 **발 모델 불일치**였다.
+        v74/v75 의 리워드 변경(토크 벌점·토르소 벌점)은 실기에서도 유효하다.
+      · 여전히 v65 보다 못하면 -> 원인은 **리워드 변경** 쪽이다.
+        v68(원래 발 + 토크 묶음)·v70(원래 발 + CoM -10 mm)으로 더 가른다.
+
+    CoM -10 mm 는 유지한다. 사용자가 실물의 앞쏠림을 보고 요청한 값이고,
+    한 번에 하나만 되돌려야 원인이 갈린다.
+    """
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G135SYM),
+            joint_pos=dict(READY_JOINT_POS_G135SYM_ZNECK),
+        ),
+    )
+
+
+@configclass
 class JoystickEnvCfg_V34C20(JoystickEnvCfg_V34C):
     """imitation_v34c20 — v34c(정지 위상 고정) + 레퍼런스 높이 +20 mm (ref_g135)."""
 

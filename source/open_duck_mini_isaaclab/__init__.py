@@ -668,6 +668,17 @@ try:
         },
     )
 
+    # v75 레시피를 원래 발(실물과 같은 USD)로. v73~v82 는 전부 big_foot 이었다.
+    gym.register(
+        id="Isaac-OpenDuckMini-Joystick-V83-v0",
+        entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.tasks.velocity.joystick_env_cfg:JoystickEnvCfg_V83",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:JoystickPPORunnerCfg_Explore13",
+        },
+    )
+
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-V34C20-v0",
         entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
