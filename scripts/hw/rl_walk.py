@@ -108,6 +108,28 @@ READY_JOINT_POS = {
 READY_ARR = np.array([READY_JOINT_POS[n] for n in NAMES], dtype=np.float32)
 
 
+
+def lean_back_rotation(deg: float) -> np.ndarray:
+    """IMU 벡터에 곱할 회전. 정책이 **앞으로 deg 만큼 숙인 줄** 알게 만든다.
+
+    2026-09-16. 실기가 전부 앞으로 넘어졌다. 원인은 실물 무게중심이 정책이
+    학습한 위치보다 앞에 있기 때문이다. 재학습 없이 보정하는 방법으로, IMU 가
+    앞으로 기울어 장착된 것처럼 관측을 돌린다. 정책은 자기가 숙였다고 판단하고
+    **스스로 몸통을 뒤로 젖힌다** — 관절 목표에 직접 오프셋을 더하면 폐루프
+    정책이 그걸 도로 되돌리려 싸우지만, 이 방식은 정책의 균형 제어를 그대로 쓴다.
+
+    몸통을 1 도 젖히면 전체 무게중심이 약 1.0 mm 뒤로 간다 (상체 65.9 %,
+    고관절 위 87 mm — m2894 모델, READY 자세).
+
+    부호: 몸통 +x 앞 / +z 위. y 축 +deg 회전은 기수를 숙이는 방향이고, 똑바로 선
+    상태의 projected_gravity 는 (sin deg, 0, -cos deg) 가 된다 — 심에서 실제로
+    deg 만큼 숙였을 때와 같은 값이다.
+    """
+    t = np.radians(deg)
+    c, s = np.cos(t), np.sin(t)
+    # R_y(t) 의 전치. 물리 벡터를 "숙인 몸통" 좌표로 옮긴다.
+    return np.array([[c, 0.0, -s], [0.0, 1.0, 0.0], [s, 0.0, c]], dtype=np.float64)
+
 def _ready_from_meta(meta: dict):
     """정책 메타의 ready_joint_pos 로 READY_ARR 을 덮는다.
 
@@ -318,6 +340,10 @@ def main():
                           "(α=0.5), v35 처럼 무필터로 학습된 정책에 켜면 정지에서만 "
                           "이득이고 보행에서는 추종이 나빠진다 "
                           "(docs/reports/lowpass_2026-08-09.md 실험 A).")
+    ap.add_argument("--lean-back", type=float, default=0.0, metavar="DEG",
+                    help="몸통을 DEG 도 뒤로 젖혀 걷게 한다 (재학습 없는 무게중심 보정). "
+                         "IMU 가 앞으로 기운 것처럼 관측을 돌려 정책이 스스로 젖히게 한다. "
+                         "1 도 = 무게중심 약 1 mm 뒤. 실기가 앞으로 넘어질 때 2~6 부터.")
     ap.add_argument("--grav-src", choices=("fused", "accel"), default="fused",
                     help="projected_gravity 관측의 출처. fused=BNO055 GRV_DATA(0x2E, "
                          "융합이 분리한 중력만·기본), accel=생 가속도 정규화(예전 동작). "
@@ -358,6 +384,10 @@ def main():
                      "직접 꽂았으면 --joy, 심에서 중계받으려면 --cmd-udp-port 다.")
 
     zero_action = args.zero_action or args.onnx is None
+    lean_R = lean_back_rotation(args.lean_back) if args.lean_back else None
+    if lean_R is not None:
+        print(f"[rl_walk] 몸통 뒤로 젖힘 보정 {args.lean_back:+.1f}° "
+              f"(무게중심 약 {args.lean_back:.1f} mm 뒤로)")
     sess = None
     if args.onnx is not None:
         sess = ort.InferenceSession(args.onnx, providers=["CPUExecutionProvider"])
@@ -645,6 +675,7 @@ def main():
             "command": {"vx": args.vx, "vy": args.vy, "wz": args.wz},
             "action_lpf_alpha": args.action_lpf_alpha,
             "grav_src": args.grav_src,
+            "lean_back_deg": args.lean_back,
             "current_limit_ticks": args.current,
             "current_limit_A": args.current * 2.69 / 1000.0,
             # 실제로 서보에서 읽어 온 값이다 (명령값이 아니라). 모드 전환이
@@ -733,6 +764,11 @@ def main():
 
             _ta = time.time()
             gyro, accel, grav = imu.read()
+            if lean_R is not None:
+                # 세 벡터를 같은 회전으로 돌려야 관측이 서로 모순되지 않는다.
+                gyro = lean_R @ np.asarray(gyro, dtype=np.float64)
+                accel = lean_R @ np.asarray(accel, dtype=np.float64)
+                grav = lean_R @ np.asarray(grav, dtype=np.float64)
             if args.path_imu:
                 if np.linalg.norm(command[:3]) <= STANDSTILL_HOLD_THRESH:
                     # 정지는 정지다 (2026-08-18, 사용자 결정).
