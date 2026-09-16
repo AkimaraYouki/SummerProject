@@ -148,6 +148,11 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-V77-v0",
     "Isaac-OpenDuckMini-Joystick-V78-v0",
     "Isaac-OpenDuckMini-Joystick-V79-v0",
+    "Isaac-OpenDuckMini-Joystick-V83-v0",
+    "Isaac-OpenDuckMini-Joystick-V84-v0",
+    "Isaac-OpenDuckMini-Joystick-V85-v0",
+    "Isaac-OpenDuckMini-Joystick-V86-v0",
+    "Isaac-OpenDuckMini-Joystick-V87-v0",
 }
 
 
