@@ -104,6 +104,13 @@ OPEN_DUCK_MINI_USD_PATH = os.path.join(_REPO_ROOT, "robot", "usd", "open_duck_mi
 #: 한 번의 import 에서 나온 것(URDF·메시·USD)을 한 디렉터리에 모으는 규칙.
 OPEN_DUCK_MINI_BIGFOOT_USD_PATH = os.path.join(
     _REPO_ROOT, "big_foot", "usd", "open_duck_mini_v2_bigfoot.usd")
+#: big_foot 에 **실측 총질량 2894 g** 을 반영한 변형 (2026-09-16).
+#: CAD 합계 2751.8 g 보다 142.2 g 무거워, 그 차이를 trunk 의 기존 무게중심에
+#: 더하고 관성은 질량비(x1.12335)만큼 키웠다. 원본 URDF 는 건드리지 않았다 —
+#: big_foot/robot.urdf 를 고치면 v73~v82 가 조용히 무거운 모델로 바뀐다.
+#: 소스: big_foot/robot_m2894.urdf
+OPEN_DUCK_MINI_BIGFOOT_M2894_USD_PATH = os.path.join(
+    _REPO_ROOT, "big_foot", "usd", "open_duck_mini_v2_bigfoot_m2894.usd")
 
 # Leg joints (10): position-servo XM430, this exact set drives locomotion.
 _LEG_JOINT_NAMES = [n for n in ACTUATOR_JOINT_NAMES if "hip" in n or "knee" in n or "ankle" in n]

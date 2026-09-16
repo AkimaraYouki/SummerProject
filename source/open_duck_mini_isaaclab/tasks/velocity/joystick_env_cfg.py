@@ -37,6 +37,7 @@ from open_duck_mini_isaaclab.joint_order import (
 from open_duck_mini_isaaclab.imu_map import MOUNT_POS as IMU_MOUNT_POS
 from open_duck_mini_isaaclab.robot_cfg import (
     OPEN_DUCK_MINI_BIGFOOT_USD_PATH,
+    OPEN_DUCK_MINI_BIGFOOT_M2894_USD_PATH,
     OPEN_DUCK_MINI_V2_CFG,
     OPEN_DUCK_MINI_V2_DC_CFG,
 )
@@ -3877,6 +3878,45 @@ class JoystickEnvCfg_V83(JoystickEnvCfg_V75):
 
     robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
         prim_path="/World/envs/env_.*/Robot",
+        init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+            pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G135SYM),
+            joint_pos=dict(READY_JOINT_POS_G135SYM_ZNECK),
+        ),
+    )
+
+
+@configclass
+class JoystickEnvCfg_V84(JoystickEnvCfg_V75):
+    """imitation_v84 — v75 에 **실측 질량 2894 g** 을 반영한다. 질량만 바뀐다.
+
+    2026-09-16. 실물(big_foot 장착)을 처음으로 저울에 올렸더니 2894 g 이었다.
+    모델은 2751.8 g — **142.2 g(+5.2 %) 가볍다.**
+
+    학습 시 질량 무작위화(전 링크 x0.9~1.1, 몸통 +-100 g)가 2377~3127 g 을
+    덮으므로 처음 보는 무게는 아니다. 다만 정책은 **중심값** 기준으로 최적화되고,
+    실측은 그보다 위쪽이다. 이 판은 중심값 자체를 실물로 옮긴다.
+
+    ## 142 g 을 어디에 넣었나
+
+    사용자 지시대로 **trunk 의 기존 무게중심**에 더했다. 분포를 재지 않은 채로
+    임의 위치에 넣으면 추측이 하나 더 생기므로, 무게중심은 건드리지 않는 쪽을
+    골랐다. 관성은 질량비(x1.12335)만큼 키웠다 — 추가분을 나사·배선처럼 몸통에
+    고르게 퍼진 무게로 본 것이다. 몸통 1153.0 -> 1295.2 g.
+
+    ## 남은 불확실성
+
+    142 g 이 실제로는 몸통 앞쪽에 쏠려 있을 수 있다. CoM -10 mm 는 "실물이
+    앞으로 쏠린다" 는 관찰에서 넣은 값이라, 그 쏠림의 원인이 바로 이 모델에 없던
+    무게였을 수 있다. 실물 무게중심을 재면 둘 다 실측값으로 바꿀 수 있다.
+
+    비교 기준: v75 (같은 big_foot, 질량만 CAD 값)
+    """
+
+    robot = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        spawn=OPEN_DUCK_MINI_V2_DC_CFG.spawn.replace(
+            usd_path=OPEN_DUCK_MINI_BIGFOOT_M2894_USD_PATH,
+        ),
         init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
             pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G135SYM),
             joint_pos=dict(READY_JOINT_POS_G135SYM_ZNECK),
