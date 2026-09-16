@@ -1756,6 +1756,24 @@ class _ComBackEventCfg(EventCfg):
 
 
 @configclass
+class _ComFwd15EventCfg(_ComBackEventCfg):
+    """몸통 CoM 을 **앞으로** 15 mm. v86 용 (v85 의 반대 방향 대조군).
+
+    이름은 _ComBack 계열을 물려받았지만 방향은 +x(앞)다. 이벤트 키 com_back 을
+    그대로 쓰는 것은 부모의 EventTerm 을 덮어쓰기 위해서다.
+    """
+
+    com_back = EventTerm(
+        func=mdp.randomize_rigid_body_com,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="trunk_assembly"),
+            "com_range": {"x": (0.015, 0.015)},
+        },
+    )
+
+
+@configclass
 class _WideMassEventCfg(EventCfg):
     """EventCfg 에서 **질량 배율 범위만** 넓힌 것. 나머지 무작위화는 그대로."""
 
@@ -3922,6 +3940,76 @@ class JoystickEnvCfg_V84(JoystickEnvCfg_V75):
             joint_pos=dict(READY_JOINT_POS_G135SYM_ZNECK),
         ),
     )
+
+
+#: 실기 현재 사양의 로봇 — big_foot + 실측 총질량 2894 g. v85~v87 공용.
+#: 초기자세는 v65 계열과 같다 (v70/v75 대조로 USD 외에는 동일함을 확인).
+_ROBOT_BIGFOOT_M2894 = OPEN_DUCK_MINI_V2_DC_CFG.replace(
+    prim_path="/World/envs/env_.*/Robot",
+    spawn=OPEN_DUCK_MINI_V2_DC_CFG.spawn.replace(
+        usd_path=OPEN_DUCK_MINI_BIGFOOT_M2894_USD_PATH,
+    ),
+    init_state=OPEN_DUCK_MINI_V2_DC_CFG.init_state.replace(
+        pos=(0.0, 0.0, SPAWN_BASE_HEIGHT_G135SYM),
+        joint_pos=dict(READY_JOINT_POS_G135SYM_ZNECK),
+    ),
+)
+
+
+@configclass
+class JoystickEnvCfg_V85(JoystickEnvCfg_V65):
+    """imitation_v85 — v65 + 현재 실물(big_foot 2894 g) + 심 CoM **뒤로** 15 mm.
+
+    2026-09-17. 사용자가 보행 중 로봇 뒷부분을 손으로 눌렀더니 잘 걸었다.
+    사용자 판단: "무게중심이 뒤로 가게 학습해야 할 것 같다. v65 에서 분기."
+
+    v65 에서 분기하는 이유: 실기에서 가장 잘 걸은 정책이다. v74/v75 의 토크·
+    토르소 벌점은 실기에서 v65 보다 못했으므로 뺀다.
+
+    로봇 모델은 **현재 실물**로 바꾼다 (big_foot, 실측 2894 g). v65 는 원래 발
+    모델이라 지금 실물과 맞지 않는다 — v73~v82 에서 이미 한 번 겪은 실수다.
+
+    ## 이 판과 v86 은 서로 반대 방향이다
+
+    뒤를 누르면 **실물**의 무게중심이 뒤로 간다. 그게 잘 걸었다는 것은 실물이
+    정책의 기대보다 앞쪽이 무겁다는 뜻이다. 그런데 심 무게중심을 뒤로 옮기면
+    정책은 뒤가 무거운 로봇을 버티려고 **앞으로 숙이는 법**을 배우고, 실제로
+    v70 이후(심 CoM 뒤 10 mm) 정책이 전부 앞으로 넘어졌다. 이 추론대로면 v86
+    (앞으로 15 mm)이 맞는 방향이다.
+
+    추론이 틀렸을 수 있으므로 사용자가 요청한 방향(이 판), 반대 방향(v86),
+    기준(v87)을 같은 조건으로 학습해 **실기로 판정**한다.
+
+    뒤로 15 mm = 몸통 기준. 전체 무게중심으로는 약 6.7 mm (몸통 44.7 %).
+    """
+
+    robot = _ROBOT_BIGFOOT_M2894
+    events: EventCfg = _ComBack15EventCfg()
+
+
+@configclass
+class JoystickEnvCfg_V86(JoystickEnvCfg_V65):
+    """imitation_v86 — v85 의 **반대 방향** 대조군. 심 CoM **앞으로** 15 mm.
+
+    근거는 v85 독스트링. 앞이 무거운 로봇에서 학습한 정책은 몸통을 스스로 뒤로
+    젖혀 버티는 법을 배운다. 실물이 정책 기대보다 앞쪽이 무겁다면 이 판이 실기에서
+    가장 잘 걸어야 한다 — 사용자가 뒤를 눌러서 얻은 걸음과 같은 결과를, 누르지
+    않고 정책 스스로 만든다.
+    """
+
+    robot = _ROBOT_BIGFOOT_M2894
+    events: EventCfg = _ComFwd15EventCfg()
+
+
+@configclass
+class JoystickEnvCfg_V87(JoystickEnvCfg_V65):
+    """imitation_v87 — v85/v86 의 기준. 현재 실물 모델 + 심 CoM 이동 **없음**.
+
+    v65 에서 로봇 모델만 현재 실물(big_foot 2894 g)로 바꾼 것. v85 와 v86 이
+    이 판보다 나은지 못한지로 방향의 효과를 가른다.
+    """
+
+    robot = _ROBOT_BIGFOOT_M2894
 
 
 @configclass

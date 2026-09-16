@@ -79,6 +79,9 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-V82-v0": "JoystickEnvCfg_V82",
     "Isaac-OpenDuckMini-Joystick-V83-v0": "JoystickEnvCfg_V83",
     "Isaac-OpenDuckMini-Joystick-V84-v0": "JoystickEnvCfg_V84",
+    "Isaac-OpenDuckMini-Joystick-V85-v0": "JoystickEnvCfg_V85",
+    "Isaac-OpenDuckMini-Joystick-V86-v0": "JoystickEnvCfg_V86",
+    "Isaac-OpenDuckMini-Joystick-V87-v0": "JoystickEnvCfg_V87",
     "Isaac-OpenDuckMini-Joystick-V80-v0": "JoystickEnvCfg_V80",
     "Isaac-OpenDuckMini-Joystick-V79-v0": "JoystickEnvCfg_V79",
 }
