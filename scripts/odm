@@ -159,7 +159,20 @@ host_ip() {
 # **리터럴**이 들어가므로 정규식 `pytho[n]` 에 안 걸리고, 실제 프로세스의
 # `python3` 에는 걸린다. 자기 자신을 "GPU 사용 중" 으로 오인하는 사고를
 # 2026-08-14~19 에 네 번 겪었다 (학습을 죽이거나 죽은 런을 살아있다고 봤다).
-gpu_busy() { pgrep -f "pytho[n].*_isaaclab_launch\.py" > /dev/null 2>&1; }
+# Isaac 이 떠 있는가. **프로세스 이름이 python3 인 것만** 본다.
+# 2026-09-17 까지는 `pgrep -f "pytho[n].*_isaaclab_launch"` 로 명령줄 글자를
+# 봤다. [n] 문자 클래스는 정규식 자신과의 매칭만 피할 뿐, 명령줄에 진짜
+# "python3 ... _isaaclab_launch" 가 **글자로** 들어 있는 셸(스크립트를 heredoc
+# 으로 만든 bash -c 등)이 남아 있으면 그대로 걸린다. 실제로 그런 셸 하나가 2 시간
+# 살아 있어서 큐가 "Isaac 실행 중" 으로 오판하고 v86 학습이 끝난 뒤에도 멈춰 있었다.
+# 셸은 이름이 bash 라서 이 방식에는 안 걸린다.
+gpu_busy() {
+  local p
+  for p in $(pgrep -x python3 2>/dev/null); do
+    tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q '_isaaclab_launch\.py' && return 0
+  done
+  return 1
+}
 require_free_gpu() {
   if gpu_busy; then
     echo "!! GPU에 Isaac Sim이 이미 떠 있습니다. 두 개를 동시에 띄우면 한쪽이 조용히 죽습니다." >&2
