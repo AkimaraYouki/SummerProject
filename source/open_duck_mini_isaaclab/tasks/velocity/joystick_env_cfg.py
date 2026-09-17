@@ -1774,6 +1774,23 @@ class _ComFwd15EventCfg(_ComBackEventCfg):
 
 
 @configclass
+class _ComFwd25EventCfg(_ComBackEventCfg):
+    """몸통 CoM 을 **앞으로** 25 mm. v88 용 (v86 의 15 mm 를 더 민 판).
+
+    전체 무게중심으로는 약 11 mm (몸통 44.7 %).
+    """
+
+    com_back = EventTerm(
+        func=mdp.randomize_rigid_body_com,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="trunk_assembly"),
+            "com_range": {"x": (0.025, 0.025)},
+        },
+    )
+
+
+@configclass
 class _WideMassEventCfg(EventCfg):
     """EventCfg 에서 **질량 배율 범위만** 넓힌 것. 나머지 무작위화는 그대로."""
 
@@ -4010,6 +4027,19 @@ class JoystickEnvCfg_V87(JoystickEnvCfg_V65):
     """
 
     robot = _ROBOT_BIGFOOT_M2894
+
+
+@configclass
+class JoystickEnvCfg_V88(JoystickEnvCfg_V65):
+    """imitation_v88 — v86 과 같고 심 CoM 만 **앞으로 25 mm** (v86 은 15 mm).
+
+    2026-09-17. 사용자 지시: "무게중심 앞에 놓고 질량 big foot 으로 학습. 25 mm 도."
+    v86 과 나란히 놓고 앞쪽 이동량을 키웠을 때 실기에서 더 나아지는지 본다.
+    전체 무게중심으로는 약 11 mm 앞 (v86 은 약 6.7 mm).
+    """
+
+    robot = _ROBOT_BIGFOOT_M2894
+    events: EventCfg = _ComFwd25EventCfg()
 
 
 @configclass
