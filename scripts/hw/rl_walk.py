@@ -211,6 +211,43 @@ PATH_ERROR_FIXED = np.array([0.0, 1.0, 0.0], dtype=np.float32)
 GYRO_BIAS_DEFAULT = 0.0
 
 
+#: --onnx-back 전환 문턱 (m/s). 히스테리시스 — vx 가 0 근처에서 흔들려도
+#: 정책이 매 스텝 바뀌지 않게 들어갈 때와 나올 때 문턱을 다르게 둔다.
+BACK_ENTER_VX = -0.02
+BACK_LEAVE_VX = -0.005
+
+
+def choose_back_policy(using_back: bool, vx: float) -> bool:
+    """후진 정책을 쓸지 정한다. v89(전진 전용)/v90(후진 전용) 짝을 위한 것.
+
+    후진 정책은 vx 가 BACK_ENTER_VX 보다 작아질 때 켜지고, BACK_LEAVE_VX 보다
+    커질 때 꺼진다. 정지·제자리 회전·옆걸음(vx = 0)은 전진 정책이 맡는다.
+    """
+    if using_back:
+        return vx < BACK_LEAVE_VX
+    return vx < BACK_ENTER_VX
+
+
+def leash_path_yaw(robot_yaw: float, path_yaw: float, clip: float) -> float:
+    """방위 오차가 ±clip 을 넘지 않게 경로 방향을 로봇 쪽으로 끌어온다.
+
+    경로 방향은 회전 **명령**을 적분한 값이다. 실기가 명령보다 느리게 돌면
+    오차가 계속 쌓이고, 180 도를 넘는 순간 wrap 되어 부호가 뒤집힌다 — 정책은
+    "너무 돌았다" 고 믿고 반대로 돈다. 심에서는 회전 추종이 좋아 오차가 거의
+    쌓이지 않으니 그런 값을 본 적도 없다. 끈에 묶어 두면 오차는 ±clip 에서
+    멈추고, 정책은 "덜 돌았다, 더 돌아라" 는 신호를 계속 받는다.
+    clip <= 0 이면 아무것도 안 한다.
+    """
+    if clip <= 0.0:
+        return path_yaw
+    e = _wrap(robot_yaw - path_yaw)
+    if e > clip:
+        return _wrap(robot_yaw - clip)
+    if e < -clip:
+        return _wrap(robot_yaw + clip)
+    return path_yaw
+
+
 def _wrap(a: float) -> float:
     """(-pi, pi] 로 감는다."""
     return math.atan2(math.sin(a), math.cos(a))
@@ -344,6 +381,15 @@ def main():
                     help="몸통을 DEG 도 뒤로 젖혀 걷게 한다 (재학습 없는 무게중심 보정). "
                          "IMU 가 앞으로 기운 것처럼 관측을 돌려 정책이 스스로 젖히게 한다. "
                          "1 도 = 무게중심 약 1 mm 뒤. 실기가 앞으로 넘어질 때 2~6 부터.")
+    ap.add_argument("--onnx-back", default=None, metavar="ONNX",
+                    help="후진 전용 정책. vx < -0.02 가 되면 이 정책으로 바꾸고 "
+                         "vx > -0.005 가 되면 --onnx 로 돌아온다. 두 정책의 READY·"
+                         "스케일이 같아야 한다 (예: --onnx ~/v89/policy.onnx "
+                         "--onnx-back ~/v90/policy.onnx).")
+    ap.add_argument("--path-yaw-clip", type=float, default=0.0, metavar="RAD",
+                    help="--path-imu 의 방위 오차를 ±RAD 에서 묶는다. 0 = 끔. "
+                         "회전이 명령보다 느릴 때 오차가 쌓여 부호가 뒤집히는 것을 "
+                         "막는다. 0.5 부터 시험.")
     ap.add_argument("--grav-src", choices=("fused", "accel"), default="fused",
                     help="projected_gravity 관측의 출처. fused=BNO055 GRV_DATA(0x2E, "
                          "융합이 분리한 중력만·기본), accel=생 가속도 정규화(예전 동작). "
@@ -392,6 +438,8 @@ def main():
     if args.onnx is not None:
         sess = ort.InferenceSession(args.onnx, providers=["CPUExecutionProvider"])
         print(f"[rl_walk] 정책 로드: {args.onnx}")
+    if args.onnx_back is not None and args.onnx is None:
+        ap.error("--onnx-back 은 --onnx 와 같이 써야 한다")
 
     # 저역필터 계수는 **정책마다 다르다**(학습 환경에 넣었는지에 따라). 손으로
     # 매번 맞춰 주면 언젠가 깜빡하고 조용히 train/test 불일치가 나므로, 정책 옆
@@ -408,6 +456,43 @@ def main():
     #   alpha = a_still + (a_move - a_still) * t
     # 명령이 고정이면 한 번만 계산하면 된다. --cmd-udp-port 로 명령이 매 스텝
     # 바뀌면 아래 _alpha_for() 로 루프 안에서 다시 구한다.
+    sess_back, meta_back = None, {}
+    if args.onnx_back is not None:
+        sess_back = ort.InferenceSession(args.onnx_back, providers=["CPUExecutionProvider"])
+        mp = os.path.join(os.path.dirname(os.path.abspath(args.onnx_back)), "policy.meta.json")
+        if os.path.exists(mp):
+            with open(mp) as f:
+                meta_back = json.load(f)
+        # 두 정책이 관측·목표각을 같은 기준으로 읽어야 중간에 갈아 끼울 수 있다.
+        bad = []
+        for k in ("action_scale", "dof_vel_scale", "max_motor_velocity", "lock_head_joints"):
+            if meta.get(k) != meta_back.get(k):
+                bad.append(f"{k}: {meta.get(k)} vs {meta_back.get(k)}")
+        ra, rb = meta.get("ready_joint_pos") or {}, meta_back.get("ready_joint_pos") or {}
+        if not ra or set(ra) != set(rb) or max(abs(ra[n] - rb[n]) for n in ra) > 1e-4:
+            bad.append("ready_joint_pos 가 다르다")
+        if args.action_lpf_alpha is None:
+            for k in ("action_lowpass_alpha", "action_lowpass_alpha_standstill"):
+                if meta.get(k) != meta_back.get(k):
+                    bad.append(f"{k}: {meta.get(k)} vs {meta_back.get(k)} "
+                               f"(둘 다 같은 값을 쓰려면 --action-lpf-alpha 로 직접 준다)")
+        for name, sx in (("onnx", sess), ("onnx-back", sess_back)):
+            shp = sx.get_inputs()[0].shape
+            if shp[-1] != 107:
+                bad.append(f"{name} 관측 차원 {shp[-1]} != 107")
+        if bad:
+            print("[rl_walk] !! --onnx-back 정책이 --onnx 와 맞지 않는다:")
+            for b in bad:
+                print(f"           {b}")
+            sys.exit(2)
+        print(f"[rl_walk] 후진 정책 로드: {args.onnx_back} "
+              f"(vx < {BACK_ENTER_VX} 에서 켜고 vx > {BACK_LEAVE_VX} 에서 끈다)")
+    if args.path_yaw_clip > 0.0:
+        if not args.path_imu:
+            ap.error("--path-yaw-clip 은 --path-imu 와 같이 써야 한다")
+        print(f"[rl_walk] 방위 오차 끈 ±{args.path_yaw_clip:.2f} rad "
+              f"(±{math.degrees(args.path_yaw_clip):.0f}도)")
+
     a_move = float(meta.get("action_lowpass_alpha", 0.0))
     a_still = float(meta.get("action_lowpass_alpha_standstill", a_move))
     blend_lo, blend_hi = meta.get("action_lowpass_blend", [0.01, 0.05])
@@ -627,6 +712,8 @@ def main():
         imitation_i = 0
         command = np.array([args.vx, args.vy, args.wz, 0, 0, 0, 0], dtype=np.float32)
         _cmd_seen = False
+        using_back = False
+        back_switches = 0
         action_filt = np.zeros(14, dtype=np.float32)  # EMA 저역필터 상태 (--action-lpf-alpha)
 
         # 무필터로 학습된 정책(v35 등)에 필터를 켠 채 보행 명령을 주면 추종이
@@ -663,7 +750,9 @@ def main():
                "phase_cos", "phase_sin",
                # 실제로 쓴 명령. 2026-08-10: 심은 걷는데 실기는 안 걷는 걸
                # 추적하려는데 명령이 안 남아 있어서 원인을 못 좁혔다.
-               "cmd_vx", "cmd_vy", "cmd_wz", "cmd_stale"])
+               "cmd_vx", "cmd_vy", "cmd_wz", "cmd_stale",
+               # --onnx-back 이 켜져 있을 때 이 스텝을 후진 정책이 냈는지 (2026-09-17)
+               "policy_back"])
         max_delta = MAX_MOTOR_VEL * DT
 
         # 로그 옆에 실행 조건을 통째로 남긴다. CSV 만 나중에 봐도 어떤 정책·
@@ -676,6 +765,9 @@ def main():
             "action_lpf_alpha": args.action_lpf_alpha,
             "grav_src": args.grav_src,
             "lean_back_deg": args.lean_back,
+            "onnx_back": os.path.abspath(args.onnx_back) if args.onnx_back else None,
+            "policy_meta_back": meta_back or None,
+            "path_yaw_clip": args.path_yaw_clip,
             "current_limit_ticks": args.current,
             "current_limit_A": args.current * 2.69 / 1000.0,
             # 실제로 서보에서 읽어 온 값이다 (명령값이 아니라). 모드 전환이
@@ -785,6 +877,7 @@ def main():
                     robot_yaw = _wrap(robot_yaw + (float(gyro[2]) - gyro_bias) * DT)
                     # 경로 방향은 **명령**을 적분한다 — 심의 path frame 과 같다.
                     path_yaw = _wrap(path_yaw + float(command[2]) * DT)
+                    path_yaw = leash_path_yaw(robot_yaw, path_yaw, args.path_yaw_clip)
                     ye = _wrap(robot_yaw - path_yaw)
                     path_err_arr = np.array(
                         [0.0, math.cos(ye), math.sin(ye)], dtype=np.float32)
@@ -909,7 +1002,15 @@ def main():
             if zero_action:
                 action = np.zeros(14, dtype=np.float32)
             else:
-                action = sess.run(None, {"obs": obs.reshape(1, 107)})[0].reshape(14)
+                if sess_back is not None:
+                    nb = choose_back_policy(using_back, float(command[0]))
+                    if nb != using_back:
+                        back_switches += 1
+                        print(f"[rl_walk] t={time.time()-t_start:6.2f}s 정책 전환 -> "
+                              f"{'후진' if nb else '전진'} (vx={command[0]:+.3f})", flush=True)
+                        using_back = nb
+                active = sess_back if using_back else sess
+                action = active.run(None, {"obs": obs.reshape(1, 107)})[0].reshape(14)
             ms["infer"] = (time.time() - _td) * 1e3
 
             # 액션 저역필터 (docs/reports/lowpass_2026-08-09.md 실험 A). alpha=0이면
@@ -946,7 +1047,8 @@ def main():
                    projected_gravity[0], projected_gravity[1], projected_gravity[2],
                    imitation_phase[0], imitation_phase[1],
                    command[0], command[1], command[2],
-                   1 if (cmd_rx is not None and cmd_rx.stale) else 0])
+                   1 if (cmd_rx is not None and cmd_rx.stale) else 0,
+                   1 if using_back else 0])
 
             if step % 25 == 0:
                 # 2026-08-09 브라운아웃 때 로그가 0바이트였다 — open(...,"w") 가
@@ -988,6 +1090,8 @@ def main():
             time.sleep(max(0.0, DT - took))
 
         print(f"\n[rl_walk] 종료 — {step} 스텝 / {time.time()-t_start:.2f}s")
+        if sess_back is not None:
+            print(f"[rl_walk] 전진/후진 정책 전환 {back_switches}회")
     finally:
         _hold["stop"] = True
         if "log_f" in locals() and not log_f.closed:
