@@ -521,6 +521,10 @@ class JoystickEnvCfg(DirectRLEnvCfg):
     #: False 면 path frame 에서 **방위 오차만** 쓴다 (관측·리워드 둘 다).
     #: 횡방향은 오도메트리가 필요해 실기에서 상수 0 이었다 — v82 참조.
     path_use_lateral = True
+    #: True 면 횡방향 칸은 남기되 **정책 관측에 늘 0** 을 넣고 리워드에서도 뺀다.
+    #: 실기가 보내는 값과 똑같다. 관측 차원(107)이 안 바뀌어 ONNX·rl_walk 를
+    #: 그대로 쓴다. v89 참조.
+    path_lateral_obs_zero = False
     path_error_clip = 0.5      # m, 횡방향 오차 클리핑 (초기 발산 방지)
     path_tracking_scale = 0.0  # 리워드 가중치
     path_k_lateral = 20.0      # exp 예민도: 0.22 m 벗어나면 exp(-1)
@@ -1786,6 +1790,20 @@ class _ComFwd25EventCfg(_ComBackEventCfg):
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="trunk_assembly"),
             "com_range": {"x": (0.025, 0.025)},
+        },
+    )
+
+
+@configclass
+class _ComFwd30EventCfg(_ComBackEventCfg):
+    """몸통 CoM 을 **앞으로** 30 mm. v89 용. 전체 무게중심으로는 약 13 mm."""
+
+    com_back = EventTerm(
+        func=mdp.randomize_rigid_body_com,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="trunk_assembly"),
+            "com_range": {"x": (0.030, 0.030)},
         },
     )
 
@@ -4040,6 +4058,75 @@ class JoystickEnvCfg_V88(JoystickEnvCfg_V65):
 
     robot = _ROBOT_BIGFOOT_M2894
     events: EventCfg = _ComFwd25EventCfg()
+
+
+@configclass
+class JoystickEnvCfg_V89(JoystickEnvCfg_V65):
+    """imitation_v89 — **전진 전용** 보행. v88 실기 결과를 반영한다.
+
+    2026-09-17 실기 (사용자):
+      - v88 은 액션 LPF α=0.7 에서 가장 잘 걸었다
+      - 앞으로는 잘 걷는데 **후진하면 뒤로 넘어진다**
+      - 스로틀을 계속 당기고 있으면 **조금씩 옆으로 샌다**
+      - 회전은 되지만 잘 안 된다
+    사용자 지시: "CoM 30 mm 로 보행을 학습하고 뒷걸음질은 따로 추가."
+
+    ## 바뀌는 것 (v88 대비)
+
+        CoM x                +25 -> +30 mm       (사용자 지시)
+        lin_vel_x_range      (-0.15, 0.15) -> (0.0, 0.15)
+                                                 후진은 v90 이 따로 맡는다
+        path_lateral_obs_zero  False -> True     횡방향 관측 늘 0, 리워드에서 제외
+        action_lowpass_alpha   0.0 -> 0.7        정지·보행 둘 다
+
+    ### 옆으로 새는 것 — 횡방향 path 오차
+
+    v65 계열은 path frame 의 **횡방향 오차**를 관측으로 받고 리워드로 벌받으며
+    학습됐다. 심에서는 옆으로 밀리면 그 값이 커지고 정책이 되돌린다. 그런데
+    실기에는 오도메트리가 없어 `rl_walk` 가 늘 0 을 넣는다 (v78 독스트링).
+    **심에서 옆 샘을 바로잡던 신호가 실기에는 없다.** 스로틀을 당긴 채 조금씩
+    새는 증상과 맞는다.
+
+    v82 는 같은 이유로 그 칸을 **뺐지만**(106 차원) 실기에 올린 적이 없고
+    `export_onnx`·`rl_walk` 가 107 차원을 가정한다. 여기서는 칸을 남기고 0 을
+    넣는다 — 실기가 보내는 값과 정확히 같다. 방위 오차 두 칸은 그대로다
+    (`rl_walk --path-imu` 가 자이로 적분으로 만든다).
+
+    ### LPF 0.7 을 학습에 넣는 이유
+
+    실기에서 0.7 이 가장 좋았다. 무필터로 학습한 정책에 필터를 씌우면 정책이
+    모르는 지연이 생긴다 (v36 교훈: 학습과 배포의 α 가 같아야 한다). 학습에
+    넣으면 meta 에 0.7 이 적혀 `rl_walk` 가 옵션 없이 자동으로 맞춘다.
+
+    바뀐 것이 넷이라 어느 것이 효과를 냈는지는 가를 수 없다. 이 판의 목적은
+    실기에서 전진을 잘 걷는 정책이지 원인 분리가 아니다.
+    """
+
+    robot = _ROBOT_BIGFOOT_M2894
+    events: EventCfg = _ComFwd30EventCfg()
+    lin_vel_x_range = (0.0, 0.15)
+    path_lateral_obs_zero = True
+    action_lowpass_alpha = 0.7
+    action_lowpass_alpha_standstill = 0.7
+
+
+@configclass
+class JoystickEnvCfg_V90(JoystickEnvCfg_V89):
+    """imitation_v90 — **후진 전용**. v89 와 짝을 이뤄 `rl_walk --onnx-back` 으로 쓴다.
+
+    v88(CoM +25 mm)은 실기에서 후진하면 뒤로 넘어졌다. 심 CoM 을 앞에 둘수록
+    정책은 몸통을 뒤로 젖혀 버티는데, 실물 CoM 이 그만큼 앞에 있지 않으면 그
+    젖힘이 뒤쪽 여유를 없앤다. 전진은 운동량이 앞으로 실려 버티지만 후진은 그대로
+    넘어진다.
+
+    그래서 후진 정책은 **CoM 을 +15 mm** (v86 과 같은 값)로 줄인다. v65(0 mm 대비
+    원래 모델)는 앞으로 넘어졌고 v88(+25)은 후진에서 뒤로 넘어졌으니 그 사이다.
+    나머지(LPF 0.7, 횡방향 0, 실물 모델)는 v89 와 같다 — 두 정책이 같은 관측·
+    같은 필터를 써야 실기에서 갈아 끼울 때 튀지 않는다.
+    """
+
+    events: EventCfg = _ComFwd15EventCfg()
+    lin_vel_x_range = (-0.15, 0.0)
 
 
 @configclass

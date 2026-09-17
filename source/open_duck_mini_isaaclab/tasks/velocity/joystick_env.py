@@ -568,8 +568,7 @@ class JoystickEnv(DirectRLEnv):
                 contact,
                 imitation_phase,
             ]
-            + ([self._path_error()[:, (0 if self.cfg.path_use_lateral else 1):]]
-               if self.cfg.use_path_frame else [])
+            + ([self._path_obs()] if self.cfg.use_path_frame else [])
             # 중력 방향 (2026-07-30, imitation_v27). **상류에서 의도적으로 이탈한다.**
             # 위 모듈 docstring이 적어둔 대로 Playground도 gravity를 계산만 하고
             # state에는 안 넣는다 -- 빠뜨린 게 아니라 원래 그렇다. 그런데 v26을
@@ -633,6 +632,21 @@ class JoystickEnv(DirectRLEnv):
         if self.cfg.state_space > 0:
             return {"policy": state, "critic": critic}
         return {"policy": state}
+
+    def _path_obs(self) -> torch.Tensor:
+        """정책 관측에 들어가는 path 오차. 설정에 따라 횡방향 칸을 빼거나 0 으로 채운다.
+
+        `path_lateral_obs_zero` 는 칸을 **남긴 채** 0 으로 채운다. 실기(`rl_walk`)는
+        횡방향 오차를 만들 수 없어서 늘 0 을 넣는다 — 심도 똑같이 0 을 보면
+        관측 차원(107)과 ONNX·실기 코드를 그대로 쓰면서 둘이 같아진다.
+        """
+        pe = self._path_error()
+        if not self.cfg.path_use_lateral:
+            return pe[:, 1:]
+        if self.cfg.path_lateral_obs_zero:
+            pe = pe.clone()
+            pe[:, 0] = 0.0
+        return pe
 
     def _path_error(self) -> torch.Tensor:
         """[N,3] — 경로 기준 횡방향 오차와 방향 오차 (cos, sin).
@@ -830,7 +844,8 @@ class JoystickEnv(DirectRLEnv):
             terms["path_tracking"] = (
                 reward_path_tracking(
                     self._path_error(), cfg.path_k_lateral, cfg.path_k_yaw,
-                    cfg.path_w_yaw, cfg.path_use_lateral,
+                    cfg.path_w_yaw,
+                    cfg.path_use_lateral and not cfg.path_lateral_obs_zero,
                 )
                 * cfg.path_tracking_scale
             )
