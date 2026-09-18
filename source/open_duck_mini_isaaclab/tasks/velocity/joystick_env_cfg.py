@@ -1808,6 +1808,37 @@ class _ComFwd30EventCfg(_ComBackEventCfg):
     )
 
 
+#: 마찰을 **아래로 옮긴** 무작위 범위. 0.5~1.0 -> 0.25~0.8.
+#: 2026-09-18, 사용자: "88 번 할 때 조금씩 미끄러지는 것 같다."
+#: 지면이 1.0 고정이고 결합이 multiply 라 실효 마찰이 곧 이 범위다. 지금 계열은
+#: 0.5 아래를 한 번도 겪지 않는다. 천장도 0.8 로 내려 "잘 붙는 바닥"을 가정하지
+#: 못하게 한다. v63(0.3~1.0)은 바닥만 내렸던 판이고 v65 계열은 그것을 물려받지
+#: 않았다.
+_LOW_FRIC_PARAMS = {
+    "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+    "static_friction_range": (0.25, 0.8),
+    "dynamic_friction_range": (0.25, 0.8),
+    "restitution_range": (0.0, 0.0),
+    "num_buckets": 64,
+}
+
+
+@configclass
+class _ComFwd25LowFricEventCfg(_ComFwd25EventCfg):
+    """v88 의 이벤트 + 낮은 마찰. v91 용."""
+
+    physics_material = EventTerm(func=mdp.randomize_rigid_body_material,
+                                 mode="startup", params=dict(_LOW_FRIC_PARAMS))
+
+
+@configclass
+class _ComFwd30LowFricEventCfg(_ComFwd30EventCfg):
+    """v89 의 이벤트 + 낮은 마찰. v92 용."""
+
+    physics_material = EventTerm(func=mdp.randomize_rigid_body_material,
+                                 mode="startup", params=dict(_LOW_FRIC_PARAMS))
+
+
 @configclass
 class _WideMassEventCfg(EventCfg):
     """EventCfg 에서 **질량 배율 범위만** 넓힌 것. 나머지 무작위화는 그대로."""
@@ -4127,6 +4158,29 @@ class JoystickEnvCfg_V90(JoystickEnvCfg_V89):
 
     events: EventCfg = _ComFwd15EventCfg()
     lin_vel_x_range = (-0.15, 0.0)
+
+
+@configclass
+class JoystickEnvCfg_V91(JoystickEnvCfg_V88):
+    """imitation_v91 — v88 과 같고 **마찰만 0.25~0.8** (v88 은 0.5~1.0).
+
+    2026-09-18, 사용자: "88 번 할 때 조금씩 미끄러지는 것 같다. 심에서 마찰계수를
+    더 낮게 해서 학습 돌려봐."
+
+    v88 과 한 가지만 다르므로 미끄러운 조건을 학습에 넣은 효과를 바로 가를 수 있다.
+    """
+
+    events: EventCfg = _ComFwd25LowFricEventCfg()
+
+
+@configclass
+class JoystickEnvCfg_V92(JoystickEnvCfg_V89):
+    """imitation_v92 — v89(전진 전용) 와 같고 **마찰만 0.25~0.8**.
+
+    v91 과 짝. 후진은 v90 이 그대로 맡는다 (필요하면 후진도 낮은 마찰로 다시 뽑는다).
+    """
+
+    events: EventCfg = _ComFwd30LowFricEventCfg()
 
 
 @configclass

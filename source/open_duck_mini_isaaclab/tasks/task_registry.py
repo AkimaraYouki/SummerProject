@@ -85,6 +85,8 @@ ENV_CFG_CLASS = {
     "Isaac-OpenDuckMini-Joystick-V88-v0": "JoystickEnvCfg_V88",
     "Isaac-OpenDuckMini-Joystick-V89-v0": "JoystickEnvCfg_V89",
     "Isaac-OpenDuckMini-Joystick-V90-v0": "JoystickEnvCfg_V90",
+    "Isaac-OpenDuckMini-Joystick-V91-v0": "JoystickEnvCfg_V91",
+    "Isaac-OpenDuckMini-Joystick-V92-v0": "JoystickEnvCfg_V92",
     "Isaac-OpenDuckMini-Joystick-V80-v0": "JoystickEnvCfg_V80",
     "Isaac-OpenDuckMini-Joystick-V79-v0": "JoystickEnvCfg_V79",
 }
@@ -159,6 +161,8 @@ _BIG_NET_TASKS = {
     "Isaac-OpenDuckMini-Joystick-V88-v0",
     "Isaac-OpenDuckMini-Joystick-V89-v0",
     "Isaac-OpenDuckMini-Joystick-V90-v0",
+    "Isaac-OpenDuckMini-Joystick-V91-v0",
+    "Isaac-OpenDuckMini-Joystick-V92-v0",
 }
 
 
