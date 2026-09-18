@@ -1808,16 +1808,18 @@ class _ComFwd30EventCfg(_ComBackEventCfg):
     )
 
 
-#: 마찰을 **아래로 옮긴** 무작위 범위. 0.5~1.0 -> 0.25~0.8.
-#: 2026-09-18, 사용자: "88 번 할 때 조금씩 미끄러지는 것 같다."
+#: 마찰을 **아래로 옮긴** 무작위 범위. 0.5~1.0 -> 0.25~0.6.
+#: 2026-09-18, 사용자: "88 번 할 때 조금씩 미끄러지는 것 같다." 처음에 0.25~0.8
+#: 로 돌렸다가 사용자가 **0.25~0.6 으로 처음부터 다시** 하라고 해서 바꿨다
+#: (0.25~0.8 로 1120 iter 돈 런은 `*_imitation_v91_aborted_fric025_08` 로 남겨 뒀다).
 #: 지면이 1.0 고정이고 결합이 multiply 라 실효 마찰이 곧 이 범위다. 지금 계열은
-#: 0.5 아래를 한 번도 겪지 않는다. 천장도 0.8 로 내려 "잘 붙는 바닥"을 가정하지
-#: 못하게 한다. v63(0.3~1.0)은 바닥만 내렸던 판이고 v65 계열은 그것을 물려받지
-#: 않았다.
+#: 0.5 아래를 한 번도 겪지 않는다. 천장을 0.6 까지 내리면 **모든 환경이 지금보다
+#: 미끄럽다** — 잘 붙는 바닥을 아예 가정하지 못한다. v63(0.3~1.0)은 바닥만
+#: 내렸던 판이고 v65 계열은 그것을 물려받지 않았다.
 _LOW_FRIC_PARAMS = {
     "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-    "static_friction_range": (0.25, 0.8),
-    "dynamic_friction_range": (0.25, 0.8),
+    "static_friction_range": (0.25, 0.6),
+    "dynamic_friction_range": (0.25, 0.6),
     "restitution_range": (0.0, 0.0),
     "num_buckets": 64,
 }
@@ -4162,7 +4164,7 @@ class JoystickEnvCfg_V90(JoystickEnvCfg_V89):
 
 @configclass
 class JoystickEnvCfg_V91(JoystickEnvCfg_V88):
-    """imitation_v91 — v88 과 같고 **마찰만 0.25~0.8** (v88 은 0.5~1.0).
+    """imitation_v91 — v88 과 같고 **마찰만 0.25~0.6** (v88 은 0.5~1.0).
 
     2026-09-18, 사용자: "88 번 할 때 조금씩 미끄러지는 것 같다. 심에서 마찰계수를
     더 낮게 해서 학습 돌려봐."
@@ -4175,7 +4177,7 @@ class JoystickEnvCfg_V91(JoystickEnvCfg_V88):
 
 @configclass
 class JoystickEnvCfg_V92(JoystickEnvCfg_V89):
-    """imitation_v92 — v89(전진 전용) 와 같고 **마찰만 0.25~0.8**.
+    """imitation_v92 — v89(전진 전용) 와 같고 **마찰만 0.25~0.6**.
 
     v91 과 짝. 후진은 v90 이 그대로 맡는다 (필요하면 후진도 낮은 마찰로 다시 뽑는다).
     """

@@ -756,7 +756,7 @@ try:
         },
     )
 
-    # v88 + 낮은 마찰 0.25~0.8
+    # v88 + 낮은 마찰 0.25~0.6
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-V91-v0",
         entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
@@ -767,7 +767,7 @@ try:
         },
     )
 
-    # v89 + 낮은 마찰 0.25~0.8
+    # v89 + 낮은 마찰 0.25~0.6
     gym.register(
         id="Isaac-OpenDuckMini-Joystick-V92-v0",
         entry_point=f"{__name__}.tasks.velocity.joystick_env:JoystickEnv",
