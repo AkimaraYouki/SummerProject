@@ -255,6 +255,40 @@ def _wrap(a: float) -> float:
 # 2026-08-09: 오른다리(특히 hip_roll/yaw)가 실기에서 왼다리와 다르게 움직이는
 # 문제를 사후분석하려고 매 스텝을 CSV로 남긴다. 매번 덮어쓴다 — 직전 실행만 본다.
 LOG_PATH = os.path.expanduser("~/rl_walk_log.csv")
+LOG_KEEP_DIR = os.path.expanduser("~/rl_logs")   # 직전 실행들을 여기 보관한다
+LOG_KEEP_N = 20
+
+
+def rotate_log(keep=LOG_KEEP_N):
+    """직전 실행 로그를 ~/rl_logs 로 옮긴다. 이름은 그 실행의 시작 시각·정책.
+
+    2026-09-18 에 v89 실기 로그를 잃었다. 다음 실행(v88)이 같은 파일을 덮어써서
+    회전 중 넘어진 그 판의 기록이 사라졌다. 증상을 보고 로그를 찾는 순서라
+    덮어쓰기는 늘 한 판 늦는다.
+    """
+    if not os.path.exists(LOG_PATH):
+        return None
+    meta_path = os.path.splitext(LOG_PATH)[0] + ".meta.json"
+    stamp, tag = time.strftime("%m%d_%H%M%S", time.localtime(os.path.getmtime(LOG_PATH))), "unknown"
+    try:
+        with open(meta_path) as f:
+            old = json.load(f)
+        stamp = old.get("started", stamp).replace("-", "").replace(" ", "_").replace(":", "")[4:]
+        tag = os.path.basename(os.path.dirname(old.get("onnx") or "")) or "zeroact"
+    except Exception:                                            # noqa: BLE001
+        pass
+    os.makedirs(LOG_KEEP_DIR, exist_ok=True)
+    base = os.path.join(LOG_KEEP_DIR, f"{stamp}_{tag}")
+    os.replace(LOG_PATH, base + ".csv")
+    if os.path.exists(meta_path):
+        os.replace(meta_path, base + ".meta.json")
+    old_files = sorted(f for f in os.listdir(LOG_KEEP_DIR) if f.endswith(".csv"))
+    for f in old_files[:-keep]:                                  # 오래된 것부터 버린다
+        os.remove(os.path.join(LOG_KEEP_DIR, f))
+        mj = os.path.join(LOG_KEEP_DIR, f[:-4] + ".meta.json")
+        if os.path.exists(mj):
+            os.remove(mj)
+    return base + ".csv"
 
 # ── IMU (BNO055, imu_check.py 와 같은 레지스터) ─────────────────────────────
 IMU_BUS = 7
@@ -726,6 +760,9 @@ def main():
 
         print(f"[rl_walk] 정책 시작 — cmd=({args.vx:+.2f},{args.vy:+.2f},{args.wz:+.2f}) "
               f"· Ctrl+C 로 즉시 정지")
+        kept = rotate_log()
+        if kept:
+            print(f"[rl_walk] 직전 로그 보관: {kept}")
         log_f = open(LOG_PATH, "w", newline="")
         log_w = csv.writer(log_f)
         # 액션->하드웨어 파이프라인의 **모든 단계**를 남긴다. 어느 한 단계라도
