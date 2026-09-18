@@ -223,6 +223,43 @@ def _apply_lpf_override(cfg) -> None:
               "— 보행 자체가 감쇠된다", flush=True)
 
 
+def _apply_fric_override(cfg) -> None:
+    """`ODM_FRIC` 이 있으면 발·몸의 마찰 무작위 범위를 덮어쓴다 (odm 의 `--fric`).
+
+    왜 필요한가: 정책마다 **자기가 학습한 바닥에서** 측정하면 미끄러운 바닥으로
+    학습한 판이 더 미끄러진 것으로 나온다 (2026-09-18, v91 을 v88 과 비교하다
+    걸렸다). "미끄러운 바닥에서 어느 정책이 나은가" 는 **같은 바닥**에서 재야
+    답이 나온다. 지면은 1.0 고정이고 결합이 multiply 라 이 범위가 곧 실효 마찰이다.
+
+    형식:  ODM_FRIC=0.4        정확히 0.4 로 고정
+           ODM_FRIC=0.25,0.6   범위
+    """
+    import os
+
+    raw = os.environ.get("ODM_FRIC", "").strip()
+    if not raw:
+        return
+    parts = [q.strip() for q in raw.split(",")]
+    if len(parts) == 1:
+        parts = parts * 2
+    if len(parts) != 2:
+        raise SystemExit(f"ODM_FRIC 형식이 잘못됐다: {raw!r} (예: 0.4 또는 0.25,0.6)")
+    try:
+        lo, hi = (float(q) for q in parts)
+    except ValueError:
+        raise SystemExit(f"ODM_FRIC 를 숫자로 못 읽었다: {raw!r}") from None
+    if not 0.0 < lo <= hi:
+        raise SystemExit(f"ODM_FRIC 은 0 < lo <= hi 여야 한다: {lo}, {hi}")
+
+    term = getattr(cfg.events, "physics_material", None)
+    if term is None:
+        raise SystemExit("이 태스크의 events 에 physics_material 이 없다 — 덮어쓸 것이 없다")
+    before = term.params.get("static_friction_range")
+    term.params["static_friction_range"] = (lo, hi)
+    term.params["dynamic_friction_range"] = (lo, hi)
+    print(f"[ODM_FRIC] 마찰 무작위 범위 {before} -> ({lo}, {hi})", flush=True)
+
+
 def env_cfg_for(task: str):
     """태스크 id 에 맞는 환경 설정 **인스턴스**를 만들어 돌려준다."""
     from open_duck_mini_isaaclab.tasks.velocity import joystick_env_cfg as _cm
@@ -236,6 +273,7 @@ def env_cfg_for(task: str):
         ) from None
     cfg = getattr(_cm, name)()
     _apply_lpf_override(cfg)
+    _apply_fric_override(cfg)
     return cfg
 
 

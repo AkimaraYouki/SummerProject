@@ -196,11 +196,15 @@ _args=(); while [ $# -gt 0 ]; do
     --lpf)   [ $# -ge 2 ] || { echo "--lpf 뒤에 값이 필요하다 (예: --lpf 0.5)" >&2; exit 1; }
              export ODM_LPF="$2"; shift 2 ;;
     --lpf=*) export ODM_LPF="${1#--lpf=}"; shift ;;
+    --fric)  [ $# -ge 2 ] || { echo "--fric 뒤에 값이 필요하다 (예: --fric 0.25,0.6)" >&2; exit 1; }
+             export ODM_FRIC="$2"; shift 2 ;;
+    --fric=*) export ODM_FRIC="${1#--fric=}"; shift ;;
     *)       _args+=("$1"); shift ;;
   esac
 done
 set -- ${_args+"${_args[@]}"}
 [ -n "${ODM_LPF:-}" ] && echo "저역통과 alpha = $ODM_LPF (보행,정지)"
+[ -n "${ODM_FRIC:-}" ] && echo "마찰 범위 = $ODM_FRIC (측정용 덮어쓰기)"
 
 cmd="${1:-help}"; shift || true
 
@@ -600,6 +604,8 @@ odm — OpenDuck Mini 원스톱
 
   --lpf 0.5                         아무 서브커맨드에나 붙는다 — 액션 저역통과를
   --lpf 0.0,0.7                     걸고 돌린다 (하나면 보행·정지 같이, 쉼표면 따로).
+  --fric 0.25,0.6                   마찰 무작위 범위를 덮어쓴다 (같은 바닥에서
+                                   서로 다른 정책을 비교할 때. 예: odm measure v88 --fric 0.25,0.6)
                                    예: odm play v40 --lpf 0.5 / odm measure v40 --lpf 0.5
                                    0.3->11 Hz  0.5->5.8 Hz  0.7->2.9 Hz  0.8->1.8 Hz
                                    보행이 1.85 Hz 라 0.8 이면 보행까지 깎인다.
