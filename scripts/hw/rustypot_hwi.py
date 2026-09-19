@@ -228,6 +228,10 @@ class HWI:
         self.leg_p = leg_p
         self.leg_d = leg_d
         self.current_limit = current_limit
+        #: 버스 통계. 런 끝에 찍어서 배선/전원이 나빠지는 걸 추세로 본다.
+        self.read_timeouts = 0            # 타임아웃 발생 횟수(재시도 포함)
+        self.read_timeout_recovered = 0   # 그 중 재시도로 살린 스텝 수
+        self.read_corrupt = 0             # 응답 길이 손상 횟수
         #: Velocity Limit(44). None 이면 안 건드린다. **EEPROM 이라 한 번 쓰면
         #: 전원을 내려도 남는다** — 매번 쓰지 않고 값이 다를 때만 쓴다.
         self.vel_limit = vel_limit
@@ -347,7 +351,7 @@ class HWI:
         raw = self.io.sync_read_present_velocity(IDS)
         return [BY_NAME[NAMES[k]][2] * raw[k] * VEL_UNIT_RAD_S for k in range(14)]
 
-    def _sync_read_pos_vel_raw(self, ids, retries=6):
+    def _sync_read_pos_vel_raw(self, ids, retries=6, timeout_retries=2):
         """sync_read_raw_data(ids, 124, 12) 을 하되, 응답이 손상된(12바이트가 아닌)
         축이 있으면 몇 번 재시도한다.
 
@@ -376,17 +380,57 @@ class HWI:
         PWM 은 제어기 출력 그 자체라 그 둘을 가른다:
           PWM 0    + 오차 큼 -> 제어기가 목표를 그 위치로 알고 있다(토크off/지령문제)
           PWM 최대 + 전류 0  -> 구동단/배선 쪽
+
+        2026-09-18: **타임아웃도 재시도한다.** 이 재시도는 지금까지 "응답이
+        왔는데 길이가 틀린" 경우만 흡수했고, 아예 응답이 없어 rustypot 이
+        RuntimeError("Operation timed out") 를 던지면 루프를 그냥 뚫고 나가
+        런이 통째로 죽었다. 실제로 18.1 초까지 잘 걷던 런이 패킷 하나 빠진
+        것으로 끝났다 (그 런 전압 최소 11.0 V — 전원은 정상이었다).
+        1 Mbps 버스에서 10 축을 50 Hz 로 읽으면 수천 번에 한 번은 빠진다.
+
+        예산을 손상/타임아웃으로 나눈 이유: 손상 응답은 **바로** 돌아와서
+        재시도가 싸지만(6 회 써도 몇 ms), 타임아웃은 한 번에 컨트롤러
+        timeout(50 ms)을 통째로 쓴다. 6 회면 300 ms 동안 제어가 멈춰 오히려
+        더 위험하므로 타임아웃은 2 회(≈100 ms)까지만 본다.
+
+        여기서 stale 값을 돌려주지 않는 것은 의도적이다 — 관측이 한 스텝
+        밀리면 정책이 그걸 모르고 전 관절에서 어긋난 명령을 낸다.
         """
+        timeouts = 0
         for attempt in range(retries + 1):
-            raw = self.io.sync_read_raw_data(ids, 124, 12)
+            try:
+                raw = self.io.sync_read_raw_data(ids, 124, 12)
+            except RuntimeError as e:
+                if "time" not in str(e).lower():
+                    raise            # 타임아웃이 아닌 RuntimeError 는 그대로
+                timeouts += 1
+                self.read_timeouts += 1
+                if timeouts > timeout_retries:
+                    raise RuntimeError(
+                        f"SyncRead 무응답 — 타임아웃 {timeouts}회 연속"
+                        f"{self._volt_hint()}") from e
+                continue
             bad = [i for i, r in enumerate(raw) if len(r) != 12]
             if not bad:
+                if timeouts:
+                    self.read_timeout_recovered += 1
                 return raw
+            self.read_corrupt += 1
             if attempt == retries:
                 raise RuntimeError(
                     f"SyncRead 응답 손상 (ID {[ids[i] for i in bad]}, "
                     f"바이트수 {[len(raw[i]) for i in bad]}) — 재시도 {retries}회 실패")
         return raw  # unreachable
+
+    def _volt_hint(self):
+        """예외 메시지에 붙일 전압 힌트. 이것도 실패하면 조용히 포기한다."""
+        try:
+            b = self.io.sync_read_raw_data(LEG_IDS[:1], 144, 2)[0]
+            v = struct.unpack("<H", bytes(b[:2]))[0] / 10.0
+            tag = " — 전원이 원인이다" if v < 11.0 else " — 전원은 정상, 버스/배선을 볼 것"
+            return f" (지금 {v:.1f} V{tag})"
+        except Exception:
+            return " (전압도 못 읽었다 — 버스가 죽었거나 전원이 끊겼다)"
 
     def get_present_pos_vel(self):
         """위치+속도를 한 번의 SyncRead 로. (positions_rad, velocities_rad_s) 튜플, 둘 다 NAMES 순서.

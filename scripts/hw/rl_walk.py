@@ -804,7 +804,11 @@ def main():
             "lean_back_deg": args.lean_back,
             "onnx_back": os.path.abspath(args.onnx_back) if args.onnx_back else None,
             "policy_meta_back": meta_back or None,
+            # --path-imu 를 켰는지가 안 남아서 2026-09-18 에 path_yaw_err 칼럼이
+            # 0 이 아닌 걸로 역추론해야 했다. 플래그 자체를 남긴다.
+            "path_imu": bool(args.path_imu),
             "path_yaw_clip": args.path_yaw_clip,
+            "gyro_bias": args.gyro_bias,
             "current_limit_ticks": args.current,
             "current_limit_A": args.current * 2.69 / 1000.0,
             # 실제로 서보에서 읽어 온 값이다 (명령값이 아니라). 모드 전환이
@@ -861,6 +865,20 @@ def main():
         # 그걸 한 번 읽고 끝난다. SyncRead 3바이트×10축이 ~16 ms 라 25 스텝
         # 주기면 스텝당 0.6 ms, 20 ms 예산의 3 % 다.
         VOLT_PERIOD = 25
+        # 2026-09-18: 두 느린 읽기의 **위상**을 어긋나게 둔다.
+        #
+        # VOLT_PERIOD 와 HW_ERR_PERIOD 가 둘 다 25 라 같은 스텝에 겹쳤다.
+        # SyncRead 두 개(hw_error ~13ms + volt ~13ms)가 한 루프에 쌓여서
+        # v88 로그 실측으로 그 스텝만 dt 46.0ms, 나머지는 20.2ms 였다
+        # (25 스텝 = 0.53 초마다, 스파이크의 92 % 가 step%25==0).
+        # 46ms 는 2.3 스텝을 통째로 날리는 것이고, 하필 사용자가 본
+        # "회전 0.5 초 뒤 휙 돌며 넘어짐" 과 주기가 같다. 직진은 흡수되는데
+        # 회전은 자세 여유가 없어 못 버틴다.
+        #
+        # 총 버스 부하는 그대로지만 **한 스텝 최대 지연이 절반**이 된다
+        # (46ms 0.53초마다 -> 33ms 0.26초마다).
+        VOLT_PHASE = 0
+        HW_ERR_PHASE = 12
         brownout = 0
         goal_sent = READY_ARR.copy()
         ms = dict(imu=0.0, read=0.0, infer=0.0, write=0.0)
@@ -932,7 +950,7 @@ def main():
             vel[LEG_IDX] = leg_vel
             contact = np.array(feet.get(), dtype=np.float32)
 
-            if step % HW_ERR_PERIOD == 0 or fatal_pending is not None:
+            if step % HW_ERR_PERIOD == HW_ERR_PHASE or fatal_pending is not None:
                 # Shutdown 마스크에 걸린 에러(과열/전기충격/과부하)만 정지 사유다.
                 # 마스크 밖 비트는 모터가 계속 도는 상태라 멈출 이유가 없다.
                 #
@@ -974,7 +992,7 @@ def main():
                         print(f"[rl_walk] (참고) 비치명 에러 비트 — {sorted(nonfatal_seen)}. "
                               f"토크는 안 끊긴다. 보행 부하로 전압이 처진 흔적일 수 있다.")
 
-            if step % VOLT_PERIOD == 0:
+            if step % VOLT_PERIOD == VOLT_PHASE:
                 # addr 144(present_input_voltage, 2B) + 146(present_temperature, 1B)
                 # 이 연속이라 3바이트 한 번에. 브라운아웃 이력이 있어 전압은
                 # 갭 분석에 필요하고, 온도는 전류 상한을 올린 뒤 안전 확인용이다.
@@ -1131,6 +1149,18 @@ def main():
             print(f"[rl_walk] 전진/후진 정책 전환 {back_switches}회")
     finally:
         _hold["stop"] = True
+        # 버스 통계. 예외로 빠져나온 경우에도 찍어야 한다 — 죽은 이유가
+        # 통신인지 아닌지가 여기서 갈린다. 0 이 아니면 추세를 볼 것:
+        # 전압이 정상인데도 타임아웃이 늘면 배선/커넥터 쪽이다.
+        try:
+            if hwi.read_timeouts or hwi.read_corrupt:
+                print(f"[rl_walk] 버스: 타임아웃 {hwi.read_timeouts}회"
+                      f"(재시도로 살림 {hwi.read_timeout_recovered}) · "
+                      f"손상응답 {hwi.read_corrupt}회 / {step} 스텝")
+            else:
+                print(f"[rl_walk] 버스: 통신 오류 없음 ({step} 스텝)")
+        except (NameError, AttributeError):
+            pass
         if "log_f" in locals() and not log_f.closed:
             log_f.close()
             print(f"[rl_walk] 스텝 로그 저장: {LOG_PATH}")
